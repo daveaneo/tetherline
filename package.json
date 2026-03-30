@@ -1,0 +1,18 @@
+{
+  "name": "interactive-reviewer-monorepo",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm run --filter @interactive-reviewer/backend dev & pnpm run --filter @interactive-reviewer/frontend dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild"
+    ]
+  }
+}

@@ -1,0 +1,105 @@
+import { create } from 'zustand';
+import type {
+  SessionState, StateContext, ServerEvent, AreaWithContent,
+  AnalysisProgress, Concern, HeatmapData, SessionSummary
+} from '@interactive-reviewer/shared';
+import { DEFAULT_MODES } from '@interactive-reviewer/shared';
+
+interface SessionStore {
+  state: SessionState;
+  context: StateContext;
+  areas: AreaWithContent[];
+  analysisProgress: AnalysisProgress | null;
+  heatmap: HeatmapData | null;
+  concerns: Concern[];
+  previousSession: SessionSummary | null;
+  recap: string | null;
+  qaAnswer: string;
+  qaAnswerDone: boolean;
+  error: { code: string; message: string; recoverable: boolean } | null;
+  connected: boolean;
+
+  handleServerEvent: (event: ServerEvent) => void;
+  clearError: () => void;
+  setConnected: (v: boolean) => void;
+}
+
+export const useSessionStore = create<SessionStore>((set, get) => ({
+  state: { phase: 'IDLE' },
+  context: { sessionId: '', totalAreas: 0, modes: { ...DEFAULT_MODES }, concerns: [] },
+  areas: [],
+  analysisProgress: null,
+  heatmap: null,
+  concerns: [],
+  previousSession: null,
+  recap: null,
+  qaAnswer: '',
+  qaAnswerDone: false,
+  error: null,
+  connected: false,
+
+  clearError: () => set({ error: null }),
+  setConnected: (v: boolean) => set({ connected: v }),
+
+  handleServerEvent: (event: ServerEvent) => {
+    switch (event.type) {
+      case 'analysis:started':
+        set({ analysisProgress: { phase: 'reading_commits', progress: 0, message: 'Starting analysis...' } });
+        break;
+
+      case 'analysis:progress':
+        set({ analysisProgress: event.payload });
+        break;
+
+      case 'analysis:area_ready': {
+        const area = event.payload.area;
+        const areaWithContent: AreaWithContent = {
+          ...area,
+          narrationSegments: [],
+          architectureNodes: [],
+          architectureEdges: [],
+          deepDiveGenerated: false,
+          reviewed: false,
+        } as AreaWithContent;
+        set(s => ({ areas: [...s.areas, areaWithContent] }));
+        break;
+      }
+
+      case 'analysis:complete':
+        set({
+          areas: event.payload.areas,
+          analysisProgress: { phase: 'complete', progress: 1, message: 'Complete' },
+        });
+        break;
+
+      case 'session:state_changed':
+        set({ state: event.payload.state, context: event.payload.context });
+        break;
+
+      case 'session:recap':
+        set({ previousSession: event.payload.previousSession, recap: event.payload.narrative });
+        break;
+
+      case 'advisory:concern':
+      case 'advisory:alert':
+        set(s => ({ concerns: [...s.concerns, event.payload.concern] }));
+        break;
+
+      case 'qa:answer_chunk':
+        set(s => ({
+          qaAnswer: event.payload.done ? event.payload.text : s.qaAnswer + event.payload.text,
+          qaAnswerDone: event.payload.done,
+        }));
+        break;
+
+      case 'error':
+        console.error('Server error:', event.payload);
+        set({ error: event.payload });
+        break;
+
+      default:
+        // Other events handled by specific components
+        break;
+    }
+  },
+}));

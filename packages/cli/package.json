@@ -1,0 +1,27 @@
+{
+  "name": "interactive-reviewer",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "interactive-reviewer": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsup src/index.ts --format esm",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@interactive-reviewer/backend": "workspace:*",
+    "commander": "^12.1.0",
+    "dotenv": "^17.3.1",
+    "open": "^10.1.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0"
+  }
+}

@@ -1,0 +1,9 @@
+export const DEFAULT_PORT = 3847;
+export const WS_PATH = '/ws';
+export const API_PREFIX = '/api';
+export const AUDIO_CACHE_DIR = 'audio-cache';
+export const DB_FILENAME = 'interactive-reviewer.db';
+export const MAX_DIFF_SIZE = 50_000; // bytes
+export const MAX_LINES_PER_FILE_DIFF = 200;
+export const TTS_PREFETCH_WINDOW = 3;
+export const SEGMENT_MAX_CHARS = 500; // ~20 seconds of speech

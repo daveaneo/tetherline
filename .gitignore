@@ -1,0 +1,11 @@
+node_modules/
+dist/
+data/
+.env
+*.db
+audio-cache/
+.turbo
+.vite
+*.db-journal
+*.db-wal
+pnpm-lock.yaml
