@@ -4,7 +4,7 @@ import { CodeSnippet } from '../code/CodeSnippet.js';
 import { DiffView } from '../code/DiffView.js';
 import { UnderstandingMap } from '../heatmap/UnderstandingMap.js';
 import { AnimatePresence, motion } from 'framer-motion';
-import type { AreaWithContent, Concern } from '@interactive-reviewer/shared';
+import type { AreaWithContent, Concern, UnderstandingState } from '@interactive-reviewer/shared';
 
 export function ContentPanel() {
   const { state, areas, analysisProgress, context } = useSession();
@@ -12,6 +12,7 @@ export function ContentPanel() {
   const concerns = useSessionStore(s => s.concerns);
   const recap = useSessionStore(s => s.recap);
   const previousSession = useSessionStore(s => s.previousSession);
+  const understanding = useSessionStore(s => s.understanding);
 
   const currentArea = state.areaIndex !== undefined ? areas[state.areaIndex] : undefined;
   const currentSegment = currentArea?.narrationSegments?.[state.segmentIndex ?? 0];
@@ -39,6 +40,18 @@ export function ContentPanel() {
               <h2 className="text-xl font-semibold mb-4">Understanding Map</h2>
               <UnderstandingMap data={heatmap} />
             </div>
+          )}
+
+          {state.phase === 'PROJECT_OVERVIEW' && (
+            <ProjectOverviewContent areas={areas} understanding={understanding} />
+          )}
+
+          {state.phase === 'ARCHITECTURE_OVERVIEW' && (
+            <ArchitectureOverviewContent areas={areas} understanding={understanding} />
+          )}
+
+          {state.phase === 'COMPONENT_TOUR' && currentArea && (
+            <AreaContent area={currentArea} segment={currentSegment} />
           )}
 
           {state.phase === 'OVERVIEW' && (
@@ -224,6 +237,136 @@ function ConcernsContent({ concerns }: { concerns: Concern[] }) {
               <p className="text-sm text-[var(--color-text-muted)]">{c.description}</p>
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProjectOverviewContent({ areas, understanding }: { areas: AreaWithContent[]; understanding: UnderstandingState | null }) {
+  const totalFiles = areas.reduce((sum, a) => sum + a.affectedFiles.length, 0);
+
+  return (
+    <div className="space-y-6 py-4">
+      <h2 className="text-xl font-semibold">Project Overview</h2>
+      <p className="text-[var(--color-text-muted)]">Getting to know this codebase for the first time.</p>
+
+      {/* Stats grid */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="p-4 rounded-xl bg-[var(--color-bg)] border border-[var(--color-border)]">
+          <div className="text-2xl font-bold">{areas.length}</div>
+          <div className="text-xs text-[var(--color-text-muted)]">Key Areas</div>
+        </div>
+        <div className="p-4 rounded-xl bg-[var(--color-bg)] border border-[var(--color-border)]">
+          <div className="text-2xl font-bold">{totalFiles}</div>
+          <div className="text-xs text-[var(--color-text-muted)]">Files Tracked</div>
+        </div>
+      </div>
+
+      {/* Understanding layers */}
+      {understanding && understanding.layers.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-sm font-medium text-[var(--color-text-muted)]">Understanding Progress</h3>
+          {understanding.layers.map(layer => (
+            <div key={layer.level} className="flex items-center gap-3">
+              <span className="text-xs w-24 text-[var(--color-text-muted)] capitalize">{layer.level}</span>
+              <div className="flex-1 h-1.5 bg-[var(--color-bg)] rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-[var(--color-accent)] rounded-full transition-all duration-500"
+                  style={{ width: `${layer.percentage}%` }}
+                />
+              </div>
+              <span className="text-xs text-[var(--color-text-muted)] w-10 text-right">{layer.percentage}%</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Area list preview */}
+      {areas.length > 0 && (
+        <div className="space-y-2">
+          <h3 className="text-sm font-medium text-[var(--color-text-muted)]">Areas to Explore</h3>
+          {areas.slice(0, 6).map(area => (
+            <div key={area.id} className="flex items-center gap-2 text-sm">
+              <span className={`w-2 h-2 rounded-full ${
+                area.significance === 'major' ? 'bg-[var(--color-red)]' :
+                area.significance === 'minor' ? 'bg-[var(--color-yellow)]' :
+                'bg-[var(--color-green)]'
+              }`} />
+              <span>{area.name}</span>
+            </div>
+          ))}
+          {areas.length > 6 && (
+            <div className="text-xs text-[var(--color-text-muted)]">...and {areas.length - 6} more</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ArchitectureOverviewContent({ areas, understanding }: { areas: AreaWithContent[]; understanding: UnderstandingState | null }) {
+  // Use architecture data from the first area (shared across all areas)
+  const nodes = areas[0]?.architectureNodes ?? [];
+
+  // Group nodes by type for display
+  const modules = nodes.filter(n => n.type === 'module');
+  const files = nodes.filter(n => n.type === 'file');
+
+  return (
+    <div className="space-y-6 py-4">
+      <h2 className="text-xl font-semibold">Architecture Overview</h2>
+      <p className="text-[var(--color-text-muted)]">How the codebase is structured and organized.</p>
+
+      {/* Module breakdown */}
+      {modules.length > 0 && (
+        <div className="space-y-3">
+          <h3 className="text-sm font-medium text-[var(--color-text-muted)]">Modules</h3>
+          <div className="grid grid-cols-2 gap-2">
+            {modules.slice(0, 10).map(mod => {
+              const children = files.filter(f => f.parentId === mod.id);
+              return (
+                <div key={mod.id} className="p-3 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)]">
+                  <div className="font-medium text-sm">{mod.label}</div>
+                  <div className="text-xs text-[var(--color-text-muted)] mt-1">{children.length} files</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Areas mapped to architecture */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-medium text-[var(--color-text-muted)]">Change Areas</h3>
+        {areas.map((area) => (
+          <div
+            key={area.id}
+            className="p-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)]"
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <span className={`w-2 h-2 rounded-full ${
+                area.significance === 'major' ? 'bg-[var(--color-red)]' :
+                area.significance === 'minor' ? 'bg-[var(--color-yellow)]' :
+                'bg-[var(--color-green)]'
+              }`} />
+              <h3 className="font-medium">{area.name}</h3>
+            </div>
+            <p className="text-sm text-[var(--color-text-muted)]">{area.description}</p>
+            <p className="text-xs text-[var(--color-text-muted)] mt-2">
+              {area.commitHashes.length} commits &middot; {area.affectedFiles.length} files
+            </p>
+          </div>
+        ))}
+      </div>
+
+      {/* Understanding progress */}
+      {understanding && (
+        <div className="p-3 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)]">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-[var(--color-text-muted)]">Overall Understanding</span>
+            <span className="text-sm font-medium">{understanding.overallPercentage}%</span>
+          </div>
         </div>
       )}
     </div>

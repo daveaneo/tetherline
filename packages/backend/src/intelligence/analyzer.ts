@@ -169,6 +169,22 @@ export class IntelligenceAnalyzer {
     });
   }
 
+  /** Direct structured call — useful for standalone prompts like project overview. */
+  async structuredCallDirect<T>(params: {
+    prompt: string;
+    toolName: string;
+    toolDescription: string;
+    inputSchema: Record<string, unknown>;
+  }): Promise<T> {
+    return this.claude.structuredCall<T>({
+      system: this.systemPrompt,
+      messages: [{ role: 'user', content: params.prompt }],
+      toolName: params.toolName,
+      toolDescription: params.toolDescription,
+      inputSchema: params.inputSchema,
+    });
+  }
+
   async generateSessionSummary(areas: Area[], concerns: Concern[]): Promise<string> {
     const prompt = `Summarize this week's code review session in 2-3 sentences for the "Previously on..." recap next week.
 

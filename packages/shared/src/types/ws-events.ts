@@ -1,12 +1,13 @@
 import type { AnalysisProgress, Area, AreaWithContent, NarrationSegment, DiagramNode, DiagramEdge } from './analysis.js';
 import type { Concern } from './concerns.js';
 import type { HeatmapData } from './heatmap.js';
-import type { SessionModes, ModeKey } from './modes.js';
+import type { SessionModes, ModeKey, EntryMode } from './modes.js';
 import type { Session, SessionSummary } from './session.js';
+import type { UnderstandingState } from './understanding.js';
 
 // Client → Server
 export type ClientEvent =
-  | { type: 'session:start'; payload: { repoPath: string; sinceDays?: number } }
+  | { type: 'session:start'; payload: { repoPath: string; sinceDays?: number; entryMode?: EntryMode } }
   | { type: 'session:resume'; payload: { sessionId: string } }
   | { type: 'command:next' }
   | { type: 'command:previous' }
@@ -42,6 +43,7 @@ export type ServerEvent =
   | { type: 'export:generating'; payload: { format: string; progress: number } }
   | { type: 'export:ready'; payload: { format: string; downloadUrl: string } }
   | { type: 'narration:greeting'; payload: { text: string } }
+  | { type: 'session:understanding'; payload: { understanding: UnderstandingState } }
   | { type: 'error'; payload: { code: string; message: string; recoverable: boolean } };
 
 // Session state types
@@ -53,6 +55,9 @@ export type SessionPhase =
   | 'OVERVIEW'
   | 'AREA_WALKTHROUGH'
   | 'AREA_TRANSITION'
+  | 'PROJECT_OVERVIEW'
+  | 'ARCHITECTURE_OVERVIEW'
+  | 'COMPONENT_TOUR'
   | 'QA'
   | 'ADVISORY'
   | 'WRAP_UP'

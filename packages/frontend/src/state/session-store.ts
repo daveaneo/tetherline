@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type {
   SessionState, StateContext, ServerEvent, AreaWithContent,
-  AnalysisProgress, Concern, HeatmapData, SessionSummary
+  AnalysisProgress, Concern, HeatmapData, SessionSummary, UnderstandingState
 } from '@interactive-reviewer/shared';
 import { DEFAULT_MODES } from '@interactive-reviewer/shared';
 
@@ -17,6 +17,7 @@ interface SessionStore {
   greeting: string | null;
   qaAnswer: string;
   qaAnswerDone: boolean;
+  understanding: UnderstandingState | null;
   error: { code: string; message: string; recoverable: boolean } | null;
   connected: boolean;
 
@@ -38,6 +39,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   greeting: null,
   qaAnswer: '',
   qaAnswerDone: false,
+  understanding: null,
   error: null,
   connected: false,
 
@@ -56,6 +58,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     greeting: null,
     qaAnswer: '',
     qaAnswerDone: false,
+    understanding: null,
     error: null,
   }),
 
@@ -116,6 +119,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
       case 'narration:greeting':
         set({ greeting: event.payload.text });
+        break;
+
+      case 'session:understanding':
+        set({ understanding: event.payload.understanding });
         break;
 
       case 'error':

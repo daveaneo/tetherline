@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '../../lib/api-client.js';
 import { sendEvent } from '../../lib/ws-client.js';
 import { motion, AnimatePresence } from 'framer-motion';
+import type { EntryMode } from '@interactive-reviewer/shared';
 
 interface Repo {
   id: string;
@@ -19,6 +20,7 @@ export function Lobby() {
   const [repos, setRepos] = useState<Repo[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [selectedRepo, setSelectedRepo] = useState<Repo | null>(null);
 
   const loadRepos = useCallback(async () => {
     try {
@@ -34,7 +36,13 @@ export function Lobby() {
   useEffect(() => { loadRepos(); }, [loadRepos]);
 
   const handleSelectRepo = (repo: Repo) => {
-    sendEvent({ type: 'session:start', payload: { repoPath: repo.path, sinceDays: 7 } });
+    setSelectedRepo(repo);
+  };
+
+  const handleStartSession = (mode: EntryMode) => {
+    if (!selectedRepo) return;
+    sendEvent({ type: 'session:start', payload: { repoPath: selectedRepo.path, sinceDays: 7, entryMode: mode } });
+    setSelectedRepo(null);
   };
 
   const handleRepoAdded = () => {
@@ -138,6 +146,17 @@ export function Lobby() {
         </div>
       )}
 
+      {/* Entry Mode Selection */}
+      <AnimatePresence>
+        {selectedRepo && (
+          <EntryModeDialog
+            repo={selectedRepo}
+            onSelect={handleStartSession}
+            onClose={() => setSelectedRepo(null)}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Add Dialog */}
       <AnimatePresence>
         {showAddDialog && (
@@ -145,6 +164,89 @@ export function Lobby() {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+function EntryModeDialog({ repo, onSelect, onClose }: { repo: Repo; onSelect: (mode: EntryMode) => void; onClose: () => void }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <motion.div
+        initial={{ scale: 0.95, y: 10 }}
+        animate={{ scale: 1, y: 0 }}
+        exit={{ scale: 0.95, y: 10 }}
+        className="w-full max-w-lg mx-4 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl shadow-2xl p-6"
+      >
+        <div className="mb-5">
+          <h2 className="text-xl font-semibold">{repo.name}</h2>
+          <div className="flex items-center gap-3 mt-2">
+            <div className="flex-1">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs text-[var(--color-text-muted)]">Understanding</span>
+                <span className="text-xs font-medium">{Math.round(repo.understandingPct)}%</span>
+              </div>
+              <div className="h-1.5 bg-[var(--color-bg)] rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{
+                    width: `${repo.understandingPct}%`,
+                    background: repo.understandingPct > 70
+                      ? 'var(--color-green)'
+                      : repo.understandingPct > 40
+                      ? 'var(--color-yellow)'
+                      : 'var(--color-red)',
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <p className="text-sm text-[var(--color-text-muted)] mb-5">How would you like to review this repository?</p>
+
+        <div className="space-y-3">
+          <button
+            onClick={() => onSelect('full_walkthrough')}
+            className="w-full text-left p-4 rounded-xl border border-[var(--color-border)] hover:border-[var(--color-accent)]/50 hover:bg-[var(--color-surface-hover)] transition-all group"
+          >
+            <div className="flex items-center gap-3 mb-1">
+              <span className="text-lg">&#128218;</span>
+              <h3 className="font-medium group-hover:text-[var(--color-accent)] transition-colors">Full Walkthrough</h3>
+            </div>
+            <p className="text-sm text-[var(--color-text-muted)] ml-8">
+              Start from scratch. Get a project overview, architecture tour, and component-by-component walkthrough.
+            </p>
+          </button>
+
+          <button
+            onClick={() => onSelect('updates')}
+            className="w-full text-left p-4 rounded-xl border border-[var(--color-border)] hover:border-[var(--color-accent)]/50 hover:bg-[var(--color-surface-hover)] transition-all group"
+          >
+            <div className="flex items-center gap-3 mb-1">
+              <span className="text-lg">&#128260;</span>
+              <h3 className="font-medium group-hover:text-[var(--color-accent)] transition-colors">Updates Only</h3>
+            </div>
+            <p className="text-sm text-[var(--color-text-muted)] ml-8">
+              Review recent changes. See what happened since your last session with a focused diff walkthrough.
+            </p>
+          </button>
+        </div>
+
+        <div className="mt-5 flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
 

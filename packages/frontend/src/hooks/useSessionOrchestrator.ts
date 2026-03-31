@@ -178,6 +178,59 @@ export function useSessionOrchestrator() {
           break;
         }
 
+        case 'PROJECT_OVERVIEW': {
+          if (modes.narration) {
+            // The project overview narration text comes from the greeting or is generated
+            const storeAreas = useSessionStore.getState().areas;
+            const areaCount = storeAreas.length;
+            const intro = areaCount > 0
+              ? `Let me introduce you to this project. I've identified ${areaCount} key areas to explore. Let's start with a high-level overview.`
+              : `Let me introduce you to this project. Let's start with a high-level overview.`;
+            await speak(intro, signal);
+          }
+          if (signal.aborted) return;
+          scheduleAdvance(500);
+          break;
+        }
+
+        case 'ARCHITECTURE_OVERVIEW': {
+          if (modes.narration) {
+            const storeAreas = useSessionStore.getState().areas;
+            const areaNames = storeAreas.slice(0, 3).map(a => a.name).join(', ');
+            const archText = storeAreas.length > 0
+              ? `Now let's look at the architecture. The main areas are ${areaNames}. I'll walk you through each one.`
+              : `Now let's look at how the codebase is organized.`;
+            await speak(archText, signal);
+          }
+          if (signal.aborted) return;
+          scheduleAdvance(500);
+          break;
+        }
+
+        case 'COMPONENT_TOUR': {
+          const ai = areaIndex ?? 0;
+          const si = segmentIndex ?? 0;
+          const area = areas[ai];
+          if (!area) break;
+
+          if (si === 0 && modes.narration) {
+            const areaIntro = `Now exploring: ${area.name}. ${area.description}`;
+            await speak(areaIntro, signal);
+            if (signal.aborted) return;
+          }
+
+          const segment = area.narrationSegments?.[si];
+          if (segment && modes.narration) {
+            setCurrentSegment(segment);
+            await speak(segment.text, signal);
+            if (signal.aborted) return;
+            scheduleAdvance(600);
+          } else if (!segment) {
+            scheduleAdvance(2000);
+          }
+          break;
+        }
+
         case 'OVERVIEW': {
           if (modes.narration && areas.length > 0) {
             const areaNames = areas.slice(0, 3).map(a => a.name).join(', ');

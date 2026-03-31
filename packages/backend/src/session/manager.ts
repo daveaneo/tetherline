@@ -10,16 +10,20 @@ import type {
   HeatmapData,
   SessionSummary,
   ModeKey,
+  EntryMode,
+  UnderstandingState,
 } from '@interactive-reviewer/shared';
 import { DEFAULT_MODES } from '@interactive-reviewer/shared';
 import { v4 as uuid } from 'uuid';
 import path from 'path';
+import fs from 'fs';
 import simpleGit from 'simple-git';
 import type { Database } from '../db/database.js';
 import type { AppConfig } from '../config.js';
 import { GitAnalyzer } from '../git/analyzer.js';
 import { computeHeatmap } from '../git/heatmap.js';
 import { IntelligenceAnalyzer } from '../intelligence/analyzer.js';
+import { buildProjectOverviewPrompt, PROJECT_OVERVIEW_TOOL, type ProjectOverviewResult } from '../intelligence/prompts/project-overview.js';
 
 export class SessionManager {
   private state: SessionState = { phase: 'IDLE' };
@@ -34,6 +38,9 @@ export class SessionManager {
   private areas: AreaWithContent[] = [];
   private heatmapData: HeatmapData | null = null;
   private previousSession: SessionSummary | null = null;
+  private entryMode: EntryMode = 'updates';
+  private projectOverview: ProjectOverviewResult | null = null;
+  private activeRepoPath: string = '';
 
   constructor(
     private db: Database,
@@ -44,6 +51,7 @@ export class SessionManager {
   handleEvent(event: ClientEvent): void {
     switch (event.type) {
       case 'session:start':
+        this.entryMode = event.payload.entryMode ?? 'updates';
         this.startSession(event.payload.repoPath, event.payload.sinceDays).catch(err => {
           this.emit({ type: 'error', payload: { code: 'START_FAILED', message: err.message ?? 'Failed to start session', recoverable: false } });
         });
@@ -79,6 +87,7 @@ export class SessionManager {
   private async startSession(repoPath: string, sinceDays?: number) {
     try {
       const effectivePath = repoPath || this.config.repoPath;
+      this.activeRepoPath = effectivePath;
       const repoName = path.basename(effectivePath);
       const sessionId = uuid();
       const now = new Date();
@@ -315,29 +324,51 @@ export class SessionManager {
         }
       }
 
-      // Check for a previous session ("Previously on...")
-      if (previousSessionRecord && previousSessionRecord.id !== sessionId) {
-        this.previousSession = {
-          id: previousSessionRecord.id,
-          repoName: previousSessionRecord.repoName,
-          startedAt: previousSessionRecord.startedAt,
-          totalCommits: previousSessionRecord.totalCommits,
-          totalAreas: previousSessionRecord.totalAreas,
-          summary: previousSessionRecord.summary,
-        };
+      // Branch based on entry mode
+      if (this.entryMode === 'full_walkthrough') {
+        // Full walkthrough: generate project overview first
+        try {
+          this.projectOverview = await this.generateProjectOverview(effectivePath, repoName, languages, commits.length);
+        } catch {
+          // Fallback if overview generation fails
+          this.projectOverview = {
+            overview: `This is ${repoName}. Let me walk you through the codebase.`,
+            purpose: repoName,
+            techStack: languages,
+            keyAreas: this.areas.slice(0, 5).map(a => a.name),
+          };
+        }
 
-        this.setState({ phase: 'PREVIOUSLY_ON' });
-        this.emit({
-          type: 'session:recap',
-          payload: {
-            previousSession: this.previousSession,
-            narrative: this.previousSession.summary
-              ?? `Last session reviewed ${this.previousSession.totalAreas} areas with ${this.previousSession.totalCommits} commits.`,
-          },
-        });
+        // Seed understanding items for the project layer
+        this.seedUnderstandingItems(effectivePath, repoName, this.areas);
+
+        this.setState({ phase: 'PROJECT_OVERVIEW' });
       } else {
-        // No previous session, skip straight to HEATMAP
-        this.setState({ phase: 'HEATMAP' });
+        // Updates mode (default): existing flow
+        // Check for a previous session ("Previously on...")
+        if (previousSessionRecord && previousSessionRecord.id !== sessionId) {
+          this.previousSession = {
+            id: previousSessionRecord.id,
+            repoName: previousSessionRecord.repoName,
+            startedAt: previousSessionRecord.startedAt,
+            totalCommits: previousSessionRecord.totalCommits,
+            totalAreas: previousSessionRecord.totalAreas,
+            summary: previousSessionRecord.summary,
+          };
+
+          this.setState({ phase: 'PREVIOUSLY_ON' });
+          this.emit({
+            type: 'session:recap',
+            payload: {
+              previousSession: this.previousSession,
+              narrative: this.previousSession.summary
+                ?? `Last session reviewed ${this.previousSession.totalAreas} areas with ${this.previousSession.totalCommits} commits.`,
+            },
+          });
+        } else {
+          // No previous session, skip straight to HEATMAP
+          this.setState({ phase: 'HEATMAP' });
+        }
       }
     } catch (err: any) {
       this.setState({ phase: 'ERROR', error: err.message ?? 'Analysis failed' });
@@ -441,6 +472,45 @@ export class SessionManager {
         }
         break;
 
+      case 'PROJECT_OVERVIEW':
+        // Mark project-level understanding
+        this.markPhaseUnderstood('project', this.activeRepoPath, this.activeRepoPath);
+        this.setState({ phase: 'ARCHITECTURE_OVERVIEW' });
+        break;
+
+      case 'ARCHITECTURE_OVERVIEW':
+        // Mark architecture-level understanding
+        this.markPhaseUnderstood('architecture', this.activeRepoPath, 'architecture');
+        if (this.areas.length > 0) {
+          this.setState({ phase: 'COMPONENT_TOUR', areaIndex: 0, segmentIndex: 0 });
+        } else {
+          this.setState({ phase: 'WRAP_UP' });
+        }
+        break;
+
+      case 'COMPONENT_TOUR': {
+        const areaIndex = this.state.areaIndex ?? 0;
+        const area = this.areas[areaIndex];
+        const segmentIndex = this.state.segmentIndex ?? 0;
+
+        if (area && segmentIndex < area.narrationSegments.length - 1) {
+          this.setState({ phase: 'COMPONENT_TOUR', areaIndex, segmentIndex: segmentIndex + 1 });
+        } else if (areaIndex < this.areas.length - 1) {
+          // Mark component understood and move to next
+          if (area) {
+            this.markPhaseUnderstood('component', this.activeRepoPath, area.id);
+          }
+          this.setState({ phase: 'AREA_TRANSITION', areaIndex: areaIndex + 1 });
+        } else {
+          // All components done
+          if (area) {
+            this.markPhaseUnderstood('component', this.activeRepoPath, area.id);
+          }
+          this.setState({ phase: 'WRAP_UP' });
+        }
+        break;
+      }
+
       case 'AREA_WALKTHROUGH': {
         const areaIndex = this.state.areaIndex ?? 0;
         const area = this.areas[areaIndex];
@@ -461,7 +531,8 @@ export class SessionManager {
 
       case 'AREA_TRANSITION': {
         const nextIndex = this.state.areaIndex ?? 0;
-        this.setState({ phase: 'AREA_WALKTHROUGH', areaIndex: nextIndex, segmentIndex: 0 });
+        const nextPhase = this.entryMode === 'full_walkthrough' ? 'COMPONENT_TOUR' : 'AREA_WALKTHROUGH';
+        this.setState({ phase: nextPhase, areaIndex: nextIndex, segmentIndex: 0 });
         break;
       }
 
@@ -500,6 +571,30 @@ export class SessionManager {
         this.setState({ phase: 'HEATMAP' });
         break;
 
+      case 'PROJECT_OVERVIEW':
+        // Can't go back from project overview (it's the first phase)
+        break;
+
+      case 'ARCHITECTURE_OVERVIEW':
+        this.setState({ phase: 'PROJECT_OVERVIEW' });
+        break;
+
+      case 'COMPONENT_TOUR': {
+        const areaIndex = this.state.areaIndex ?? 0;
+        const segmentIndex = this.state.segmentIndex ?? 0;
+
+        if (segmentIndex > 0) {
+          this.setState({ phase: 'COMPONENT_TOUR', areaIndex, segmentIndex: segmentIndex - 1 });
+        } else if (areaIndex > 0) {
+          const prevArea = this.areas[areaIndex - 1];
+          const lastSeg = Math.max(0, prevArea.narrationSegments.length - 1);
+          this.setState({ phase: 'COMPONENT_TOUR', areaIndex: areaIndex - 1, segmentIndex: lastSeg });
+        } else {
+          this.setState({ phase: 'ARCHITECTURE_OVERVIEW' });
+        }
+        break;
+      }
+
       case 'AREA_WALKTHROUGH': {
         const areaIndex = this.state.areaIndex ?? 0;
         const segmentIndex = this.state.segmentIndex ?? 0;
@@ -519,24 +614,26 @@ export class SessionManager {
 
       case 'AREA_TRANSITION': {
         const areaIndex = this.state.areaIndex ?? 0;
+        const walkPhase = this.entryMode === 'full_walkthrough' ? 'COMPONENT_TOUR' : 'AREA_WALKTHROUGH';
         if (areaIndex > 0) {
           const prevArea = this.areas[areaIndex - 1];
           const lastSeg = Math.max(0, prevArea.narrationSegments.length - 1);
-          this.setState({ phase: 'AREA_WALKTHROUGH', areaIndex: areaIndex - 1, segmentIndex: lastSeg });
+          this.setState({ phase: walkPhase, areaIndex: areaIndex - 1, segmentIndex: lastSeg });
         } else {
-          this.setState({ phase: 'OVERVIEW' });
+          this.setState({ phase: this.entryMode === 'full_walkthrough' ? 'ARCHITECTURE_OVERVIEW' : 'OVERVIEW' });
         }
         break;
       }
 
       case 'WRAP_UP': {
         const lastAreaIndex = this.areas.length - 1;
+        const walkPhase = this.entryMode === 'full_walkthrough' ? 'COMPONENT_TOUR' : 'AREA_WALKTHROUGH';
         if (lastAreaIndex >= 0) {
           const lastArea = this.areas[lastAreaIndex];
           const lastSeg = Math.max(0, lastArea.narrationSegments.length - 1);
-          this.setState({ phase: 'AREA_WALKTHROUGH', areaIndex: lastAreaIndex, segmentIndex: lastSeg });
+          this.setState({ phase: walkPhase, areaIndex: lastAreaIndex, segmentIndex: lastSeg });
         } else {
-          this.setState({ phase: 'OVERVIEW' });
+          this.setState({ phase: this.entryMode === 'full_walkthrough' ? 'ARCHITECTURE_OVERVIEW' : 'OVERVIEW' });
         }
         break;
       }
@@ -548,7 +645,7 @@ export class SessionManager {
 
   private navigateSkip() {
     // Skip current area entirely and move to next
-    if (this.state.phase === 'AREA_WALKTHROUGH' || this.state.phase === 'AREA_TRANSITION') {
+    if (this.state.phase === 'AREA_WALKTHROUGH' || this.state.phase === 'AREA_TRANSITION' || this.state.phase === 'COMPONENT_TOUR') {
       const areaIndex = this.state.areaIndex ?? 0;
       if (areaIndex < this.areas.length - 1) {
         this.setState({ phase: 'AREA_TRANSITION', areaIndex: areaIndex + 1 });
@@ -559,7 +656,7 @@ export class SessionManager {
   }
 
   private handleDiveDeeper() {
-    if (this.state.phase === 'AREA_WALKTHROUGH') {
+    if (this.state.phase === 'AREA_WALKTHROUGH' || this.state.phase === 'COMPONENT_TOUR') {
       this.setState({ ...this.state, deepDive: true });
     }
   }
@@ -602,14 +699,14 @@ export class SessionManager {
 
   private handleSegmentFinished(segmentId: string) {
     // Auto-advance to next segment when narration finishes
-    if (this.state.phase === 'AREA_WALKTHROUGH' && !this.state.paused) {
+    if ((this.state.phase === 'AREA_WALKTHROUGH' || this.state.phase === 'COMPONENT_TOUR') && !this.state.paused) {
       this.navigateNext();
     }
   }
 
   private setState(state: SessionState) {
     this.state = state;
-    if (state.phase === 'AREA_WALKTHROUGH') {
+    if (state.phase === 'AREA_WALKTHROUGH' || state.phase === 'COMPONENT_TOUR') {
       const areaIndex = state.areaIndex ?? 0;
       this.context.currentAreaSegments = this.areas[areaIndex]?.narrationSegments?.length ?? 0;
     }
@@ -657,6 +754,127 @@ export class SessionManager {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
       .map(([lang]) => lang);
+  }
+
+  /** Generate a project overview using Claude. */
+  private async generateProjectOverview(
+    repoPath: string,
+    repoName: string,
+    languages: string[],
+    totalCommits: number,
+  ): Promise<ProjectOverviewResult> {
+    // Read README.md
+    let readmeContent: string | undefined;
+    try {
+      readmeContent = fs.readFileSync(path.join(repoPath, 'README.md'), 'utf-8');
+    } catch {
+      // No README
+    }
+
+    // Read package.json
+    let packageJsonContent: string | undefined;
+    try {
+      packageJsonContent = fs.readFileSync(path.join(repoPath, 'package.json'), 'utf-8');
+    } catch {
+      // No package.json
+    }
+
+    // Get file tree
+    const git = simpleGit(repoPath);
+    const fileTreeRaw = await git.raw(['ls-tree', '-r', '--name-only', 'HEAD']).catch(() => '');
+    const fileTree = fileTreeRaw.split('\n').filter(Boolean);
+
+    const apiKey = this.config.anthropicApiKey;
+    if (!apiKey) {
+      return {
+        overview: `This is ${repoName}. Let me walk you through the codebase.`,
+        purpose: repoName,
+        techStack: languages,
+        keyAreas: [],
+      };
+    }
+
+    const intelligence = new IntelligenceAnalyzer(apiKey, {
+      repoName,
+      languages,
+      sinceDate: '',
+      untilDate: '',
+      commitCount: totalCommits,
+    });
+
+    const prompt = buildProjectOverviewPrompt({
+      repoName,
+      fileTree,
+      readmeContent,
+      packageJsonContent,
+      languages,
+      totalFiles: fileTree.length,
+      totalCommits,
+    });
+
+    const result = await intelligence.structuredCallDirect<ProjectOverviewResult>({
+      prompt,
+      toolName: PROJECT_OVERVIEW_TOOL.name,
+      toolDescription: PROJECT_OVERVIEW_TOOL.description,
+      inputSchema: PROJECT_OVERVIEW_TOOL.inputSchema,
+    });
+
+    return result;
+  }
+
+  /** Seed understanding items for a repo so we can track progress across layers. */
+  private seedUnderstandingItems(repoPath: string, repoName: string, areas: AreaWithContent[]): void {
+    const repo = this.db.getUnderstandingRepo();
+
+    // Project layer: single item
+    repo.upsertItem({
+      repoPath,
+      layer: 'project',
+      itemId: repoPath,
+      itemName: repoName,
+      status: 'not_started',
+    });
+
+    // Architecture layer: single item
+    repo.upsertItem({
+      repoPath,
+      layer: 'architecture',
+      itemId: 'architecture',
+      itemName: 'Architecture Overview',
+      status: 'not_started',
+    });
+
+    // Component layer: one per area
+    for (const area of areas) {
+      repo.upsertItem({
+        repoPath,
+        layer: 'component',
+        itemId: area.id,
+        itemName: area.name,
+        status: 'not_started',
+      });
+    }
+  }
+
+  /** Mark a phase's understanding item as understood and emit the updated state. */
+  private markPhaseUnderstood(layer: 'project' | 'architecture' | 'component', repoPath: string, itemId: string): void {
+    const repo = this.db.getUnderstandingRepo();
+    repo.markUnderstood(repoPath, layer, itemId);
+    this.emitUnderstandingUpdate(repoPath);
+  }
+
+  /** Emit the current understanding state to the client. */
+  private emitUnderstandingUpdate(repoPath: string): void {
+    const understanding = this.db.getUnderstandingRepo().getState(repoPath);
+    this.emit({
+      type: 'session:understanding',
+      payload: { understanding },
+    });
+  }
+
+  /** Expose the project overview for REST endpoints or frontend. */
+  getProjectOverview(): ProjectOverviewResult | null {
+    return this.projectOverview;
   }
 
   /** Store concerns in the database. */

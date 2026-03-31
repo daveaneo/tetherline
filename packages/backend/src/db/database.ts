@@ -6,6 +6,7 @@ import { HeatmapRepository } from './repositories/heatmap-repo.js';
 import { SettingsRepository } from './repositories/settings-repo.js';
 import { AreaRepository } from './repositories/area-repo.js';
 import { RepoRepository } from './repositories/repo-repo.js';
+import { UnderstandingRepository } from './repositories/understanding-repo.js';
 
 export class Database {
   private db: BetterSqlite3.Database;
@@ -14,6 +15,7 @@ export class Database {
   private settingsRepo: SettingsRepository;
   private areaRepo: AreaRepository;
   private repoRepo: RepoRepository;
+  private understandingRepo: UnderstandingRepository;
 
   constructor(dbPath: string) {
     // Ensure directory exists
@@ -30,6 +32,7 @@ export class Database {
     this.settingsRepo = new SettingsRepository(this.db);
     this.areaRepo = new AreaRepository(this.db);
     this.repoRepo = new RepoRepository(this.db);
+    this.understandingRepo = new UnderstandingRepository(this.db);
   }
 
   private runMigrations() {
@@ -131,6 +134,24 @@ export class Database {
       CREATE INDEX IF NOT EXISTS idx_concerns_session ON concerns(session_id);
       CREATE INDEX IF NOT EXISTS idx_concerns_severity ON concerns(severity);
       CREATE INDEX IF NOT EXISTS idx_questions_session ON questions(session_id);
+
+      CREATE TABLE IF NOT EXISTS understanding (
+        id TEXT PRIMARY KEY,
+        repo_path TEXT NOT NULL,
+        layer TEXT NOT NULL CHECK (layer IN ('project', 'architecture', 'component', 'file', 'code')),
+        item_id TEXT NOT NULL,
+        item_name TEXT NOT NULL,
+        parent_id TEXT,
+        status TEXT NOT NULL DEFAULT 'not_started',
+        last_reviewed_at TEXT,
+        stale_since TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(repo_path, layer, item_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_understanding_repo ON understanding(repo_path);
+      CREATE INDEX IF NOT EXISTS idx_understanding_layer ON understanding(repo_path, layer);
     `);
   }
 
@@ -139,6 +160,7 @@ export class Database {
   getSettingsRepo(): SettingsRepository { return this.settingsRepo; }
   getAreaRepo(): AreaRepository { return this.areaRepo; }
   getRepoRepo(): RepoRepository { return this.repoRepo; }
+  getUnderstandingRepo(): UnderstandingRepository { return this.understandingRepo; }
   getRawDb(): BetterSqlite3.Database { return this.db; }
 
   close() {
