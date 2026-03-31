@@ -1,4 +1,9 @@
-import 'dotenv/config';
+import { config } from 'dotenv';
+import { resolve } from 'path';
+
+// Load .env from project root (not CWD which may be packages/backend)
+config({ path: resolve(process.cwd(), '.env') });
+config({ path: resolve(process.cwd(), '../../.env') });
 import { createServer } from './server.js';
 import { DEFAULT_PORT } from '@interactive-reviewer/shared';
 

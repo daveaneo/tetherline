@@ -23,6 +23,8 @@ import simpleGit from 'simple-git';
 import type { Database } from '../db/database.js';
 import type { AppConfig } from '../config.js';
 import { GitAnalyzer } from '../git/analyzer.js';
+import { readCommits } from '../git/commit-reader.js';
+import { extractDiffs } from '../git/diff-parser.js';
 import { computeHeatmap } from '../git/heatmap.js';
 import { IntelligenceAnalyzer } from '../intelligence/analyzer.js';
 import { buildProjectOverviewPrompt, PROJECT_OVERVIEW_TOOL, type ProjectOverviewResult } from '../intelligence/prompts/project-overview.js';
@@ -194,11 +196,42 @@ export class SessionManager {
           this.setState({ phase: 'PROPOSAL' });
           return;
         }
-        // Full walkthrough with zero commits: proceed with file-tree-only analysis below
+        // Full walkthrough with zero recent commits: use ALL commits for analysis
+        // The user wants to explore the whole project, not just recent changes
+        if (this.entryMode === 'full_walkthrough') {
+          const gitAll = simpleGit(effectivePath);
+          const allCommitInfos = await readCommits(gitAll, new Date(0), now, 200);
+          if (allCommitInfos.length > 0) {
+            const allDiffs = await extractDiffs(gitAll, allCommitInfos);
+            commits.push(...allDiffs);
+          }
+        }
       }
 
-      // Detect languages from file extensions in the diffs
-      const languages = this.detectLanguages(commits);
+      // Detect languages from file extensions in the diffs (or from file tree if no diffs)
+      let languages: string[];
+      if (commits.length > 0) {
+        languages = this.detectLanguages(commits);
+      } else {
+        // Fallback: detect from file tree
+        const gitLang = simpleGit(effectivePath);
+        const files = (await gitLang.raw(['ls-files']).catch(() => '')).split('\n').filter(Boolean);
+        const extCounts = new Map<string, number>();
+        for (const f of files) {
+          const ext = f.split('.').pop()?.toLowerCase() ?? '';
+          extCounts.set(ext, (extCounts.get(ext) ?? 0) + 1);
+        }
+        const langMap: Record<string, string> = {
+          ts: 'TypeScript', tsx: 'TypeScript', js: 'JavaScript', jsx: 'JavaScript',
+          py: 'Python', rs: 'Rust', go: 'Go', java: 'Java', rb: 'Ruby',
+          php: 'PHP', c: 'C', cpp: 'C++', cs: 'C#', swift: 'Swift', kt: 'Kotlin',
+        };
+        languages = [...extCounts.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 3)
+          .map(([ext]) => langMap[ext] ?? ext)
+          .filter(Boolean);
+      }
       this.detectedLanguages = languages;
 
       // Get previous session summary (for "Previously on..." -- reuses lookup from above)
