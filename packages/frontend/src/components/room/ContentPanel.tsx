@@ -1,10 +1,12 @@
+import { useEffect } from 'react';
 import { useSession } from '../../hooks/useSession.js';
 import { useSessionStore } from '../../state/session-store.js';
 import { CodeSnippet } from '../code/CodeSnippet.js';
 import { DiffView } from '../code/DiffView.js';
 import { UnderstandingMap } from '../heatmap/UnderstandingMap.js';
 import { AnimatePresence, motion } from 'framer-motion';
-import type { AreaWithContent, Concern, UnderstandingState } from '@interactive-reviewer/shared';
+import type { AreaWithContent, Concern, UnderstandingState, SkillResult } from '@interactive-reviewer/shared';
+import { sendEvent } from '../../lib/ws-client.js';
 
 export function ContentPanel() {
   const { state, areas, analysisProgress, context } = useSession();
@@ -13,12 +15,63 @@ export function ContentPanel() {
   const recap = useSessionStore(s => s.recap);
   const previousSession = useSessionStore(s => s.previousSession);
   const understanding = useSessionStore(s => s.understanding);
+  const skillResult = useSessionStore(s => s.skillResult);
+  const skillClarification = useSessionStore(s => s.skillClarification);
 
   const currentArea = state.areaIndex !== undefined ? areas[state.areaIndex] : undefined;
   const currentSegment = currentArea?.narrationSegments?.[state.segmentIndex ?? 0];
 
+  // Auto-dismiss skill result after 15 seconds or on phase change
+  useEffect(() => {
+    if (!skillResult) return;
+    const timer = setTimeout(() => {
+      useSessionStore.setState({ skillResult: null });
+    }, 15000);
+    return () => clearTimeout(timer);
+  }, [skillResult]);
+
+  useEffect(() => {
+    useSessionStore.setState({ skillResult: null, skillClarification: null });
+  }, [state.phase, state.areaIndex, state.segmentIndex]);
+
   return (
     <div className="h-full p-6 overflow-y-auto">
+      {/* Skill result overlay -- takes priority when present */}
+      <AnimatePresence>
+        {skillResult && (
+          <motion.div
+            key="skill-result"
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2 }}
+            className="mb-6"
+          >
+            <SkillResultPanel result={skillResult} onDismiss={() => useSessionStore.setState({ skillResult: null })} />
+          </motion.div>
+        )}
+        {skillClarification && !skillResult && (
+          <motion.div
+            key="skill-clarify"
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2 }}
+            className="mb-6"
+          >
+            <SkillClarifyPanel
+              message={skillClarification.message}
+              options={skillClarification.options}
+              onSelect={(option) => {
+                sendEvent({ type: 'user:utterance', payload: { text: option, timestamp: Date.now() } });
+                useSessionStore.setState({ skillClarification: null });
+              }}
+              onDismiss={() => useSessionStore.setState({ skillClarification: null })}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <AnimatePresence mode="wait">
         <motion.div
           key={`${state.phase}-${state.areaIndex}-${state.segmentIndex}`}
@@ -369,6 +422,96 @@ function ArchitectureOverviewContent({ areas, understanding }: { areas: AreaWith
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+const SKILL_LABELS: Record<string, string> = {
+  explain: 'Explanation',
+  visualize: 'Visualization',
+  compare: 'Comparison',
+  critique: 'Critique',
+  summarize: 'Summary',
+  navigate: 'Navigation',
+  teach: 'Lesson',
+  annotate: 'Annotation',
+};
+
+const SKILL_TYPE_ICONS: Record<string, string> = {
+  diagram: 'diagram',
+  code: 'code',
+  diff: 'diff',
+  comparison: 'comparison',
+  explanation: 'explanation',
+  annotation: 'note',
+};
+
+function SkillResultPanel({ result, onDismiss }: { result: SkillResult; onDismiss: () => void }) {
+  return (
+    <div className="p-5 rounded-xl border border-[var(--color-accent)]/30 bg-[var(--color-accent)]/5 relative">
+      <button
+        onClick={onDismiss}
+        className="absolute top-3 right-3 text-[var(--color-text-muted)] hover:text-[var(--color-text)] text-sm"
+        aria-label="Dismiss"
+      >
+        &times;
+      </button>
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-[var(--color-accent)]/20 text-[var(--color-accent)]">
+          {SKILL_LABELS[result.skillName] ?? result.skillName}
+        </span>
+        <span className="text-xs text-[var(--color-text-muted)]">
+          {SKILL_TYPE_ICONS[result.type] ?? result.type}
+        </span>
+      </div>
+      <p className="text-[var(--color-text)] leading-relaxed whitespace-pre-wrap">{result.narration}</p>
+      {result.diagramChanges?.focusNodeId && (
+        <div className="mt-3 text-xs text-[var(--color-text-muted)]">
+          Focused on: {result.diagramChanges.focusNodeId}
+        </div>
+      )}
+      {result.understandingUpdates && result.understandingUpdates.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1">
+          {result.understandingUpdates.map((u, i) => (
+            <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-[var(--color-green)]/20 text-[var(--color-green)]">
+              {u.itemId}: {u.status}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SkillClarifyPanel({
+  message, options, onSelect, onDismiss,
+}: {
+  message: string;
+  options: string[];
+  onSelect: (option: string) => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="p-5 rounded-xl border border-[var(--color-yellow)]/30 bg-[var(--color-yellow)]/5 relative">
+      <button
+        onClick={onDismiss}
+        className="absolute top-3 right-3 text-[var(--color-text-muted)] hover:text-[var(--color-text)] text-sm"
+        aria-label="Dismiss"
+      >
+        &times;
+      </button>
+      <p className="text-[var(--color-text)] mb-3">{message}</p>
+      <div className="flex flex-wrap gap-2">
+        {options.map((option, i) => (
+          <button
+            key={i}
+            onClick={() => onSelect(option)}
+            className="px-3 py-1.5 text-sm rounded-lg border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors"
+          >
+            {option}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

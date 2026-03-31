@@ -31,6 +31,10 @@ export function useVoiceInput() {
       sendEvent({ type: 'command:ask', payload: { question } });
     };
 
+    recognizer.onUtterance = (text) => {
+      sendEvent({ type: 'user:utterance', payload: { text, timestamp: Date.now() } });
+    };
+
     return () => {
       recognizer.stop();
     };

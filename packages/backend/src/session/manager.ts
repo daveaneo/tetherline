@@ -12,6 +12,7 @@ import type {
   ModeKey,
   EntryMode,
   UnderstandingState,
+  SkillResult,
 } from '@interactive-reviewer/shared';
 import { DEFAULT_MODES } from '@interactive-reviewer/shared';
 import { v4 as uuid } from 'uuid';
@@ -24,6 +25,8 @@ import { GitAnalyzer } from '../git/analyzer.js';
 import { computeHeatmap } from '../git/heatmap.js';
 import { IntelligenceAnalyzer } from '../intelligence/analyzer.js';
 import { buildProjectOverviewPrompt, PROJECT_OVERVIEW_TOOL, type ProjectOverviewResult } from '../intelligence/prompts/project-overview.js';
+import { createSkillRegistry, IntentClassifier } from '../skills/index.js';
+import type { SkillRegistry } from '../skills/index.js';
 
 export class SessionManager {
   private state: SessionState = { phase: 'IDLE' };
@@ -41,6 +44,10 @@ export class SessionManager {
   private entryMode: EntryMode = 'updates';
   private projectOverview: ProjectOverviewResult | null = null;
   private activeRepoPath: string = '';
+  private skillRegistry: SkillRegistry = createSkillRegistry();
+  private intentClassifier: IntentClassifier | null = null;
+  private activeAnalyzer: IntelligenceAnalyzer | null = null;
+  private fileTree: string[] = [];
 
   constructor(
     private db: Database,
@@ -80,6 +87,11 @@ export class SessionManager {
         break;
       case 'audio:segment_finished':
         this.handleSegmentFinished(event.payload.segmentId);
+        break;
+      case 'user:utterance':
+        this.handleUtterance(event.payload.text).catch(err => {
+          this.emit({ type: 'error', payload: { code: 'UTTERANCE_FAILED', message: err.message ?? 'Failed to handle utterance', recoverable: true } });
+        });
         break;
     }
   }
@@ -159,6 +171,11 @@ export class SessionManager {
           commitCount: commits.length,
           previousSessionSummary: previousSummary,
         });
+        this.activeAnalyzer = intelligence;
+
+        // Initialize the intent classifier for skill-based voice interactions
+        const { ClaudeClient } = await import('../intelligence/claude-client.js');
+        this.intentClassifier = new IntentClassifier(new ClaudeClient(apiKey!));
 
         // Step 1: Semantic clustering
         this.emit({
@@ -194,6 +211,7 @@ export class SessionManager {
         const git = simpleGit(effectivePath);
         const fileTreeRaw = await git.raw(['ls-tree', '-r', '--name-only', 'HEAD']).catch(() => '');
         const fileTree = fileTreeRaw.split('\n').filter(Boolean);
+        this.fileTree = fileTree;
 
         // Run narrative generation for each area, concerns detection, and architecture in parallel
         const narrativePromises = areasWithContent.map(async (area, idx) => {
@@ -701,6 +719,84 @@ export class SessionManager {
     // Auto-advance to next segment when narration finishes
     if ((this.state.phase === 'AREA_WALKTHROUGH' || this.state.phase === 'COMPONENT_TOUR') && !this.state.paused) {
       this.navigateNext();
+    }
+  }
+
+  private async handleUtterance(text: string): Promise<void> {
+    // If no intent classifier available, fall back to treating it as a question
+    if (!this.intentClassifier) {
+      this.handleQuestion(text);
+      return;
+    }
+
+    // Build context string for the classifier
+    const currentArea = this.state.areaIndex !== undefined ? this.areas[this.state.areaIndex] : undefined;
+    const contextStr = `Phase: ${this.state.phase}. Area: ${currentArea?.name ?? 'none'}. Areas: ${this.areas.map(a => a.name).join(', ')}.`;
+
+    const classification = await this.intentClassifier.classify(text, contextStr);
+
+    // Handle navigation commands
+    if (classification.skillName === 'navigation' && classification.navigationCommand) {
+      const navMap: Record<string, string> = {
+        next: 'command:next',
+        previous: 'command:previous',
+        skip: 'command:skip',
+        pause: 'command:pause',
+        resume: 'command:resume',
+        dive_deeper: 'command:dive_deeper',
+        zoom_out: 'command:previous',
+      };
+      const eventType = navMap[classification.navigationCommand];
+      if (eventType) {
+        this.handleNavigation(eventType);
+      }
+      return;
+    }
+
+    // Low confidence -- ask for clarification
+    if (classification.confidence < 0.7) {
+      this.emit({
+        type: 'skill:clarify',
+        payload: {
+          message: `I'm not sure what you'd like. Could you rephrase? I think you might want to:`,
+          options: [
+            `Explain ${classification.params.target ?? 'this'}`,
+            `Visualize the architecture`,
+            `Compare the changes`,
+            `Summarize the current area`,
+          ],
+        },
+      });
+      return;
+    }
+
+    // Execute the skill -- requires an active analyzer
+    if (!this.activeAnalyzer) {
+      this.handleQuestion(text);
+      return;
+    }
+
+    try {
+      const result = await this.skillRegistry.execute(
+        classification.skillName as Exclude<typeof classification.skillName, 'navigation'>,
+        {
+          currentArea,
+          currentFile: currentArea?.affectedFiles?.[0],
+          zoomLevel: 0,
+          repoPath: this.activeRepoPath,
+          fileTree: this.fileTree,
+          areas: this.areas,
+          analyzer: this.activeAnalyzer,
+        },
+        classification.params,
+      );
+
+      this.emit({ type: 'skill:result', payload: { result } });
+    } catch (err: any) {
+      this.emit({
+        type: 'error',
+        payload: { code: 'SKILL_FAILED', message: err.message ?? 'Skill execution failed', recoverable: true },
+      });
     }
   }
 

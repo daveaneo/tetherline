@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import type {
   SessionState, StateContext, ServerEvent, AreaWithContent,
-  AnalysisProgress, Concern, HeatmapData, SessionSummary, UnderstandingState
+  AnalysisProgress, Concern, HeatmapData, SessionSummary, UnderstandingState,
+  SkillResult,
 } from '@interactive-reviewer/shared';
 import { DEFAULT_MODES } from '@interactive-reviewer/shared';
 
@@ -18,6 +19,8 @@ interface SessionStore {
   qaAnswer: string;
   qaAnswerDone: boolean;
   understanding: UnderstandingState | null;
+  skillResult: SkillResult | null;
+  skillClarification: { message: string; options: string[] } | null;
   error: { code: string; message: string; recoverable: boolean } | null;
   connected: boolean;
 
@@ -40,6 +43,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   qaAnswer: '',
   qaAnswerDone: false,
   understanding: null,
+  skillResult: null,
+  skillClarification: null,
   error: null,
   connected: false,
 
@@ -59,6 +64,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     qaAnswer: '',
     qaAnswerDone: false,
     understanding: null,
+    skillResult: null,
+    skillClarification: null,
     error: null,
   }),
 
@@ -123,6 +130,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
       case 'session:understanding':
         set({ understanding: event.payload.understanding });
+        break;
+
+      case 'skill:result':
+        set({ skillResult: event.payload.result, skillClarification: null });
+        break;
+
+      case 'skill:clarify':
+        set({ skillClarification: event.payload });
         break;
 
       case 'error':

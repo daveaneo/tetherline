@@ -4,6 +4,7 @@ export type VoiceCommand =
 
 export type VoiceCommandHandler = (command: VoiceCommand) => void;
 export type QuestionHandler = (question: string) => void;
+export type UtteranceHandler = (text: string) => void;
 
 const COMMAND_PHRASES: Record<string, VoiceCommand> = {
   'next': 'next',
@@ -46,6 +47,7 @@ export class VoiceCommandRecognizer {
   private isListening = false;
   onCommand: VoiceCommandHandler | null = null;
   onQuestion: QuestionHandler | null = null;
+  onUtterance: UtteranceHandler | null = null;
 
   constructor() {
     const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -62,7 +64,7 @@ export class VoiceCommandRecognizer {
     this.recognition.onresult = (event: any) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
 
-      // Check for command matches
+      // Check for local navigation commands first (fast, no AI needed)
       for (const [phrase, command] of Object.entries(COMMAND_PHRASES)) {
         if (transcript.includes(phrase)) {
           this.onCommand?.(command);
@@ -70,14 +72,20 @@ export class VoiceCommandRecognizer {
         }
       }
 
-      // Check for question intent
+      // Send everything else as a unified utterance for AI-powered intent classification
+      if (this.onUtterance) {
+        this.onUtterance(transcript);
+        return;
+      }
+
+      // Legacy fallback: check for question intent
       if (transcript.startsWith('ask ') || transcript.startsWith('question ')) {
         const question = transcript.replace(/^(ask|question)\s*/i, '');
         if (question) this.onQuestion?.(question);
         return;
       }
 
-      // If nothing matches, treat longer utterances as questions
+      // Legacy fallback: treat longer utterances as questions
       if (transcript.split(' ').length > 3) {
         this.onQuestion?.(transcript);
       }

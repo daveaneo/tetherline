@@ -4,6 +4,7 @@ import type { HeatmapData } from './heatmap.js';
 import type { SessionModes, ModeKey, EntryMode } from './modes.js';
 import type { Session, SessionSummary } from './session.js';
 import type { UnderstandingState } from './understanding.js';
+import type { SkillResult } from './skills.js';
 
 // Client → Server
 export type ClientEvent =
@@ -18,7 +19,8 @@ export type ClientEvent =
   | { type: 'command:ask'; payload: { question: string } }
   | { type: 'command:toggle_mode'; payload: { mode: ModeKey; enabled: boolean } }
   | { type: 'command:export'; payload: { format: 'slides' | 'markdown' } }
-  | { type: 'audio:segment_finished'; payload: { segmentId: string } };
+  | { type: 'audio:segment_finished'; payload: { segmentId: string } }
+  | { type: 'user:utterance'; payload: { text: string; timestamp: number } };
 
 // Server → Client
 export type ServerEvent =
@@ -44,6 +46,8 @@ export type ServerEvent =
   | { type: 'export:ready'; payload: { format: string; downloadUrl: string } }
   | { type: 'narration:greeting'; payload: { text: string } }
   | { type: 'session:understanding'; payload: { understanding: UnderstandingState } }
+  | { type: 'skill:result'; payload: { result: SkillResult } }
+  | { type: 'skill:clarify'; payload: { message: string; options: string[] } }
   | { type: 'error'; payload: { code: string; message: string; recoverable: boolean } };
 
 // Session state types
