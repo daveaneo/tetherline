@@ -1,12 +1,13 @@
 import type { SimpleGit } from 'simple-git';
 import type { CommitInfo, FileChange } from '@interactive-reviewer/shared';
 
-export async function readCommits(git: SimpleGit, since: Date, until: Date): Promise<CommitInfo[]> {
+export async function readCommits(git: SimpleGit, since: Date, until: Date, maxCount: number = 200): Promise<CommitInfo[]> {
   const log = await git.log({
     '--since': since.toISOString(),
     '--until': until.toISOString(),
     '--stat': null,
     '--no-merges': null,
+    maxCount,
   } as any);
 
   return log.all.map(entry => ({

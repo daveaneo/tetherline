@@ -13,6 +13,7 @@ import type {
   EntryMode,
   UnderstandingState,
   SkillResult,
+  SkillName,
 } from '@interactive-reviewer/shared';
 import { DEFAULT_MODES } from '@interactive-reviewer/shared';
 import { v4 as uuid } from 'uuid';
@@ -27,6 +28,7 @@ import { IntelligenceAnalyzer } from '../intelligence/analyzer.js';
 import { buildProjectOverviewPrompt, PROJECT_OVERVIEW_TOOL, type ProjectOverviewResult } from '../intelligence/prompts/project-overview.js';
 import { createSkillRegistry, IntentClassifier } from '../skills/index.js';
 import type { SkillRegistry } from '../skills/index.js';
+import { TourPlan } from './tour-plan.js';
 
 export class SessionManager {
   private state: SessionState = { phase: 'IDLE' };
@@ -48,6 +50,7 @@ export class SessionManager {
   private intentClassifier: IntentClassifier | null = null;
   private activeAnalyzer: IntelligenceAnalyzer | null = null;
   private fileTree: string[] = [];
+  private tourPlan: TourPlan | null = null;
 
   constructor(
     private db: Database,
@@ -145,6 +148,39 @@ export class SessionManager {
       const { commits, areas: heuristicAreas } = await gitAnalyzer.analyze(since, now, (progress) => {
         this.emit({ type: 'analysis:progress', payload: progress });
       });
+
+      // Handle zero commits
+      if (commits.length === 0) {
+        if (this.entryMode === 'updates') {
+          // Nothing changed since last review — emit a friendly message and wrap up
+          this.emit({
+            type: 'narration:greeting',
+            payload: { text: `Nothing's changed in ${repoName} since your last review. Check back later or try a full walkthrough to explore the architecture.` },
+          });
+
+          // Still compute heatmap and finish the session record
+          const gitZero = simpleGit(effectivePath);
+          const familiarityZero = this.db.getHeatmapRepo().getForRepo(effectivePath);
+          this.heatmapData = await computeHeatmap(effectivePath, gitZero, familiarityZero);
+          this.emit({ type: 'session:heatmap', payload: { heatmap: this.heatmapData } });
+
+          this.db.getSessionRepo().updateSession(sessionId, { totalCommits: 0, totalAreas: 0 });
+          this.emit({
+            type: 'analysis:progress',
+            payload: { phase: 'complete', progress: 1, message: 'No new commits found' },
+          });
+          this.emit({
+            type: 'analysis:complete',
+            payload: {
+              summary: { id: sessionId, repoName, startedAt: now.toISOString(), totalCommits: 0, totalAreas: 0 },
+              areas: [],
+            },
+          });
+          this.setState({ phase: 'WRAP_UP' });
+          return;
+        }
+        // Full walkthrough with zero commits: proceed with file-tree-only analysis below
+      }
 
       // Detect languages from file extensions in the diffs
       const languages = this.detectLanguages(commits);
@@ -297,6 +333,9 @@ export class SessionManager {
       // Load areas back with full content schema (AreaWithContent)
       this.areas = this.db.getAreaRepo().getAreasForSession(sessionId);
       this.context.totalAreas = this.areas.length;
+
+      // Build tour plan from discovered areas
+      this.tourPlan = TourPlan.fromAreas(this.areas);
 
       // Compute heatmap
       const git = simpleGit(effectivePath);
@@ -517,12 +556,16 @@ export class SessionManager {
           // Mark component understood and move to next
           if (area) {
             this.markPhaseUnderstood('component', this.activeRepoPath, area.id);
+            this.tourPlan?.markAreaCovered(area.id);
+            this.emitTourProgress();
           }
           this.setState({ phase: 'AREA_TRANSITION', areaIndex: areaIndex + 1 });
         } else {
           // All components done
           if (area) {
             this.markPhaseUnderstood('component', this.activeRepoPath, area.id);
+            this.tourPlan?.markAreaCovered(area.id);
+            this.emitTourProgress();
           }
           this.setState({ phase: 'WRAP_UP' });
         }
@@ -539,9 +582,17 @@ export class SessionManager {
           this.setState({ phase: 'AREA_WALKTHROUGH', areaIndex, segmentIndex: segmentIndex + 1 });
         } else if (areaIndex < this.areas.length - 1) {
           // Move to transition, then next area
+          if (area) {
+            this.tourPlan?.markAreaCovered(area.id);
+            this.emitTourProgress();
+          }
           this.setState({ phase: 'AREA_TRANSITION', areaIndex: areaIndex + 1 });
         } else {
           // All areas done
+          if (area) {
+            this.tourPlan?.markAreaCovered(area.id);
+            this.emitTourProgress();
+          }
           this.setState({ phase: 'WRAP_UP' });
         }
         break;
@@ -737,6 +788,12 @@ export class SessionManager {
 
     // Handle navigation commands
     if (classification.skillName === 'navigation' && classification.navigationCommand) {
+      // Handle resume_tour specially — pop deviation and restore position
+      if (classification.navigationCommand === 'resume_tour') {
+        this.resumeTour();
+        return;
+      }
+
       const navMap: Record<string, string> = {
         next: 'command:next',
         previous: 'command:previous',
@@ -776,9 +833,26 @@ export class SessionManager {
       return;
     }
 
+    await this.executeSkillWithDeviation(classification.skillName as SkillName, classification.params, currentArea);
+  }
+
+  private async executeSkillWithDeviation(
+    skillName: SkillName,
+    params: Record<string, string>,
+    currentArea?: AreaWithContent,
+  ): Promise<void> {
+    // If not already in a deviation, push one
+    if (this.tourPlan && !this.tourPlan.isInDeviation()) {
+      this.tourPlan.pushDeviation(
+        this.state.phase,
+        this.state.areaIndex,
+        this.state.segmentIndex,
+      );
+    }
+
     try {
       const result = await this.skillRegistry.execute(
-        classification.skillName as Exclude<typeof classification.skillName, 'navigation'>,
+        skillName,
         {
           currentArea,
           currentFile: currentArea?.affectedFiles?.[0],
@@ -786,18 +860,53 @@ export class SessionManager {
           repoPath: this.activeRepoPath,
           fileTree: this.fileTree,
           areas: this.areas,
-          analyzer: this.activeAnalyzer,
+          analyzer: this.activeAnalyzer!,
         },
-        classification.params,
+        params,
       );
 
       this.emit({ type: 'skill:result', payload: { result } });
+
+      // After skill completes, check in (once per deviation)
+      if (this.tourPlan?.isInDeviation() && !this.tourPlan.hasCheckedIn()) {
+        this.tourPlan.markDeviationCheckedIn();
+        // Emit a gentle nudge so the user knows how to get back
+        this.emit({
+          type: 'narration:greeting',
+          payload: { text: 'Take your time exploring. Say "back to the tour" whenever you\'re ready to continue.' },
+        });
+      }
     } catch (err: any) {
       this.emit({
         type: 'error',
         payload: { code: 'SKILL_FAILED', message: err.message ?? 'Skill execution failed', recoverable: true },
       });
     }
+  }
+
+  private resumeTour(): void {
+    if (!this.tourPlan) return;
+
+    // Get the resume message before popping (it reads the current deviation)
+    const resumeMessage = this.tourPlan.getResumeMessage();
+    const deviation = this.tourPlan.popDeviation();
+    if (!deviation) return;
+
+    // Narrate the resume
+    this.emit({ type: 'narration:greeting', payload: { text: resumeMessage } });
+
+    // Return to the saved position
+    this.setState({
+      phase: deviation.returnToPhase as SessionState['phase'],
+      areaIndex: deviation.returnToAreaIndex,
+      segmentIndex: deviation.returnToSegmentIndex,
+    });
+  }
+
+  private emitTourProgress(): void {
+    if (!this.tourPlan) return;
+    const progress = this.tourPlan.getProgress();
+    this.emit({ type: 'session:tour_progress', payload: progress });
   }
 
   private setState(state: SessionState) {

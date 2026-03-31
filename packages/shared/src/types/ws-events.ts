@@ -48,6 +48,7 @@ export type ServerEvent =
   | { type: 'session:understanding'; payload: { understanding: UnderstandingState } }
   | { type: 'skill:result'; payload: { result: SkillResult } }
   | { type: 'skill:clarify'; payload: { message: string; options: string[] } }
+  | { type: 'session:tour_progress'; payload: { total: number; covered: number; percentage: number } }
   | { type: 'error'; payload: { code: string; message: string; recoverable: boolean } };
 
 // Session state types

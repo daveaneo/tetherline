@@ -21,6 +21,7 @@ export function Lobby() {
   const [loading, setLoading] = useState(true);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [selectedRepo, setSelectedRepo] = useState<Repo | null>(null);
+  const [keyStatus, setKeyStatus] = useState<{ hasAnthropicKey: boolean; hasOpenaiKey: boolean } | null>(null);
 
   const loadRepos = useCallback(async () => {
     try {
@@ -34,6 +35,10 @@ export function Lobby() {
   }, []);
 
   useEffect(() => { loadRepos(); }, [loadRepos]);
+
+  useEffect(() => {
+    api.health().then(data => setKeyStatus({ hasAnthropicKey: data.hasAnthropicKey, hasOpenaiKey: data.hasOpenaiKey })).catch(() => {});
+  }, []);
 
   const handleSelectRepo = (repo: Repo) => {
     setSelectedRepo(repo);
@@ -60,6 +65,16 @@ export function Lobby() {
 
   return (
     <div className="max-w-5xl mx-auto w-full p-8">
+      {/* API key warning banner */}
+      {keyStatus && !keyStatus.hasAnthropicKey && (
+        <div className="mb-6 p-4 rounded-xl border border-amber-500/30 bg-amber-500/5">
+          <p className="text-sm text-amber-400">
+            No Anthropic API key detected. AI narration and analysis won't work.
+            Add <code className="text-xs bg-[var(--color-bg)] px-1 rounded">ANTHROPIC_API_KEY</code> to your .env file.
+          </p>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between mb-10">
         <div>

@@ -21,6 +21,7 @@ interface SessionStore {
   understanding: UnderstandingState | null;
   skillResult: SkillResult | null;
   skillClarification: { message: string; options: string[] } | null;
+  tourProgress: { total: number; covered: number; percentage: number } | null;
   error: { code: string; message: string; recoverable: boolean } | null;
   connected: boolean;
 
@@ -45,6 +46,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   understanding: null,
   skillResult: null,
   skillClarification: null,
+  tourProgress: null,
   error: null,
   connected: false,
 
@@ -66,6 +68,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     understanding: null,
     skillResult: null,
     skillClarification: null,
+    tourProgress: null,
     error: null,
   }),
 
@@ -138,6 +141,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
       case 'skill:clarify':
         set({ skillClarification: event.payload });
+        break;
+
+      case 'session:tour_progress':
+        set({ tourProgress: event.payload });
         break;
 
       case 'error':

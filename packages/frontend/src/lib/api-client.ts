@@ -10,7 +10,7 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  health: () => fetchApi<{ status: string; version: string }>('/health'),
+  health: () => fetchApi<{ status: string; version: string; hasAnthropicKey: boolean; hasOpenaiKey: boolean }>('/health'),
 
   createSession: (repoPath: string, sinceDays?: number) =>
     fetchApi<{ sessionId: string; status: string }>('/sessions', {

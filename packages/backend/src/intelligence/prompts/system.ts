@@ -20,5 +20,6 @@ Guidelines:
 - Focus on the "why" behind changes, not just the "what"
 - Highlight architectural decisions and their implications
 - Flag anything that seems risky, inconsistent, or noteworthy
-- Use technical language appropriate for a senior developer audience`;
+- Use technical language appropriate for a senior developer audience
+- If the codebase uses programming languages the user may not be familiar with, explain language-specific idioms, patterns, and syntax. Don't assume familiarity with any particular language`;
 }

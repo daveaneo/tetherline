@@ -21,6 +21,7 @@ export function useSessionOrchestrator() {
   // Guard against the effect firing multiple times for the same state
   const activeRunRef = useRef<string>('');
   const abortRef = useRef<AbortController | null>(null);
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Speak text via TTS (returns a promise that resolves when done speaking)
   const speak = useCallback(async (text: string, signal?: AbortSignal): Promise<void> => {
@@ -312,6 +313,43 @@ export function useSessionOrchestrator() {
     };
   }, [state.phase, state.areaIndex, state.segmentIndex, state.paused, areas, modes.narration, speak, scheduleAdvance, setCurrentSegment]);
 
+  // 20-second silence rule
+  const resetSilenceTimer = useCallback(() => {
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+
+    // Only run silence timer when in a session and not analyzing
+    const currentPhase = useSessionStore.getState().state.phase;
+    if (currentPhase === 'IDLE' || currentPhase === 'ANALYZING') return;
+
+    silenceTimerRef.current = setTimeout(() => {
+      // Canned response - no API call
+      const phase = useSessionStore.getState().state.phase;
+      if (phase !== 'IDLE' && phase !== 'ANALYZING') {
+        speak("Want to keep exploring, or shall I continue the walkthrough?");
+      }
+    }, 20000);
+  }, [speak]);
+
+  // Reset silence timer on any user interaction
+  useEffect(() => {
+    const handleInteraction = () => resetSilenceTimer();
+    window.addEventListener('keydown', handleInteraction);
+    window.addEventListener('click', handleInteraction);
+    window.addEventListener('touchstart', handleInteraction);
+
+    return () => {
+      window.removeEventListener('keydown', handleInteraction);
+      window.removeEventListener('click', handleInteraction);
+      window.removeEventListener('touchstart', handleInteraction);
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    };
+  }, [resetSilenceTimer]);
+
+  // Also reset when phase changes (new narration started)
+  useEffect(() => {
+    resetSilenceTimer();
+  }, [state.phase, state.areaIndex, state.segmentIndex, resetSilenceTimer]);
+
   // Reset tracking when session goes back to IDLE
   useEffect(() => {
     if (state.phase === 'IDLE') {
@@ -319,6 +357,10 @@ export function useSessionOrchestrator() {
       if (abortRef.current) {
         abortRef.current.abort();
         abortRef.current = null;
+      }
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = null;
       }
       clearQueue();
     }
@@ -339,6 +381,9 @@ export function useSessionOrchestrator() {
       }
       if (abortRef.current) {
         abortRef.current.abort();
+      }
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
       }
     };
   }, []);

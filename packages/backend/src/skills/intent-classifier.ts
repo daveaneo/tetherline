@@ -10,6 +10,9 @@ const NAVIGATION_PHRASES: Record<string, string> = {
   'resume': 'resume', 'go': 'resume', 'play': 'resume',
   'go deeper': 'dive_deeper', 'dive deeper': 'dive_deeper', 'more detail': 'dive_deeper', 'tell me more': 'dive_deeper',
   'zoom out': 'zoom_out', 'go up': 'zoom_out',
+  'back to the tour': 'resume_tour', 'resume tour': 'resume_tour', 'resume the tour': 'resume_tour',
+  'back to the walkthrough': 'resume_tour', 'resume walkthrough': 'resume_tour',
+  "let's continue the tour": 'resume_tour', "where were we": 'resume_tour',
 };
 
 // Correction phrases that trigger re-classification

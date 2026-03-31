@@ -4,12 +4,12 @@ export function buildArchitecturePrompt(
 ): string {
   return `Analyze this project's file structure and generate a HIERARCHICAL architecture diagram with three zoom levels.
 
-Create nodes at three levels of detail:
-- Level 1 (5-8 nodes): Top-level modules/packages (e.g., "frontend", "backend", "shared", "database")
-- Level 2 (2-4 per L1 parent): Sub-modules within each L1 node. Set parentId to the L1 node's id.
-- Level 3 (1-3 per L2 parent): Key files within each L2 sub-module. Set parentId to the L2 node's id.
+Create nodes at three levels of detail with STRICT limits:
+- Level 1: max 8 nodes. Top-level modules/packages (e.g., "frontend", "backend", "shared", "database")
+- Level 2: max 15 children per Level 1 node. Sub-modules within each L1 node. Set parentId to the L1 node's id.
+- Level 3: max 10 files per Level 2 node. Key files within each L2 sub-module. Set parentId to the L2 node's id.
 
-Limit total nodes to ~40 max.
+HARD LIMIT: Total max ~50 nodes. If the project is large, prioritize the most important modules and recently changed areas. Omit less significant files rather than exceeding the limit.
 
 For each node, provide:
 - id: a unique identifier (kebab-case)
