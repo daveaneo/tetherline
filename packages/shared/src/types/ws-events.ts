@@ -27,6 +27,7 @@ export type ServerEvent =
   | { type: 'analysis:complete'; payload: { summary: SessionSummary; areas: AreaWithContent[] } }
   | { type: 'session:state_changed'; payload: { state: SessionState; context: StateContext } }
   | { type: 'session:recap'; payload: { previousSession: SessionSummary; narrative: string } }
+  | { type: 'session:heatmap'; payload: { heatmap: HeatmapData } }
   | { type: 'narration:segment_ready'; payload: { segment: NarrationSegment } }
   | { type: 'narration:text'; payload: { segmentId: string; text: string } }
   | { type: 'visual:highlight_file'; payload: { filePath: string; lines?: [number, number] } }

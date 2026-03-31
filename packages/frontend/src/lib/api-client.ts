@@ -38,4 +38,18 @@ export const api = {
 
   exportMarkdown: (sessionId: string) =>
     fetchApi<{ downloadUrl: string }>(`/export/${sessionId}/markdown`, { method: 'POST' }),
+
+  listRepos: () => fetchApi<{ repos: any[] }>('/repos'),
+
+  addRepo: (repoPath: string) =>
+    fetchApi<{ repo: any; commitCount?: number; contributorCount?: number; alreadyExists?: boolean }>('/repos', {
+      method: 'POST',
+      body: JSON.stringify({ path: repoPath }),
+    }),
+
+  getRepo: (id: string) =>
+    fetchApi<{ repo: any; newCommits: number; contributors: string[]; recentSessions: any[] }>(`/repos/${id}`),
+
+  removeRepo: (id: string) =>
+    fetchApi<{ ok: boolean }>(`/repos/${id}`, { method: 'DELETE' }),
 };

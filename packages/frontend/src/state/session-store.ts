@@ -22,6 +22,7 @@ interface SessionStore {
   handleServerEvent: (event: ServerEvent) => void;
   clearError: () => void;
   setConnected: (v: boolean) => void;
+  resetSession: () => void;
 }
 
 export const useSessionStore = create<SessionStore>((set, get) => ({
@@ -40,6 +41,20 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   clearError: () => set({ error: null }),
   setConnected: (v: boolean) => set({ connected: v }),
+
+  resetSession: () => set({
+    state: { phase: 'IDLE' },
+    context: { sessionId: '', totalAreas: 0, modes: { ...DEFAULT_MODES }, concerns: [] },
+    areas: [],
+    analysisProgress: null,
+    heatmap: null,
+    concerns: [],
+    previousSession: null,
+    recap: null,
+    qaAnswer: '',
+    qaAnswerDone: false,
+    error: null,
+  }),
 
   handleServerEvent: (event: ServerEvent) => {
     switch (event.type) {
@@ -78,6 +93,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
       case 'session:recap':
         set({ previousSession: event.payload.previousSession, recap: event.payload.narrative });
+        break;
+
+      case 'session:heatmap':
+        set({ heatmap: event.payload.heatmap });
         break;
 
       case 'advisory:concern':

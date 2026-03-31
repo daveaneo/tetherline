@@ -20,3 +20,19 @@ export interface SessionSummary {
   totalAreas: number;
   summary?: string;
 }
+
+export interface Repository {
+  id: string;
+  path: string;
+  name: string;
+  addedAt: string;
+  lastReviewedAt: string | null;
+  lastSessionId: string | null;
+  totalSessions: number;
+  understandingPct: number;
+}
+
+export interface RepositoryDetails extends Repository {
+  newCommits: number;
+  contributors: string[];
+}

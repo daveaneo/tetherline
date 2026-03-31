@@ -263,6 +263,12 @@ export class SessionManager {
       const familiarity = this.db.getHeatmapRepo().getForRepo(effectivePath);
       this.heatmapData = await computeHeatmap(effectivePath, git, familiarity);
 
+      // Send heatmap to frontend
+      this.emit({
+        type: 'session:heatmap',
+        payload: { heatmap: this.heatmapData },
+      });
+
       // Emit final progress
       this.emit({
         type: 'analysis:progress',
@@ -282,6 +288,19 @@ export class SessionManager {
         type: 'analysis:complete',
         payload: { summary, areas: this.areas },
       });
+
+      // Mark repo as reviewed if it's a known repo
+      const knownRepo = this.db.getRepoRepo().getByPath(effectivePath);
+      if (knownRepo) {
+        this.db.getRepoRepo().markReviewed(knownRepo.id, sessionId);
+        // Compute understanding percentage from heatmap
+        if (this.heatmapData) {
+          const total = this.heatmapData.entries.length;
+          const understood = this.heatmapData.entries.filter(e => e.status === 'green').length;
+          const pct = total > 0 ? Math.round((understood / total) * 100) : 0;
+          this.db.getRepoRepo().updateUnderstanding(knownRepo.id, pct);
+        }
+      }
 
       // Check for a previous session ("Previously on...")
       if (previousSessionRecord && previousSessionRecord.id !== sessionId) {

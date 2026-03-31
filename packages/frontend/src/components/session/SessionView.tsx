@@ -23,7 +23,6 @@ export function SessionView() {
         transition={{ duration: 0.3 }}
         className="h-full flex flex-col items-center justify-center p-8"
       >
-        {state.phase === 'IDLE' && <IdleView />}
         {state.phase === 'ANALYZING' && <AnalyzingView progress={analysisProgress} />}
         {state.phase === 'PREVIOUSLY_ON' && <PreviouslyOnView />}
         {state.phase === 'HEATMAP' && <HeatmapView />}
@@ -41,40 +40,34 @@ export function SessionView() {
   );
 }
 
-function IdleView() {
+function AnalyzingView({ progress }: { progress: { phase: string; progress: number; message: string } | null }) {
+  const messages = [
+    'Reading commit history...',
+    'Parsing changes...',
+    'Understanding the code...',
+    'Clustering related changes...',
+    'Preparing your review...',
+  ];
+  const messageIndex = progress ? Math.min(Math.floor(progress.progress * messages.length), messages.length - 1) : 0;
+
   return (
     <div className="text-center max-w-lg">
-      <h2 className="text-3xl font-bold mb-4">Interactive Reviewer</h2>
-      <p className="text-[var(--color-text-muted)] mb-8">
-        Ready to review your codebase. Click start to begin analyzing recent changes.
-      </p>
-      <button
-        onClick={() => sendEvent({ type: 'session:start', payload: { repoPath: '', sinceDays: 7 } })}
-        className="px-8 py-3 bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white rounded-lg text-lg font-medium transition-colors"
+      <motion.div
+        animate={{ scale: [1, 1.05, 1] }}
+        transition={{ duration: 2, repeat: Infinity }}
+        className="text-6xl mb-6 opacity-30"
       >
-        Start Review Session
-      </button>
-    </div>
-  );
-}
-
-function AnalyzingView({ progress }: { progress: { phase: string; progress: number; message: string } | null }) {
-  const pct = progress ? Math.round(progress.progress * 100) : 0;
-  return (
-    <div className="text-center max-w-md">
-      <div className="text-2xl font-semibold mb-4">Analyzing Repository</div>
-      <div className="text-[var(--color-text-muted)] mb-6">
-        {progress?.message ?? 'Starting analysis...'}
-      </div>
-      <div className="w-full h-2 bg-[var(--color-surface)] rounded-full overflow-hidden">
+        &#128269;
+      </motion.div>
+      <h2 className="text-2xl font-bold mb-3">Analyzing Repository</h2>
+      <p className="text-[var(--color-text-muted)] mb-6">{progress?.message ?? messages[messageIndex]}</p>
+      <div className="w-64 mx-auto h-1.5 bg-[var(--color-border)] rounded-full overflow-hidden">
         <motion.div
           className="h-full bg-[var(--color-accent)] rounded-full"
-          initial={{ width: 0 }}
-          animate={{ width: `${pct}%` }}
-          transition={{ duration: 0.3 }}
+          animate={{ width: `${(progress?.progress ?? 0) * 100}%` }}
+          transition={{ duration: 0.5 }}
         />
       </div>
-      <div className="text-xs text-[var(--color-text-muted)] mt-2">{pct}%</div>
     </div>
   );
 }

@@ -21,15 +21,28 @@ function ConnectionIndicator() {
 
 export function Toolbar() {
   const setSettingsOpen = useSettingsStore(s => s.setSettingsOpen);
+  const phase = useSessionStore(s => s.state.phase);
+  const resetSession = useSessionStore(s => s.resetSession);
+  const inSession = phase !== 'IDLE';
 
   return (
     <header className="flex items-center justify-between px-6 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
       <div className="flex items-center gap-3">
+        {inSession && (
+          <button
+            onClick={resetSession}
+            className="flex items-center gap-1.5 text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors mr-2"
+            title="Back to lobby"
+          >
+            <span className="text-base">&larr;</span>
+            <span>Exit</span>
+          </button>
+        )}
         <h1 className="text-lg font-semibold tracking-tight">Interactive Reviewer</h1>
         <ConnectionIndicator />
       </div>
       <div className="flex items-center gap-4">
-        <ModeToggles />
+        {inSession && <ModeToggles />}
         <button
           onClick={() => setSettingsOpen(true)}
           className="px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors"

@@ -14,6 +14,7 @@ import { createExportRoutes } from './routes/export.js';
 import { createSettingsRoutes } from './routes/settings.js';
 import { createHealthRoutes } from './routes/health.js';
 import { createAudioRoutes } from './routes/audio.js';
+import { createRepoRoutes } from './routes/repos.js';
 import { handleWebSocket } from './ws/handler.js';
 
 export async function createServer(overrides: { port?: number; repoPath?: string } = {}): Promise<{ app: express.Express; wss: WebSocketServer; server: http.Server; db: Database; config: AppConfig }> {
@@ -39,6 +40,7 @@ export async function createServer(overrides: { port?: number; repoPath?: string
   router.use('/export', createExportRoutes(db, config));
   router.use('/settings', createSettingsRoutes(db));
   router.use('/audio', createAudioRoutes(db, config));
+  router.use('/repos', createRepoRoutes(db, config));
   app.use(API_PREFIX, router);
 
   // Serve frontend static files in production
