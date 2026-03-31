@@ -457,14 +457,14 @@ Replace the current simple grid with `nanovis` treemap/sunburst visualization. T
 - Be interactive: click a section to zoom into that area.
 - Show percentage at each level.
 
-### 5b.3 ELKjs Layout Integration
+### 5b.3 Additional Layout Polish
 
 **File:** `packages/frontend/src/components/diagrams/ArchitectureDiagram.tsx`
 
-Replace the current manual BFS layout with ELKjs for hierarchical graph layout. ELKjs handles:
-- Hierarchical/nested layouts (needed for progressive zoom).
-- Edge routing that avoids node overlap.
-- Animated layout transitions when nodes expand/collapse.
+Fine-tune ELKjs layout parameters (installed in Phase 1) for edge cases:
+- Edge routing refinement to avoid label overlap.
+- Animated layout transitions when nodes expand/collapse across multiple levels simultaneously.
+- Performance profiling for repos with 50+ visible nodes at Level 2.
 
 ### 5b.4 Narration Improvements
 
