@@ -79,6 +79,9 @@ export interface DiagramNode {
   label: string;
   type: 'module' | 'file' | 'area';
   filePath?: string;
+  parentId?: string;
+  zoomLevel: 1 | 2 | 3;
+  collapsed?: boolean;
   position: { x: number; y: number };
   data: Record<string, unknown>;
 }

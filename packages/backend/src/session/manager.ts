@@ -98,6 +98,20 @@ export class SessionManager {
         untilDate: now.toISOString(),
       });
 
+      // Check for a previous session to determine greeting text
+      const previousSessionRecord = this.db.getSessionRepo().getLastSessionForRepo(effectivePath);
+
+      // Emit greeting immediately before analysis begins
+      const isFirstVisit = !previousSessionRecord;
+      const greetingText = isFirstVisit
+        ? `Let me take a look at ${repoName} for the first time...`
+        : `Welcome back to ${repoName}. Let me see what's changed...`;
+
+      this.emit({
+        type: 'narration:greeting',
+        payload: { text: greetingText },
+      });
+
       // Transition to ANALYZING
       this.setState({ phase: 'ANALYZING' });
       this.emit({
@@ -114,8 +128,7 @@ export class SessionManager {
       // Detect languages from file extensions in the diffs
       const languages = this.detectLanguages(commits);
 
-      // Check for a previous session summary (for "Previously on...")
-      const previousSessionRecord = this.db.getSessionRepo().getLastSessionForRepo(effectivePath);
+      // Get previous session summary (for "Previously on..." -- reuses lookup from above)
       const previousSummary = (previousSessionRecord && previousSessionRecord.id !== sessionId)
         ? previousSessionRecord.summary
         : undefined;

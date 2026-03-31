@@ -14,6 +14,7 @@ interface SessionStore {
   concerns: Concern[];
   previousSession: SessionSummary | null;
   recap: string | null;
+  greeting: string | null;
   qaAnswer: string;
   qaAnswerDone: boolean;
   error: { code: string; message: string; recoverable: boolean } | null;
@@ -34,6 +35,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   concerns: [],
   previousSession: null,
   recap: null,
+  greeting: null,
   qaAnswer: '',
   qaAnswerDone: false,
   error: null,
@@ -51,6 +53,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     concerns: [],
     previousSession: null,
     recap: null,
+    greeting: null,
     qaAnswer: '',
     qaAnswerDone: false,
     error: null,
@@ -109,6 +112,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           qaAnswer: event.payload.done ? event.payload.text : s.qaAnswer + event.payload.text,
           qaAnswerDone: event.payload.done,
         }));
+        break;
+
+      case 'narration:greeting':
+        set({ greeting: event.payload.text });
         break;
 
       case 'error':

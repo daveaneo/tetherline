@@ -114,12 +114,15 @@ export class IntelligenceAnalyzer {
       inputSchema: ARCHITECTURE_TOOL.inputSchema,
     });
 
-    // Assign positions using a simple grid layout (React Flow will re-layout with dagre)
+    // Assign positions using a simple grid layout (ELKjs will re-layout on the frontend)
     const nodes: DiagramNode[] = result.nodes.map((node, i) => ({
       id: node.id,
       label: node.label,
       type: node.type,
       filePath: node.filePath,
+      parentId: node.parentId,
+      zoomLevel: node.zoomLevel,
+      collapsed: node.zoomLevel === 1, // L1 nodes start collapsed
       position: { x: (i % 5) * 250, y: Math.floor(i / 5) * 150 },
       data: { label: node.label, type: node.type, filePath: node.filePath },
     }));

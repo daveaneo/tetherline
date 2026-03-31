@@ -1,17 +1,22 @@
-import { useMemo, useEffect } from 'react';
+import { useCallback, useMemo, useEffect, useState } from 'react';
 import {
   ReactFlow,
   Background,
   Controls,
   useNodesState,
   useEdgesState,
+  useReactFlow,
+  ReactFlowProvider,
   type Node,
   type Edge,
   type NodeTypes,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import ELK from 'elkjs/lib/elk.bundled.js';
 import type { DiagramNode, DiagramEdge } from '@interactive-reviewer/shared';
-import { ModuleNode, type ModuleNodeType } from './nodes/ModuleNode.js';
+import { ModuleNode } from './nodes/ModuleNode.js';
+
+const elk = new ELK();
 
 interface Props {
   nodes: DiagramNode[];
@@ -20,66 +25,74 @@ interface Props {
   highlightedFiles?: string[];
 }
 
-// Simple tree layout algorithm (no dagre dependency needed)
-function layoutNodes(nodes: DiagramNode[], edges: DiagramEdge[]): ModuleNodeType[] {
-  // Build adjacency for topological sort
-  const children = new Map<string, string[]>();
-  const parents = new Map<string, string[]>();
-
-  for (const node of nodes) {
-    children.set(node.id, []);
-    parents.set(node.id, []);
-  }
-  for (const edge of edges) {
-    children.get(edge.source)?.push(edge.target);
-    parents.get(edge.target)?.push(edge.source);
-  }
-
-  // Find roots (no parents)
-  const roots = nodes.filter(n => (parents.get(n.id)?.length ?? 0) === 0);
-
-  // BFS level assignment
-  const levels = new Map<string, number>();
-  const queue = roots.map(r => r.id);
-  for (const id of queue) levels.set(id, 0);
-
-  let i = 0;
-  while (i < queue.length) {
-    const current = queue[i++];
-    const level = levels.get(current) ?? 0;
-    for (const child of children.get(current) ?? []) {
-      if (!levels.has(child)) {
-        levels.set(child, level + 1);
-        queue.push(child);
-      }
+async function layoutWithElk(
+  nodes: DiagramNode[],
+  edges: DiagramEdge[],
+  collapsedIds: Set<string>,
+): Promise<{ nodes: Node[]; edges: Edge[] }> {
+  // Filter to visible nodes (not children of collapsed parents)
+  const visibleNodes = nodes.filter(n => {
+    if (!n.parentId) return true; // top-level always visible
+    // Walk up the parent chain -- if any ancestor is collapsed, hide this node
+    let current = n;
+    while (current.parentId) {
+      if (collapsedIds.has(current.parentId)) return false;
+      const parent = nodes.find(p => p.id === current.parentId);
+      if (!parent) break;
+      current = parent;
     }
-  }
+    return true;
+  });
 
-  // Assign positions by level
-  const levelCounts = new Map<number, number>();
+  const visibleIds = new Set(visibleNodes.map(n => n.id));
+  const visibleEdges = edges.filter(e => visibleIds.has(e.source) && visibleIds.has(e.target));
 
-  return nodes.map(node => {
-    const level = levels.get(node.id) ?? 0;
-    const count = levelCounts.get(level) ?? 0;
-    levelCounts.set(level, count + 1);
+  const elkGraph = {
+    id: 'root',
+    layoutOptions: {
+      'elk.algorithm': 'layered',
+      'elk.direction': 'DOWN',
+      'elk.spacing.nodeNode': '60',
+      'elk.layered.spacing.nodeNodeBetweenLayers': '80',
+      'elk.padding': '[top=30,left=30,bottom=30,right=30]',
+    },
+    children: visibleNodes.map(n => ({
+      id: n.id,
+      width: n.type === 'file' ? 160 : 200,
+      height: n.type === 'file' ? 50 : 70,
+    })),
+    edges: visibleEdges.map(e => ({
+      id: e.id,
+      sources: [e.source],
+      targets: [e.target],
+    })),
+  };
+
+  const layout = await elk.layout(elkGraph);
+
+  const layoutNodes: Node[] = (layout.children ?? []).map(elkNode => {
+    const original = visibleNodes.find(n => n.id === elkNode.id)!;
+    const hasChildren = nodes.some(n => n.parentId === original.id);
+    const isCollapsed = collapsedIds.has(original.id);
 
     return {
-      id: node.id,
-      type: 'module' as const,
-      position: { x: count * 280, y: level * 180 },
+      id: original.id,
+      type: 'module',
+      position: { x: elkNode.x ?? 0, y: elkNode.y ?? 0 },
       data: {
-        label: node.label,
-        nodeType: node.type,
-        filePath: node.filePath,
+        label: original.label,
+        nodeType: original.type,
+        filePath: original.filePath,
+        zoomLevel: original.zoomLevel,
         focused: false,
         highlighted: false,
+        hasChildren,
+        collapsed: isCollapsed,
       },
     };
   });
-}
 
-function convertEdges(edges: DiagramEdge[]): Edge[] {
-  return edges.map(edge => ({
+  const layoutEdges: Edge[] = visibleEdges.map(edge => ({
     id: edge.id,
     source: edge.source,
     target: edge.target,
@@ -89,53 +102,102 @@ function convertEdges(edges: DiagramEdge[]): Edge[] {
     style: { stroke: '#4a4a6a', strokeWidth: 1.5 },
     labelStyle: { fill: '#8888a0', fontSize: 11 },
   }));
+
+  return { nodes: layoutNodes, edges: layoutEdges };
 }
 
-const nodeTypes: NodeTypes = {
-  module: ModuleNode,
-};
+function DiagramInner({ nodes: rawNodes, edges: rawEdges, focusedNodeId, highlightedFiles }: Props) {
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([] as Node[]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([] as Edge[]);
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => {
+    // Initially collapse everything -- show only level 1
+    const ids = new Set<string>();
+    for (const n of rawNodes) {
+      if (n.zoomLevel === 1) {
+        ids.add(n.id);
+      }
+    }
+    return ids;
+  });
+  const { fitView } = useReactFlow();
 
-export function ArchitectureDiagram({ nodes: rawNodes, edges: rawEdges, focusedNodeId, highlightedFiles }: Props) {
-  const initialNodes = useMemo(() => layoutNodes(rawNodes, rawEdges), [rawNodes, rawEdges]);
-  const initialEdges = useMemo(() => convertEdges(rawEdges), [rawEdges]);
+  // Layout when nodes/edges/collapsed state changes
+  useEffect(() => {
+    if (rawNodes.length === 0) return;
+    layoutWithElk(rawNodes, rawEdges, collapsedIds).then(({ nodes: ln, edges: le }) => {
+      setNodes(ln);
+      setEdges(le);
+      setTimeout(() => fitView({ duration: 400, padding: 0.2 }), 50);
+    });
+  }, [rawNodes, rawEdges, collapsedIds, setNodes, setEdges, fitView]);
 
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, , onEdgesChange] = useEdgesState(initialEdges);
-
-  // Update focus/highlight when they change
+  // Update focus/highlight
   useEffect(() => {
     setNodes(nds => nds.map(n => ({
       ...n,
       data: {
         ...n.data,
         focused: n.id === focusedNodeId,
-        highlighted: highlightedFiles?.some(f => n.data.filePath != null && f.includes(String(n.data.filePath))) ?? false,
+        highlighted: highlightedFiles?.some(f => {
+          const fp = n.data.filePath as string | undefined;
+          return fp && f.includes(fp);
+        }) ?? false,
       },
     })));
   }, [focusedNodeId, highlightedFiles, setNodes]);
 
+  // Focus on a specific node when focusedNodeId changes
+  useEffect(() => {
+    if (focusedNodeId) {
+      fitView({ nodes: [{ id: focusedNodeId }], duration: 600, padding: 0.5 });
+    }
+  }, [focusedNodeId, fitView]);
+
+  // Handle expand/collapse
+  const onToggleCollapse = useCallback((nodeId: string) => {
+    setCollapsedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(nodeId)) {
+        next.delete(nodeId);
+      } else {
+        next.add(nodeId);
+      }
+      return next;
+    });
+  }, []);
+
+  const nodeTypes: NodeTypes = useMemo(() => ({
+    module: (props: any) => <ModuleNode {...props} onToggleCollapse={onToggleCollapse} />,
+  }), [onToggleCollapse]);
+
   return (
-    <div className="w-full h-full">
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        nodeTypes={nodeTypes}
-        fitView
-        minZoom={0.3}
-        maxZoom={2}
-        proOptions={{ hideAttribution: true }}
-      >
-        <Background color="#2a2a3a" gap={20} />
-        <Controls
-          style={{
-            background: '#12121a',
-            borderColor: '#2a2a3a',
-            borderRadius: '8px',
-          }}
-        />
-      </ReactFlow>
-    </div>
+    <ReactFlow
+      nodes={nodes}
+      edges={edges}
+      onNodesChange={onNodesChange}
+      onEdgesChange={onEdgesChange}
+      nodeTypes={nodeTypes}
+      fitView
+      minZoom={0.2}
+      maxZoom={2.5}
+      proOptions={{ hideAttribution: true }}
+    >
+      <Background color="#2a2a3a" gap={20} />
+      <Controls
+        style={{
+          background: '#12121a',
+          borderColor: '#2a2a3a',
+          borderRadius: '8px',
+        }}
+      />
+    </ReactFlow>
+  );
+}
+
+export function ArchitectureDiagram(props: Props) {
+  return (
+    <ReactFlowProvider>
+      <DiagramInner {...props} />
+    </ReactFlowProvider>
   );
 }

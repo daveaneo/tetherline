@@ -139,9 +139,14 @@ export function useSessionOrchestrator() {
       const signal = controller.signal;
 
       switch (phase) {
-        case 'ANALYZING':
-          // Nothing to narrate yet — the UI shows the progress animation
+        case 'ANALYZING': {
+          // Speak the greeting if available
+          const greeting = useSessionStore.getState().greeting;
+          if (greeting && modes.narration) {
+            await speak(greeting, signal);
+          }
           break;
+        }
 
         case 'PREVIOUSLY_ON': {
           const recap = useSessionStore.getState().recap;

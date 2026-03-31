@@ -1,0 +1,266 @@
+import { useSession } from '../../hooks/useSession.js';
+import { useSessionStore } from '../../state/session-store.js';
+import { CodeSnippet } from '../code/CodeSnippet.js';
+import { DiffView } from '../code/DiffView.js';
+import { UnderstandingMap } from '../heatmap/UnderstandingMap.js';
+import { AnimatePresence, motion } from 'framer-motion';
+import type { AreaWithContent, Concern } from '@interactive-reviewer/shared';
+
+export function ContentPanel() {
+  const { state, areas, analysisProgress, context } = useSession();
+  const heatmap = useSessionStore(s => s.heatmap);
+  const concerns = useSessionStore(s => s.concerns);
+  const recap = useSessionStore(s => s.recap);
+  const previousSession = useSessionStore(s => s.previousSession);
+
+  const currentArea = state.areaIndex !== undefined ? areas[state.areaIndex] : undefined;
+  const currentSegment = currentArea?.narrationSegments?.[state.segmentIndex ?? 0];
+
+  return (
+    <div className="h-full p-6 overflow-y-auto">
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={`${state.phase}-${state.areaIndex}-${state.segmentIndex}`}
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -20 }}
+          transition={{ duration: 0.25 }}
+        >
+          {state.phase === 'ANALYZING' && (
+            <AnalyzingContent progress={analysisProgress} />
+          )}
+
+          {state.phase === 'PREVIOUSLY_ON' && (
+            <RecapContent recap={recap} previousSession={previousSession} />
+          )}
+
+          {state.phase === 'HEATMAP' && (
+            <div>
+              <h2 className="text-xl font-semibold mb-4">Understanding Map</h2>
+              <UnderstandingMap data={heatmap} />
+            </div>
+          )}
+
+          {state.phase === 'OVERVIEW' && (
+            <OverviewContent areas={areas} />
+          )}
+
+          {(state.phase === 'AREA_WALKTHROUGH' || state.phase === 'QA') && currentArea && (
+            <AreaContent area={currentArea} segment={currentSegment} />
+          )}
+
+          {state.phase === 'ADVISORY' && (
+            <ConcernsContent concerns={concerns} />
+          )}
+
+          {state.phase === 'WRAP_UP' && (
+            <WrapUpContent heatmap={heatmap} sessionId={context.sessionId} />
+          )}
+
+          {state.phase === 'COMPLETED' && (
+            <div className="text-center py-12">
+              <h2 className="text-2xl font-bold mb-3">Session Complete</h2>
+              <p className="text-[var(--color-text-muted)]">Your understanding map has been updated.</p>
+            </div>
+          )}
+
+          {state.phase === 'ERROR' && (
+            <div className="text-center py-12">
+              <h2 className="text-xl font-bold text-red-400 mb-3">Something went wrong</h2>
+              <p className="text-[var(--color-text-muted)]">{state.error ?? 'An unexpected error occurred'}</p>
+            </div>
+          )}
+        </motion.div>
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function AnalyzingContent({ progress }: { progress: { phase: string; progress: number; message: string } | null }) {
+  return (
+    <div className="space-y-6 py-8">
+      <h2 className="text-xl font-semibold">Analyzing Repository</h2>
+      <div className="space-y-3">
+        <div className="h-2 bg-[var(--color-border)] rounded-full overflow-hidden">
+          <motion.div
+            className="h-full bg-[var(--color-accent)] rounded-full"
+            animate={{ width: `${(progress?.progress ?? 0) * 100}%` }}
+            transition={{ duration: 0.5 }}
+          />
+        </div>
+        <p className="text-sm text-[var(--color-text-muted)]">{progress?.message ?? 'Starting...'}</p>
+      </div>
+    </div>
+  );
+}
+
+function RecapContent({ recap, previousSession }: { recap: string | null; previousSession: any }) {
+  return (
+    <div className="space-y-4 py-8">
+      <h2 className="text-xl font-semibold">Previously...</h2>
+      {previousSession && (
+        <div className="p-4 bg-[var(--color-bg)] rounded-xl border border-[var(--color-border)]">
+          <p className="text-sm text-[var(--color-text-muted)] mb-1">
+            Last session: {previousSession.totalCommits} commits, {previousSession.totalAreas} areas
+          </p>
+        </div>
+      )}
+      {recap && <p className="text-[var(--color-text)] leading-relaxed">{recap}</p>}
+    </div>
+  );
+}
+
+function OverviewContent({ areas }: { areas: AreaWithContent[] }) {
+  return (
+    <div className="space-y-4 py-4">
+      <h2 className="text-xl font-semibold">This Week's Changes</h2>
+      <div className="space-y-3">
+        {areas.map((area) => (
+          <div
+            key={area.id}
+            className="p-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)]"
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <span className={`w-2 h-2 rounded-full ${
+                area.significance === 'major' ? 'bg-[var(--color-red)]' :
+                area.significance === 'minor' ? 'bg-[var(--color-yellow)]' :
+                'bg-[var(--color-green)]'
+              }`} />
+              <h3 className="font-medium">{area.name}</h3>
+            </div>
+            <p className="text-sm text-[var(--color-text-muted)]">{area.description}</p>
+            <p className="text-xs text-[var(--color-text-muted)] mt-2">
+              {area.commitHashes.length} commits &middot; {area.affectedFiles.length} files
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AreaContent({ area, segment }: { area: AreaWithContent; segment?: AreaWithContent['narrationSegments'][number] }) {
+  const visualCue = segment?.visualCue;
+
+  return (
+    <div className="space-y-4">
+      {/* Area header */}
+      <div>
+        <h2 className="text-xl font-semibold">{area.name}</h2>
+        <p className="text-sm text-[var(--color-text-muted)] mt-1">{area.description}</p>
+      </div>
+
+      {/* Visual cue content */}
+      {visualCue?.type === 'show_code' && visualCue.code && (
+        <CodeSnippet
+          code={visualCue.code}
+          language={visualCue.language ?? 'text'}
+          filePath={visualCue.filePath}
+          highlightLines={visualCue.lines ? [visualCue.lines[0], visualCue.lines[1]] : undefined}
+        />
+      )}
+
+      {visualCue?.type === 'show_diff' && visualCue.filePath && (
+        <DiffView
+          filePath={visualCue.filePath}
+          hunks={[{ content: visualCue.code ?? '' }]}
+        />
+      )}
+
+      {visualCue?.type === 'highlight_file' && visualCue.filePath && (
+        <div className="p-4 rounded-xl border border-[var(--color-accent)]/30 bg-[var(--color-accent)]/5">
+          <p className="text-sm font-mono text-[var(--color-accent)]">{visualCue.filePath}</p>
+        </div>
+      )}
+
+      {(!visualCue || visualCue.type === 'none' || visualCue.type === 'diagram_focus') && (
+        <div className="space-y-2">
+          <h3 className="text-sm font-medium text-[var(--color-text-muted)]">Files in this area</h3>
+          <div className="space-y-1">
+            {area.affectedFiles.slice(0, 15).map(f => (
+              <div key={f} className="text-xs font-mono text-[var(--color-text-muted)] py-0.5">{f}</div>
+            ))}
+            {area.affectedFiles.length > 15 && (
+              <div className="text-xs text-[var(--color-text-muted)]">...and {area.affectedFiles.length - 15} more</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ConcernsContent({ concerns }: { concerns: Concern[] }) {
+  const sorted = [...concerns].sort((a, b) => {
+    const order: Record<string, number> = { critical: 0, warning: 1, info: 2 };
+    return (order[a.severity] ?? 2) - (order[b.severity] ?? 2);
+  });
+
+  return (
+    <div className="space-y-4 py-4">
+      <h2 className="text-xl font-semibold">AI Observations</h2>
+      {sorted.length === 0 ? (
+        <p className="text-[var(--color-text-muted)]">No concerns flagged.</p>
+      ) : (
+        <div className="space-y-3">
+          {sorted.map(c => (
+            <div
+              key={c.id}
+              className={`p-4 rounded-xl border ${
+                c.severity === 'critical' ? 'border-red-500/40 bg-red-500/5' :
+                c.severity === 'warning' ? 'border-amber-500/40 bg-amber-500/5' :
+                'border-[var(--color-border)] bg-[var(--color-bg)]'
+              }`}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                  c.severity === 'critical' ? 'bg-red-500/20 text-red-400' :
+                  c.severity === 'warning' ? 'bg-amber-500/20 text-amber-400' :
+                  'bg-[var(--color-surface)] text-[var(--color-text-muted)]'
+                }`}>{c.severity}</span>
+                <span className="text-xs text-[var(--color-text-muted)]">{c.category}</span>
+              </div>
+              <h3 className="font-medium mb-1">{c.title}</h3>
+              <p className="text-sm text-[var(--color-text-muted)]">{c.description}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WrapUpContent({ heatmap, sessionId }: { heatmap: any; sessionId: string }) {
+  const handleExport = async (format: 'slides' | 'markdown') => {
+    try {
+      const { api } = await import('../../lib/api-client.js');
+      const result = format === 'slides'
+        ? await api.exportSlides(sessionId)
+        : await api.exportMarkdown(sessionId);
+      window.open(result.downloadUrl, '_blank');
+    } catch (err) {
+      console.error('Export failed:', err);
+    }
+  };
+
+  return (
+    <div className="space-y-6 py-4">
+      <h2 className="text-xl font-semibold">Session Complete</h2>
+      <UnderstandingMap data={heatmap} />
+      <div className="flex gap-3">
+        <button
+          onClick={() => handleExport('slides')}
+          className="px-5 py-2.5 bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white rounded-lg text-sm transition-colors"
+        >
+          Export Slides
+        </button>
+        <button
+          onClick={() => handleExport('markdown')}
+          className="px-5 py-2.5 border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] rounded-lg text-sm transition-colors"
+        >
+          Export Markdown
+        </button>
+      </div>
+    </div>
+  );
+}

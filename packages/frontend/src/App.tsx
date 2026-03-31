@@ -1,13 +1,10 @@
 import { AppShell } from './components/layout/AppShell.js';
 import { Lobby } from './components/lobby/Lobby.js';
-import { SessionView } from './components/session/SessionView.js';
+import { Room } from './components/room/Room.js';
 import { Toolbar } from './components/layout/Toolbar.js';
-import { NavigationControls } from './components/layout/NavigationControls.js';
-import { ProgressBar } from './components/layout/ProgressBar.js';
 import { SettingsPanel } from './components/settings/SettingsPanel.js';
 import { ErrorBanner } from './components/layout/ErrorBanner.js';
 import { QuestionPanel } from './components/session/QuestionPanel.js';
-import { NarrationPlayer } from './components/audio/NarrationPlayer.js';
 import { useWebSocket } from './hooks/useWebSocket.js';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
 import { useSessionOrchestrator } from './hooks/useSessionOrchestrator.js';
@@ -51,12 +48,9 @@ export function App() {
     <AppShell>
       <Toolbar />
       <ErrorBanner />
-      {inSession && <ProgressBar />}
       <main className="flex-1 overflow-hidden">
-        {inSession ? <SessionView /> : <Lobby />}
+        {inSession ? <Room /> : <Lobby />}
       </main>
-      {inSession && <NavigationControls />}
-      {inSession && <NarrationPlayer />}
       <QuestionPanel />
       <SettingsPanel />
     </AppShell>

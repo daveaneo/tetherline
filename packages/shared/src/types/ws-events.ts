@@ -41,6 +41,7 @@ export type ServerEvent =
   | { type: 'qa:answer_code'; payload: { filePath: string; snippet: string; language: string } }
   | { type: 'export:generating'; payload: { format: string; progress: number } }
   | { type: 'export:ready'; payload: { format: string; downloadUrl: string } }
+  | { type: 'narration:greeting'; payload: { text: string } }
   | { type: 'error'; payload: { code: string; message: string; recoverable: boolean } };
 
 // Session state types
