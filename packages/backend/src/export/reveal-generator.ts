@@ -131,6 +131,7 @@ function buildRevealHtml(title: string, slidesHtml: string): string {
       ${slidesHtml}
     </div>
   </div>
+  <!-- Requires internet access for Reveal.js CDN resources -->
   <script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"><\/script>
   <script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/highlight/highlight.js"><\/script>
   <script>
@@ -140,6 +141,9 @@ function buildRevealHtml(title: string, slidesHtml: string): string {
       plugins: [RevealHighlight],
     });
   <\/script>
+  <noscript>
+    <style>.slides section { display: block !important; margin: 2em auto; max-width: 800px; padding: 2em; }</style>
+  </noscript>
 </body>
 </html>`;
 }

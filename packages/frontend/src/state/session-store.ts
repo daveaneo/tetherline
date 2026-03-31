@@ -6,6 +6,12 @@ import type {
 } from '@interactive-reviewer/shared';
 import { DEFAULT_MODES } from '@interactive-reviewer/shared';
 
+interface ProposalData {
+  message: string;
+  suggestedOrder: string[];
+  areas: Array<{ id: string; name: string; significance: string }>;
+}
+
 interface SessionStore {
   state: SessionState;
   context: StateContext;
@@ -16,6 +22,7 @@ interface SessionStore {
   previousSession: SessionSummary | null;
   recap: string | null;
   greeting: string | null;
+  proposal: ProposalData | null;
   qaAnswer: string;
   qaAnswerDone: boolean;
   understanding: UnderstandingState | null;
@@ -41,6 +48,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   previousSession: null,
   recap: null,
   greeting: null,
+  proposal: null,
   qaAnswer: '',
   qaAnswerDone: false,
   understanding: null,
@@ -63,6 +71,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     previousSession: null,
     recap: null,
     greeting: null,
+    proposal: null,
     qaAnswer: '',
     qaAnswerDone: false,
     understanding: null,
@@ -109,6 +118,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
       case 'session:recap':
         set({ previousSession: event.payload.previousSession, recap: event.payload.narrative });
+        break;
+
+      case 'session:proposal':
+        set({ proposal: event.payload });
         break;
 
       case 'session:heatmap':

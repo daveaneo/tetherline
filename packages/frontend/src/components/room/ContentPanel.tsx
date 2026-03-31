@@ -16,6 +16,7 @@ export function ContentPanel() {
   const recap = useSessionStore(s => s.recap);
   const previousSession = useSessionStore(s => s.previousSession);
   const understanding = useSessionStore(s => s.understanding);
+  const proposal = useSessionStore(s => s.proposal);
   const skillResult = useSessionStore(s => s.skillResult);
   const skillClarification = useSessionStore(s => s.skillClarification);
 
@@ -83,6 +84,10 @@ export function ContentPanel() {
         >
           {state.phase === 'ANALYZING' && (
             <AnalyzingContent progress={analysisProgress} />
+          )}
+
+          {state.phase === 'PROPOSAL' && proposal && (
+            <ProposalContent proposal={proposal} />
           )}
 
           {state.phase === 'PREVIOUSLY_ON' && (
@@ -157,6 +162,43 @@ function AnalyzingContent({ progress }: { progress: { phase: string; progress: n
         </div>
         <p className="text-sm text-[var(--color-text-muted)]">{progress?.message ?? 'Starting...'}</p>
       </div>
+    </div>
+  );
+}
+
+function ProposalContent({ proposal }: { proposal: { message: string; suggestedOrder: string[]; areas: Array<{ id: string; name: string; significance: string }> } }) {
+  return (
+    <div className="space-y-6 py-4">
+      <h2 className="text-xl font-semibold">Tour Plan</h2>
+      <p className="text-[var(--color-text)] leading-relaxed">{proposal.message}</p>
+
+      <div className="space-y-2">
+        <h3 className="text-sm font-medium text-[var(--color-text-muted)]">Suggested order</h3>
+        <div className="space-y-2">
+          {proposal.areas.map((area, index) => (
+            <div
+              key={area.id}
+              className="flex items-center gap-3 p-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)]"
+            >
+              <span className="text-sm font-medium text-[var(--color-text-muted)] w-6 text-right">{index + 1}</span>
+              <span className={`w-2 h-2 rounded-full ${
+                area.significance === 'major' ? 'bg-[var(--color-red)]' :
+                area.significance === 'minor' ? 'bg-[var(--color-yellow)]' :
+                'bg-[var(--color-green)]'
+              }`} />
+              <span className="text-sm font-medium">{area.name}</span>
+              <span className="text-xs text-[var(--color-text-muted)] ml-auto">{area.significance}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <button
+        onClick={() => sendEvent({ type: 'command:next' })}
+        className="px-5 py-2.5 bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white rounded-lg text-sm transition-colors"
+      >
+        Let's go
+      </button>
     </div>
   );
 }

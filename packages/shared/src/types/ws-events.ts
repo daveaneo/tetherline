@@ -48,6 +48,7 @@ export type ServerEvent =
   | { type: 'session:understanding'; payload: { understanding: UnderstandingState } }
   | { type: 'skill:result'; payload: { result: SkillResult } }
   | { type: 'skill:clarify'; payload: { message: string; options: string[] } }
+  | { type: 'session:proposal'; payload: { message: string; suggestedOrder: string[]; areas: Array<{ id: string; name: string; significance: string }> } }
   | { type: 'session:tour_progress'; payload: { total: number; covered: number; percentage: number } }
   | { type: 'error'; payload: { code: string; message: string; recoverable: boolean } };
 
@@ -55,6 +56,7 @@ export type ServerEvent =
 export type SessionPhase =
   | 'IDLE'
   | 'ANALYZING'
+  | 'PROPOSAL'
   | 'PREVIOUSLY_ON'
   | 'HEATMAP'
   | 'OVERVIEW'
@@ -76,6 +78,7 @@ export interface SessionState {
   segmentIndex?: number;
   deepDive?: boolean;
   paused?: boolean;
+  condensed?: boolean;
   prediction?: 'awaiting' | 'revealed';
   returnToPhase?: SessionPhase;
   returnToAreaIndex?: number;

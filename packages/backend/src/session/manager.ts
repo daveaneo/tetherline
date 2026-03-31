@@ -51,6 +51,8 @@ export class SessionManager {
   private activeAnalyzer: IntelligenceAnalyzer | null = null;
   private fileTree: string[] = [];
   private tourPlan: TourPlan | null = null;
+  private detectedLanguages: string[] = [];
+  private proposalSuggestedOrder: string[] = [];
 
   constructor(
     private db: Database,
@@ -112,6 +114,9 @@ export class SessionManager {
       // Update context
       this.context.sessionId = sessionId;
 
+      // Detect staleness from previous session before analysis begins
+      await this.detectStaleness(effectivePath);
+
       // Create session record in DB
       this.db.getSessionRepo().createSession({
         id: sessionId,
@@ -152,10 +157,10 @@ export class SessionManager {
       // Handle zero commits
       if (commits.length === 0) {
         if (this.entryMode === 'updates') {
-          // Nothing changed since last review — emit a friendly message and wrap up
+          // Nothing changed since last review — offer to switch to full walkthrough
           this.emit({
             type: 'narration:greeting',
-            payload: { text: `Nothing's changed in ${repoName} since your last review. Check back later or try a full walkthrough to explore the architecture.` },
+            payload: { text: `Nothing's changed in ${repoName} since your last review. Want to do a full walkthrough instead?` },
           });
 
           // Still compute heatmap and finish the session record
@@ -176,7 +181,17 @@ export class SessionManager {
               areas: [],
             },
           });
-          this.setState({ phase: 'WRAP_UP' });
+
+          // Transition to PROPOSAL so the user can choose to do a full walkthrough
+          this.emit({
+            type: 'session:proposal',
+            payload: {
+              message: `No new commits since your last review. You can do a full walkthrough to explore the architecture, or wrap up.`,
+              suggestedOrder: [],
+              areas: [],
+            },
+          });
+          this.setState({ phase: 'PROPOSAL' });
           return;
         }
         // Full walkthrough with zero commits: proceed with file-tree-only analysis below
@@ -184,6 +199,7 @@ export class SessionManager {
 
       // Detect languages from file extensions in the diffs
       const languages = this.detectLanguages(commits);
+      this.detectedLanguages = languages;
 
       // Get previous session summary (for "Previously on..." -- reuses lookup from above)
       const previousSummary = (previousSessionRecord && previousSessionRecord.id !== sessionId)
@@ -381,13 +397,47 @@ export class SessionManager {
         }
       }
 
-      // Branch based on entry mode
-      if (this.entryMode === 'full_walkthrough') {
-        // Full walkthrough: generate project overview first
+      // Generate proposal and transition to PROPOSAL phase for both entry modes
+      this.proposalSuggestedOrder = this.areas.map(a => a.id);
+      const proposalAreas = this.areas.map(a => ({
+        id: a.id, name: a.name, significance: a.significance,
+      }));
+
+      let proposalMessage: string;
+      if (this.activeAnalyzer) {
         try {
-          this.projectOverview = await this.generateProjectOverview(effectivePath, repoName, languages, commits.length);
+          proposalMessage = await this.activeAnalyzer.generateProposal(
+            areas, this.entryMode, languages,
+          );
         } catch {
-          // Fallback if overview generation fails
+          proposalMessage = this.buildFallbackProposal(languages);
+        }
+      } else {
+        proposalMessage = this.buildFallbackProposal(languages);
+      }
+
+      // Store previous session info for updates mode (needed after proposal)
+      if (this.entryMode === 'updates'
+        && previousSessionRecord
+        && previousSessionRecord.id !== sessionId
+      ) {
+        this.previousSession = {
+          id: previousSessionRecord.id,
+          repoName: previousSessionRecord.repoName,
+          startedAt: previousSessionRecord.startedAt,
+          totalCommits: previousSessionRecord.totalCommits,
+          totalAreas: previousSessionRecord.totalAreas,
+          summary: previousSessionRecord.summary,
+        };
+      }
+
+      // For full walkthrough, generate project overview (used after proposal)
+      if (this.entryMode === 'full_walkthrough') {
+        try {
+          this.projectOverview = await this.generateProjectOverview(
+            effectivePath, repoName, languages, commits.length,
+          );
+        } catch {
           this.projectOverview = {
             overview: `This is ${repoName}. Let me walk you through the codebase.`,
             purpose: repoName,
@@ -395,38 +445,18 @@ export class SessionManager {
             keyAreas: this.areas.slice(0, 5).map(a => a.name),
           };
         }
-
-        // Seed understanding items for the project layer
         this.seedUnderstandingItems(effectivePath, repoName, this.areas);
-
-        this.setState({ phase: 'PROJECT_OVERVIEW' });
-      } else {
-        // Updates mode (default): existing flow
-        // Check for a previous session ("Previously on...")
-        if (previousSessionRecord && previousSessionRecord.id !== sessionId) {
-          this.previousSession = {
-            id: previousSessionRecord.id,
-            repoName: previousSessionRecord.repoName,
-            startedAt: previousSessionRecord.startedAt,
-            totalCommits: previousSessionRecord.totalCommits,
-            totalAreas: previousSessionRecord.totalAreas,
-            summary: previousSessionRecord.summary,
-          };
-
-          this.setState({ phase: 'PREVIOUSLY_ON' });
-          this.emit({
-            type: 'session:recap',
-            payload: {
-              previousSession: this.previousSession,
-              narrative: this.previousSession.summary
-                ?? `Last session reviewed ${this.previousSession.totalAreas} areas with ${this.previousSession.totalCommits} commits.`,
-            },
-          });
-        } else {
-          // No previous session, skip straight to HEATMAP
-          this.setState({ phase: 'HEATMAP' });
-        }
       }
+
+      this.emit({
+        type: 'session:proposal',
+        payload: {
+          message: proposalMessage,
+          suggestedOrder: this.proposalSuggestedOrder,
+          areas: proposalAreas,
+        },
+      });
+      this.setState({ phase: 'PROPOSAL' });
     } catch (err: any) {
       this.setState({ phase: 'ERROR', error: err.message ?? 'Analysis failed' });
       this.emit({
@@ -513,6 +543,11 @@ export class SessionManager {
 
   private navigateNext() {
     switch (this.state.phase) {
+      case 'PROPOSAL':
+        // User accepted the proposal — proceed into the tour
+        this.acceptProposal();
+        break;
+
       case 'PREVIOUSLY_ON':
         this.setState({ phase: 'HEATMAP' });
         break;
@@ -630,9 +665,19 @@ export class SessionManager {
 
   private navigatePrevious() {
     switch (this.state.phase) {
+      case 'PROPOSAL':
+        // Can't go back from proposal (it's the first interactive phase)
+        break;
+
+      case 'PREVIOUSLY_ON':
+        this.setState({ phase: 'PROPOSAL' });
+        break;
+
       case 'HEATMAP':
         if (this.previousSession) {
           this.setState({ phase: 'PREVIOUSLY_ON' });
+        } else {
+          this.setState({ phase: 'PROPOSAL' });
         }
         break;
 
@@ -641,7 +686,7 @@ export class SessionManager {
         break;
 
       case 'PROJECT_OVERVIEW':
-        // Can't go back from project overview (it's the first phase)
+        this.setState({ phase: 'PROPOSAL' });
         break;
 
       case 'ARCHITECTURE_OVERVIEW':
@@ -713,6 +758,11 @@ export class SessionManager {
   }
 
   private navigateSkip() {
+    // From PROPOSAL, skip straight to WRAP_UP
+    if (this.state.phase === 'PROPOSAL') {
+      this.setState({ phase: 'WRAP_UP' });
+      return;
+    }
     // Skip current area entirely and move to next
     if (this.state.phase === 'AREA_WALKTHROUGH' || this.state.phase === 'AREA_TRANSITION' || this.state.phase === 'COMPONENT_TOUR') {
       const areaIndex = this.state.areaIndex ?? 0;
@@ -730,8 +780,8 @@ export class SessionManager {
     }
   }
 
-  private handleQuestion(question: string) {
-    // Save current location so we can return
+  private async handleQuestion(question: string) {
+    // Save return state
     if (this.state.phase !== 'QA') {
       this.setState({
         phase: 'QA',
@@ -740,10 +790,23 @@ export class SessionManager {
         returnToSegmentIndex: this.state.segmentIndex,
       });
     }
-    // TODO: Wire up LLM Q&A -- for now just echo that we received the question
+
+    // Try to answer with the intelligence analyzer
+    if (this.activeAnalyzer) {
+      try {
+        const currentArea = this.state.areaIndex !== undefined ? this.areas[this.state.areaIndex] : undefined;
+        const context = `Current area: ${currentArea?.name ?? 'none'}. ${currentArea?.description ?? ''}`;
+        const answer = await this.activeAnalyzer.answerQuestion(question, context);
+        this.emit({ type: 'qa:answer_chunk', payload: { text: answer, done: true } });
+        return;
+      } catch {
+        // Fall through to fallback
+      }
+    }
+
     this.emit({
       type: 'qa:answer_chunk',
-      payload: { text: `Q&A not yet implemented. You asked: "${question}"`, done: true },
+      payload: { text: `I can't answer questions without an Anthropic API key configured. Try adding ANTHROPIC_API_KEY to your .env file.`, done: true },
     });
   }
 
@@ -758,12 +821,58 @@ export class SessionManager {
     }
   }
 
-  private handleExport(format: 'slides' | 'markdown') {
-    // TODO: Implement export
-    this.emit({
-      type: 'export:generating',
-      payload: { format, progress: 0 },
-    });
+  private async handleExport(format: 'slides' | 'markdown') {
+    this.setState({ phase: 'EXPORTING', exportFormat: format });
+
+    try {
+      const session = this.db.getSessionRepo().getSession(this.context.sessionId);
+      if (!session) throw new Error('Session not found');
+
+      const areas = this.db.getAreaRepo().getAreasForSession(this.context.sessionId);
+
+      // Load concerns
+      const concernRows = this.db.getRawDb().prepare(
+        'SELECT * FROM concerns WHERE session_id = ?'
+      ).all(this.context.sessionId) as any[];
+      const concerns: Concern[] = concernRows.map((r: any) => ({
+        id: r.id, sessionId: r.session_id, areaId: r.area_id,
+        severity: r.severity, category: r.category, title: r.title,
+        description: r.description, affectedFiles: JSON.parse(r.affected_files || '[]'),
+        commitHashes: JSON.parse(r.commit_hashes || '[]'), codeReferences: JSON.parse(r.code_references || '[]'),
+        acknowledged: !!r.acknowledged,
+      }));
+
+      const exportsDir = path.join(this.config.dataDir, 'exports');
+      fs.mkdirSync(exportsDir, { recursive: true });
+
+      let filename: string;
+      let content: string;
+
+      if (format === 'slides') {
+        const { generateRevealSlides } = await import('../export/reveal-generator.js');
+        content = generateRevealSlides(session, areas, concerns);
+        filename = `review-${session.repoName}-${Date.now()}.html`;
+      } else {
+        const { generateMarkdownDigest } = await import('../export/markdown-generator.js');
+        content = generateMarkdownDigest(session, areas, concerns);
+        filename = `review-${session.repoName}-${Date.now()}.md`;
+      }
+
+      fs.writeFileSync(path.join(exportsDir, filename), content);
+
+      this.emit({
+        type: 'export:ready',
+        payload: { format, downloadUrl: `/api/export/download/${filename}` },
+      });
+
+      this.setState({ phase: 'WRAP_UP' });
+    } catch (err: any) {
+      this.emit({
+        type: 'error',
+        payload: { code: 'EXPORT_FAILED', message: err.message, recoverable: true },
+      });
+      this.setState({ phase: 'WRAP_UP' });
+    }
   }
 
   private handleSegmentFinished(segmentId: string) {
@@ -774,6 +883,14 @@ export class SessionManager {
   }
 
   private async handleUtterance(text: string): Promise<void> {
+    // During PROPOSAL phase, handle utterances with proposal-specific logic
+    if (this.state.phase === 'PROPOSAL') {
+      if (this.handleProposalUtterance(text)) return;
+      // If not recognized as a proposal response, accept and proceed
+      this.acceptProposal();
+      return;
+    }
+
     // If no intent classifier available, fall back to treating it as a question
     if (!this.intentClassifier) {
       this.handleQuestion(text);
@@ -867,6 +984,30 @@ export class SessionManager {
 
       this.emit({ type: 'skill:result', payload: { result } });
 
+      // Persist understanding updates from skill execution (e.g., explain/teach/critique)
+      if (result.understandingUpdates) {
+        const effectivePath = this.activeRepoPath ?? this.config.repoPath;
+        for (const update of result.understandingUpdates) {
+          this.db.getUnderstandingRepo().markUnderstood(effectivePath, update.layer as any, update.itemId);
+        }
+        this.emitUnderstandingUpdate(effectivePath);
+      }
+
+      // Persist annotations to the database
+      if (result.skillName === 'annotate') {
+        const rawDb = this.db.getRawDb();
+        rawDb.prepare(`
+          INSERT INTO annotations (id, repo_path, file_path, content, session_id, created_at)
+          VALUES (?, ?, ?, ?, ?, datetime('now'))
+        `).run(
+          uuid(),
+          this.activeRepoPath ?? this.config.repoPath,
+          (result.visualPayload.file as string) ?? null,
+          (result.visualPayload.note as string) ?? result.narration,
+          this.context.sessionId,
+        );
+      }
+
       // After skill completes, check in (once per deviation)
       if (this.tourPlan?.isInDeviation() && !this.tourPlan.hasCheckedIn()) {
         this.tourPlan.markDeviationCheckedIn();
@@ -882,6 +1023,100 @@ export class SessionManager {
         payload: { code: 'SKILL_FAILED', message: err.message ?? 'Skill execution failed', recoverable: true },
       });
     }
+  }
+
+  /** Accept the proposal and transition to the first tour phase. */
+  private acceptProposal(): void {
+    if (this.entryMode === 'full_walkthrough') {
+      this.setState({ phase: 'PROJECT_OVERVIEW' });
+    } else {
+      // Updates mode: go through PREVIOUSLY_ON or straight to HEATMAP
+      if (this.previousSession) {
+        this.setState({ phase: 'PREVIOUSLY_ON' });
+        this.emit({
+          type: 'session:recap',
+          payload: {
+            previousSession: this.previousSession,
+            narrative: this.previousSession.summary
+              ?? `Last session reviewed ${this.previousSession.totalAreas} areas with ${this.previousSession.totalCommits} commits.`,
+          },
+        });
+      } else {
+        this.setState({ phase: 'HEATMAP' });
+      }
+    }
+  }
+
+  /** Build a fallback proposal message when AI generation is unavailable. */
+  private buildFallbackProposal(languages: string[]): string {
+    if (this.entryMode === 'full_walkthrough') {
+      return `This is a ${languages.slice(0, 2).join(' and ') || ''} project with ${this.areas.length} key areas. I'd start with the big picture and work down into the components. Sound good, or is there something specific you want to see first?`;
+    }
+    return `I found ${this.areas.length} area${this.areas.length !== 1 ? 's' : ''} of change. The biggest is ${this.areas[0]?.name ?? 'unknown'}. I'd suggest starting there. Want to go in that order, or would you prefer something different?`;
+  }
+
+  /** Handle user utterance during PROPOSAL phase. Returns true if handled. */
+  private handleProposalUtterance(text: string): boolean {
+    const lower = text.toLowerCase().trim();
+
+    // "yes" / "sounds good" / "let's go" → accept
+    if (/^(yes|yeah|yep|sure|sounds? good|let'?s go|ok|okay|go ahead|start|begin|looks? good)/.test(lower)) {
+      this.acceptProposal();
+      return true;
+    }
+
+    // "just the highlights" → set condensed flag and accept
+    if (/highlight|brief|quick|short|condensed|summary only|skim/.test(lower)) {
+      // Filter to major/minor areas only when condensed
+      const filtered = this.areas.filter(a => a.significance === 'major' || a.significance === 'minor');
+      if (filtered.length > 0) {
+        this.areas = filtered;
+      }
+      this.context.totalAreas = this.areas.length;
+      this.tourPlan = TourPlan.fromAreas(this.areas);
+      this.setState({ ...this.state, condensed: true });
+      this.acceptProposal();
+      return true;
+    }
+
+    // "focus on [X]" → filter to matching area and accept
+    const focusMatch = lower.match(/focus (?:on )?(.+)/);
+    if (focusMatch) {
+      const target = focusMatch[1];
+      const matching = this.areas.filter(a =>
+        a.name.toLowerCase().includes(target) ||
+        a.description.toLowerCase().includes(target),
+      );
+      if (matching.length > 0) {
+        this.areas = matching;
+        this.context.totalAreas = this.areas.length;
+        this.tourPlan = TourPlan.fromAreas(this.areas);
+      }
+      this.acceptProposal();
+      return true;
+    }
+
+    // "skip" → go to wrap up
+    if (/^skip/.test(lower)) {
+      this.setState({ phase: 'WRAP_UP' });
+      return true;
+    }
+
+    // Check if user named a specific area → reorder to start there
+    const matchedArea = this.areas.find(a =>
+      lower.includes(a.name.toLowerCase()),
+    );
+    if (matchedArea) {
+      const reordered = [matchedArea, ...this.areas.filter(a => a.id !== matchedArea.id)];
+      this.areas = reordered;
+      this.proposalSuggestedOrder = reordered.map(a => a.id);
+      this.tourPlan = TourPlan.fromAreas(this.areas);
+      this.context.totalAreas = this.areas.length;
+      this.acceptProposal();
+      return true;
+    }
+
+    return false;
   }
 
   private resumeTour(): void {
@@ -1059,12 +1294,37 @@ export class SessionManager {
         status: 'not_started',
       });
     }
+
+    // File layer: one per affected file per area
+    for (const area of areas) {
+      for (const filePath of area.affectedFiles) {
+        repo.upsertItem({
+          repoPath,
+          layer: 'file',
+          itemId: `file-${filePath}`,
+          itemName: filePath,
+          parentId: `component-${area.id}`,
+          status: 'not_started',
+        });
+      }
+    }
   }
 
   /** Mark a phase's understanding item as understood and emit the updated state. */
   private markPhaseUnderstood(layer: 'project' | 'architecture' | 'component', repoPath: string, itemId: string): void {
     const repo = this.db.getUnderstandingRepo();
     repo.markUnderstood(repoPath, layer, itemId);
+
+    // When a component (area) is marked understood, also mark its files as understood
+    if (layer === 'component') {
+      const area = this.areas.find(a => a.id === itemId);
+      if (area) {
+        for (const filePath of area.affectedFiles) {
+          repo.markUnderstood(repoPath, 'file', `file-${filePath}`);
+        }
+      }
+    }
+
     this.emitUnderstandingUpdate(repoPath);
   }
 
@@ -1097,6 +1357,49 @@ export class SessionManager {
         JSON.stringify(c.affectedFiles), JSON.stringify(c.commitHashes),
         JSON.stringify(c.codeReferences), c.acknowledged ? 1 : 0,
       );
+    }
+  }
+
+  /** Detect and mark stale understanding items based on files changed since last session. */
+  private async detectStaleness(repoPath: string): Promise<void> {
+    const understandingRepo = this.db.getUnderstandingRepo();
+    const items = understandingRepo.getForRepo(repoPath);
+
+    // Get files that changed since last session
+    const git = simpleGit(repoPath);
+    const lastSession = this.db.getSessionRepo().getLastSessionForRepo(repoPath);
+
+    if (!lastSession?.completedAt) return;
+
+    try {
+      const log = await git.log({
+        '--since': lastSession.completedAt,
+        '--name-only': null,
+      } as any);
+
+      const changedFiles = new Set<string>();
+      for (const entry of log.all) {
+        const files = (entry as any).diff?.files ?? [];
+        for (const f of files) {
+          changedFiles.add(f.file);
+        }
+      }
+
+      // Mark understanding items as stale if their files changed
+      for (const item of items) {
+        if (item.status === 'understood' && item.layer === 'file') {
+          const filePath = item.itemName;
+          if (changedFiles.has(filePath)) {
+            understandingRepo.markStale(repoPath, 'file', item.itemId);
+            // Propagate staleness up: mark parent component as stale too
+            if (item.parentId) {
+              understandingRepo.markStale(repoPath, 'component', item.parentId);
+            }
+          }
+        }
+      }
+    } catch {
+      // Ignore errors in staleness detection
     }
   }
 

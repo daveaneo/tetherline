@@ -149,6 +149,18 @@ export function useSessionOrchestrator() {
           break;
         }
 
+        case 'PROPOSAL': {
+          // Speak the proposal message, then WAIT — user drives from here
+          const proposal = useSessionStore.getState().proposal;
+          if (proposal && modes.narration) {
+            await speak(proposal.message, signal);
+          }
+          if (signal.aborted) return;
+          // 10-second auto-accept timer: if user doesn't respond, proceed
+          scheduleAdvance(10000);
+          break;
+        }
+
         case 'PREVIOUSLY_ON': {
           const recap = useSessionStore.getState().recap;
           if (recap && modes.narration) {

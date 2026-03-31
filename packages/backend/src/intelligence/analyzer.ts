@@ -185,6 +185,27 @@ export class IntelligenceAnalyzer {
     });
   }
 
+  async generateProposal(areas: Area[], entryMode: 'updates' | 'full_walkthrough', languages: string[]): Promise<string> {
+    if (entryMode === 'full_walkthrough') {
+      const stats = `${areas.length} key area${areas.length !== 1 ? 's' : ''}, primarily ${languages.slice(0, 3).join(', ') || 'mixed languages'}`;
+      const prompt = `Generate a short, warm proposal message for a full walkthrough code review. The project has ${stats}. The areas are: ${areas.map(a => a.name).join(', ')}. Suggest starting with the big picture and working into the components. Ask if that sounds good or if there's something specific to see first. Keep it to 2-3 sentences, spoken aloud. Do not use bullet points or markdown.`;
+      return this.claude.streamText({
+        system: this.systemPrompt,
+        messages: [{ role: 'user', content: prompt }],
+        maxTokens: 300,
+      });
+    }
+
+    // Updates mode
+    const biggest = areas[0];
+    const prompt = `Generate a short, warm proposal message for a code review session. I found ${areas.length} area${areas.length !== 1 ? 's' : ''} of change. The biggest area is "${biggest?.name ?? 'unknown'}". The other areas are: ${areas.slice(1).map(a => a.name).join(', ') || 'none'}. Suggest starting with the biggest area. Ask if the user wants to go in that order or prefers something different. Keep it to 2-3 sentences, spoken aloud. Do not use bullet points or markdown.`;
+    return this.claude.streamText({
+      system: this.systemPrompt,
+      messages: [{ role: 'user', content: prompt }],
+      maxTokens: 300,
+    });
+  }
+
   async generateSessionSummary(areas: Area[], concerns: Concern[]): Promise<string> {
     const prompt = `Summarize this week's code review session in 2-3 sentences for the "Previously on..." recap next week.
 
