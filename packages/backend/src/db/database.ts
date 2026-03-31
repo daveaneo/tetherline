@@ -152,6 +152,22 @@ export class Database {
 
       CREATE INDEX IF NOT EXISTS idx_understanding_repo ON understanding(repo_path);
       CREATE INDEX IF NOT EXISTS idx_understanding_layer ON understanding(repo_path, layer);
+
+      CREATE TABLE IF NOT EXISTS annotations (
+        id TEXT PRIMARY KEY,
+        repo_path TEXT NOT NULL,
+        file_path TEXT,
+        line_start INTEGER,
+        line_end INTEGER,
+        node_id TEXT,
+        layer TEXT,
+        content TEXT NOT NULL,
+        created_by TEXT DEFAULT 'user',
+        session_id TEXT REFERENCES sessions(id),
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_annotations_repo ON annotations(repo_path);
     `);
   }
 

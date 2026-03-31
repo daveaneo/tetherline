@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useSession } from '../../hooks/useSession.js';
 import { useSessionStore } from '../../state/session-store.js';
 import { CodeSnippet } from '../code/CodeSnippet.js';
+import { CodeMorphing } from '../code/CodeMorphing.js';
 import { DiffView } from '../code/DiffView.js';
 import { UnderstandingMap } from '../heatmap/UnderstandingMap.js';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -465,6 +466,16 @@ function SkillResultPanel({ result, onDismiss }: { result: SkillResult; onDismis
         </span>
       </div>
       <p className="text-[var(--color-text)] leading-relaxed whitespace-pre-wrap">{result.narration}</p>
+      {result.type === 'comparison' && typeof result.visualPayload.oldCode === 'string' && typeof result.visualPayload.newCode === 'string' && (
+        <div className="mt-3">
+          <CodeMorphing
+            oldCode={result.visualPayload.oldCode}
+            newCode={result.visualPayload.newCode}
+            language={(result.visualPayload.language as string) ?? 'text'}
+            filePath={result.visualPayload.filePath as string}
+          />
+        </div>
+      )}
       {result.diagramChanges?.focusNodeId && (
         <div className="mt-3 text-xs text-[var(--color-text-muted)]">
           Focused on: {result.diagramChanges.focusNodeId}

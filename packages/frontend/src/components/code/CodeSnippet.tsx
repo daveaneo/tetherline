@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react';
+import { codeToHtml } from 'shiki';
 import { motion } from 'framer-motion';
 
 interface Props {
@@ -8,37 +10,65 @@ interface Props {
 }
 
 export function CodeSnippet({ code, language, filePath, highlightLines = [] }: Props) {
-  const lines = code.split('\n');
+  const [html, setHtml] = useState<string>('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+
+    codeToHtml(code, {
+      lang: language || 'text',
+      theme: 'github-dark-default',
+      decorations: highlightLines.map(line => ({
+        start: { line: line - 1, character: 0 },
+        end: { line: line - 1, character: Infinity },
+        properties: { class: 'highlighted-line' },
+      })),
+    }).then(result => {
+      if (!cancelled) {
+        setHtml(result);
+        setLoading(false);
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        // Fallback to plain text
+        setHtml(`<pre><code>${escapeHtml(code)}</code></pre>`);
+        setLoading(false);
+      }
+    });
+
+    return () => { cancelled = true; };
+  }, [code, language, highlightLines]);
 
   return (
-    <div className="rounded-xl border border-[var(--color-border)] bg-[#0d0d14] overflow-hidden">
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="rounded-xl border border-[var(--color-border)] bg-[#0d0d14] overflow-hidden"
+    >
       {filePath && (
-        <div className="px-4 py-2 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
+        <div className="px-4 py-2 border-b border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-between">
           <span className="text-xs text-[var(--color-text-muted)] font-mono">{filePath}</span>
-          <span className="text-xs text-[var(--color-text-muted)] ml-2 opacity-50">{language}</span>
+          <span className="text-xs text-[var(--color-text-muted)] opacity-50">{language}</span>
         </div>
       )}
-      <pre className="p-4 overflow-x-auto text-sm font-mono leading-6">
-        {lines.map((line, i) => {
-          const lineNum = i + 1;
-          const isHighlighted = highlightLines.includes(lineNum);
-          return (
-            <motion.div
-              key={i}
-              animate={{
-                backgroundColor: isHighlighted ? 'rgba(99, 102, 241, 0.15)' : 'transparent',
-              }}
-              transition={{ duration: 0.3 }}
-              className="flex"
-            >
-              <span className="w-10 text-right pr-4 text-[var(--color-text-muted)] opacity-40 select-none flex-shrink-0">
-                {lineNum}
-              </span>
-              <code className="text-[var(--color-text)]">{line || ' '}</code>
-            </motion.div>
-          );
-        })}
-      </pre>
-    </div>
+      {loading ? (
+        <div className="p-4 animate-pulse">
+          <div className="h-4 bg-[var(--color-surface-hover)] rounded w-3/4 mb-2" />
+          <div className="h-4 bg-[var(--color-surface-hover)] rounded w-1/2 mb-2" />
+          <div className="h-4 bg-[var(--color-surface-hover)] rounded w-2/3" />
+        </div>
+      ) : (
+        <div
+          className="p-4 overflow-x-auto text-sm [&_pre]:!bg-transparent [&_code]:!bg-transparent [&_.highlighted-line]:bg-[var(--color-accent)]/15 [&_.highlighted-line]:border-l-2 [&_.highlighted-line]:border-[var(--color-accent)] [&_.highlighted-line]:pl-2 [&_.highlighted-line]:-ml-2"
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      )}
+    </motion.div>
   );
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
