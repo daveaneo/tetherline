@@ -112,6 +112,35 @@ export function useSessionOrchestrator() {
     }, delayMs);
   }, []);
 
+  // When paused, immediately stop everything
+  useEffect(() => {
+    if (state.paused) {
+      // Kill in-flight TTS
+      if (abortRef.current) {
+        abortRef.current.abort();
+        abortRef.current = null;
+      }
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      if ('speechSynthesis' in window) {
+        speechSynthesis.cancel();
+      }
+      // Kill auto-advance timers
+      if (autoAdvanceTimerRef.current) {
+        clearTimeout(autoAdvanceTimerRef.current);
+        autoAdvanceTimerRef.current = null;
+      }
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = null;
+      }
+      setPlaying(false);
+      // Clear the active run so resume can re-trigger
+      activeRunRef.current = '';
+    }
+  }, [state.paused, setPlaying]);
+
   // Main orchestration: react to phase and segment changes
   useEffect(() => {
     const { phase, areaIndex, segmentIndex, paused } = state;
