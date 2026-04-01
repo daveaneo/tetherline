@@ -1374,7 +1374,7 @@ export class SessionManager {
       this.setState({ phase: 'OVERVIEW' });
       this.emit({
         type: 'narration:greeting',
-        payload: { text: `Here's the architecture. Explore freely — ask me anything, say "go deeper" on any area, or "show the code" to see files.` },
+        payload: { text: `Go ahead.` },
       });
     } else if (this.entryMode === 'full_walkthrough') {
       this.setState({ phase: 'PROJECT_OVERVIEW' });
