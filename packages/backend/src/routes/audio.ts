@@ -82,9 +82,10 @@ export function createAudioRoutes(db: Database, config: AppConfig): Router {
       }
       const audioBuffer = Buffer.concat(chunks);
 
+      const contentType = req.headers['content-type'] ?? 'audio/wav';
       const response = await fetch(`${SIDECAR_URL}/transcribe`, {
         method: 'POST',
-        headers: { 'Content-Type': 'audio/wav' },
+        headers: { 'Content-Type': contentType },
         body: audioBuffer,
       });
 

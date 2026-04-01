@@ -134,13 +134,27 @@ class AudioHandler(BaseHTTPRequestHandler):
         audio_data = self.rfile.read(content_length)
 
         try:
+            import tempfile
+            import os
             model = get_whisper_model()
 
-            # Write to temp buffer for faster-whisper
-            audio_buf = io.BytesIO(audio_data)
+            # Determine file extension from content type
+            content_type = self.headers.get('Content-Type', 'audio/wav')
+            ext = '.wav'
+            if 'webm' in content_type:
+                ext = '.webm'
+            elif 'ogg' in content_type:
+                ext = '.ogg'
+            elif 'mp3' in content_type:
+                ext = '.mp3'
+
+            # Write to temp file — faster-whisper/ffmpeg needs file extension for format detection
+            with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+                tmp.write(audio_data)
+                tmp_path = tmp.name
 
             start = time.time()
-            segments, info = model.transcribe(audio_buf, beam_size=1, language="en", vad_filter=True)
+            segments, info = model.transcribe(tmp_path, beam_size=1, language="en", vad_filter=True)
 
             text_parts = []
             for segment in segments:
@@ -161,8 +175,19 @@ class AudioHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(response)
 
+            # Clean up temp file
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
         except Exception as e:
             print(f"[audio] Transcription error: {e}", flush=True)
+            # Clean up temp file on error too
+            try:
+                os.unlink(tmp_path)
+            except (OSError, NameError):
+                pass
             self.send_error(500, str(e))
 
     def log_message(self, format, *args):

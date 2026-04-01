@@ -234,23 +234,26 @@ export class AudioCapture {
 
     if (duration < MIN_RECORDING_MS) return;
 
-    // Extract speech chunks: from speechStartChunkIndex to current end
-    const speechChunks = this.allChunks.slice(this.speechStartChunkIndex);
-    if (speechChunks.length === 0) return;
+    // We need ALL chunks from the start (chunk 0 has the WebM header).
+    // Slicing from the middle produces headerless data that can't be decoded.
+    // Include everything — Whisper will handle the silence at the beginning.
+    const allCurrentChunks = [...this.allChunks];
+    if (allCurrentChunks.length === 0) return;
 
-    // Reset buffer — keep only the last few chunks for next pre-buffer
-    this.allChunks = this.allChunks.slice(-PRE_BUFFER_CHUNKS);
+    // Reset buffer for next round
+    this.allChunks = [];
 
-    // Build a single valid WebM blob from the continuous recorder's chunks
-    const mimeType = speechChunks[0]?.type ?? 'audio/webm';
-    const blob = new Blob(speechChunks, { type: mimeType });
+    // Build a complete WebM blob (starts from chunk 0 which has the header)
+    const mimeType = allCurrentChunks[0]?.type ?? 'audio/webm';
+    const blob = new Blob(allCurrentChunks, { type: mimeType });
 
+    // Send WebM directly to Whisper — no client-side conversion needed.
+    // faster-whisper accepts WebM/Opus natively.
     try {
-      const wavBlob = await this.webmToWav(blob);
       const response = await fetch(`${API_PREFIX}/audio/transcribe`, {
         method: 'POST',
-        headers: { 'Content-Type': 'audio/wav' },
-        body: wavBlob,
+        headers: { 'Content-Type': mimeType },
+        body: blob,
       });
 
       if (!response.ok) {
@@ -265,49 +268,12 @@ export class AudioCapture {
     } catch (err: any) {
       this.callbacks.onError(`Transcription error: ${err.message}`);
     }
-  }
 
-  private async webmToWav(webmBlob: Blob): Promise<Blob> {
-    const arrayBuffer = await webmBlob.arrayBuffer();
-    const audioCtx = new AudioContext({ sampleRate: 16000 });
-    try {
-      const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-      const channelData = audioBuffer.getChannelData(0);
-      const wavBuffer = encodeWav(channelData, 16000);
-      return new Blob([wavBuffer], { type: 'audio/wav' });
-    } finally {
-      audioCtx.close();
+    // Restart the recorder to get a fresh WebM header for the next utterance
+    if (this.recorder && this.recorder.state !== 'inactive') {
+      this.recorder.stop();
     }
+    this.startContinuousRecording();
   }
 }
 
-function encodeWav(samples: Float32Array, sampleRate: number): ArrayBuffer {
-  const buffer = new ArrayBuffer(44 + samples.length * 2);
-  const view = new DataView(buffer);
-  writeString(view, 0, 'RIFF');
-  view.setUint32(4, 36 + samples.length * 2, true);
-  writeString(view, 8, 'WAVE');
-  writeString(view, 12, 'fmt ');
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, 1, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * 2, true);
-  view.setUint16(32, 2, true);
-  view.setUint16(34, 16, true);
-  writeString(view, 36, 'data');
-  view.setUint32(40, samples.length * 2, true);
-  let offset = 44;
-  for (let i = 0; i < samples.length; i++) {
-    const s = Math.max(-1, Math.min(1, samples[i]));
-    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
-    offset += 2;
-  }
-  return buffer;
-}
-
-function writeString(view: DataView, offset: number, str: string): void {
-  for (let i = 0; i < str.length; i++) {
-    view.setUint8(offset + i, str.charCodeAt(i));
-  }
-}
