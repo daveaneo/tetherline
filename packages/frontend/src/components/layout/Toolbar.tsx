@@ -1,6 +1,7 @@
 import { useSettingsStore } from '../../state/settings-store.js';
 import { useSessionStore } from '../../state/session-store.js';
 import { ModeToggles } from '../settings/ModeToggles.js';
+import { VERSION } from '../../version.js';
 
 function ConnectionIndicator() {
   const connected = useSessionStore(s => s.connected);
@@ -39,6 +40,7 @@ export function Toolbar() {
           </button>
         )}
         <h1 className="text-lg font-semibold tracking-tight">Interactive Reviewer</h1>
+        <span className="text-[10px] text-[var(--color-text-muted)] opacity-50 font-mono">v{VERSION}</span>
         <ConnectionIndicator />
       </div>
       <div className="flex items-center gap-4">
