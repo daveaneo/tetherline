@@ -1,33 +1,83 @@
-import { useAudioStore } from '../../state/audio-store.js';
+import { useAudioStore, type VoiceState } from '../../state/audio-store.js';
 import { useSessionStore } from '../../state/session-store.js';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AudioVisualizer } from '../audio/AudioVisualizer.js';
-import { VoiceInput } from '../audio/VoiceInput.js';
 import { sendEvent } from '../../lib/ws-client.js';
 
+const STATE_CONFIG: Record<VoiceState, { color: string; borderColor: string; label: string }> = {
+  speaking: { color: 'var(--color-accent)', borderColor: 'rgba(99, 102, 241, 0.4)', label: 'AI Speaking' },
+  listening: { color: 'var(--color-text-muted)', borderColor: 'var(--color-border)', label: 'Listening' },
+  hearing: { color: 'var(--color-green)', borderColor: 'rgba(52, 211, 153, 0.5)', label: 'Hearing you' },
+  processing: { color: 'var(--color-yellow)', borderColor: 'rgba(251, 191, 36, 0.4)', label: 'Thinking...' },
+};
+
 export function NarrationBar() {
-  const { currentSegment, isPlaying } = useAudioStore();
+  const { currentSegment, isPlaying, voiceState } = useAudioStore();
   const state = useSessionStore(s => s.state);
+  const config = STATE_CONFIG[voiceState];
 
   return (
-    <div className="h-20 border-t border-[var(--color-border)] bg-[var(--color-surface)] flex items-center px-6 gap-4">
-      {/* Playback controls */}
-      <div className="flex items-center gap-2">
-        <button
-          onClick={() => sendEvent(state.paused ? { type: 'command:resume' } : { type: 'command:pause' })}
-          className="w-10 h-10 flex items-center justify-center rounded-full border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors"
-          title={state.paused ? 'Resume' : 'Pause'}
+    <motion.div
+      animate={{ borderColor: config.borderColor }}
+      transition={{ duration: 0.3 }}
+      className="h-20 border-t-2 bg-[var(--color-surface)] flex items-center px-6 gap-4"
+    >
+      {/* Voice state indicator */}
+      <div className="flex items-center gap-3 min-w-[140px]">
+        {/* Animated state icon */}
+        <motion.div
+          animate={{
+            scale: voiceState === 'hearing' ? [1, 1.2, 1] : voiceState === 'speaking' ? [1, 1.05, 1] : 1,
+            boxShadow: voiceState === 'listening'
+              ? '0 0 0px transparent'
+              : `0 0 ${voiceState === 'hearing' ? '16px' : '10px'} ${config.borderColor}`,
+          }}
+          transition={{
+            duration: voiceState === 'hearing' ? 0.6 : 1.5,
+            repeat: voiceState === 'listening' ? 0 : Infinity,
+            repeatType: 'reverse',
+          }}
+          className="w-10 h-10 flex items-center justify-center rounded-full border-2 transition-colors"
+          style={{ borderColor: config.color }}
         >
-          {state.paused ? (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21" /></svg>
-          ) : (
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+          {voiceState === 'speaking' && (
+            <WaveformBars color={config.color} />
           )}
-        </button>
-        {isPlaying && <AudioVisualizer />}
+          {voiceState === 'listening' && (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={config.color} strokeWidth="2">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+            </svg>
+          )}
+          {voiceState === 'hearing' && (
+            <WaveformBars color={config.color} active />
+          )}
+          {voiceState === 'processing' && (
+            <motion.div
+              animate={{ rotate: 360 }}
+              transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+              className="w-4 h-4 border-2 rounded-full"
+              style={{ borderColor: config.color, borderTopColor: 'transparent' }}
+            />
+          )}
+        </motion.div>
+
+        {/* State label */}
+        <AnimatePresence mode="wait">
+          <motion.span
+            key={voiceState}
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.15 }}
+            className="text-xs font-medium"
+            style={{ color: config.color }}
+          >
+            {config.label}
+          </motion.span>
+        </AnimatePresence>
       </div>
 
-      {/* Narration text */}
+      {/* Narration text / subtitle */}
       <div className="flex-1 overflow-hidden">
         <AnimatePresence mode="wait">
           {currentSegment ? (
@@ -48,32 +98,56 @@ export function NarrationBar() {
               animate={{ opacity: 1 }}
               className="text-sm text-[var(--color-text-muted)] italic"
             >
-              {state.phase === 'ANALYZING' ? 'Analyzing repository...' : 'Listening...'}
+              {state.phase === 'ANALYZING' ? 'Analyzing repository...' :
+               voiceState === 'hearing' ? 'Go ahead, I\'m listening...' :
+               voiceState === 'processing' ? 'Let me think about that...' :
+               'Say something or I\'ll continue the tour...'}
             </motion.p>
           )}
         </AnimatePresence>
       </div>
 
-      {/* Navigation shortcuts */}
+      {/* Compact nav controls */}
       <div className="flex items-center gap-2">
         <button
-          onClick={() => sendEvent({ type: 'command:previous' })}
+          onClick={() => sendEvent(state.paused ? { type: 'command:resume' } : { type: 'command:pause' })}
           className="px-3 py-1.5 text-xs rounded-md border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors"
-          title="Previous"
         >
-          &larr; Back
+          {state.paused ? '\u25B6 Resume' : '\u23F8 Pause'}
         </button>
         <button
           onClick={() => sendEvent({ type: 'command:skip' })}
           className="px-3 py-1.5 text-xs rounded-md border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors"
-          title="Skip"
         >
-          Skip &rarr;
+          Skip \u2192
         </button>
       </div>
+    </motion.div>
+  );
+}
 
-      {/* Voice input */}
-      <VoiceInput />
+/** Small animated waveform bars */
+function WaveformBars({ color, active }: { color: string; active?: boolean }) {
+  return (
+    <div className="flex items-center gap-[2px] h-4">
+      {[0, 1, 2, 3].map(i => (
+        <motion.div
+          key={i}
+          className="w-[3px] rounded-full"
+          style={{ background: color }}
+          animate={{
+            height: active
+              ? [4, 14, 8, 16, 6]
+              : [3, 10, 6, 12, 4],
+          }}
+          transition={{
+            duration: active ? 0.5 : 0.8,
+            repeat: Infinity,
+            repeatType: 'reverse',
+            delay: i * 0.1,
+          }}
+        />
+      ))}
     </div>
   );
 }

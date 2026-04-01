@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import { VoiceCommandRecognizer, type VoiceCommand } from '../lib/speech-recognition.js';
 import { sendEvent } from '../lib/ws-client.js';
 import { useSessionStore } from '../state/session-store.js';
+import { useAudioStore } from '../state/audio-store.js';
 
 const COMMAND_TO_EVENT: Record<VoiceCommand, () => void> = {
   next: () => sendEvent({ type: 'command:next' }),
@@ -23,8 +24,32 @@ export function useVoiceInput() {
     recognizerRef.current = recognizer;
     setSupported(recognizer.isSupported());
 
+    recognizer.onSpeechStart = () => {
+      const audioStore = useAudioStore.getState();
+      audioStore.setVoiceState('hearing');
+
+      // INTERRUPT: if the AI is speaking, pause it immediately
+      if (audioStore.isPlaying) {
+        sendEvent({ type: 'command:pause' });
+      }
+    };
+
+    recognizer.onSpeechEnd = () => {
+      // Brief transition to processing while we wait for the transcript
+      const audioStore = useAudioStore.getState();
+      if (audioStore.voiceState === 'hearing') {
+        audioStore.setVoiceState('processing');
+      }
+    };
+
     recognizer.onCommand = (command) => {
+      useAudioStore.getState().setVoiceState('processing');
       COMMAND_TO_EVENT[command]?.();
+      // Brief processing state, then back to listening
+      setTimeout(() => {
+        const store = useAudioStore.getState();
+        if (store.voiceState === 'processing') store.setVoiceState('listening');
+      }, 500);
     };
 
     recognizer.onQuestion = (question) => {
@@ -32,7 +57,9 @@ export function useVoiceInput() {
     };
 
     recognizer.onUtterance = (text) => {
+      useAudioStore.getState().setVoiceState('processing');
       sendEvent({ type: 'user:utterance', payload: { text, timestamp: Date.now() } });
+      // Processing state stays until AI responds (setPlaying(true) will change it to 'speaking')
     };
 
     return () => {

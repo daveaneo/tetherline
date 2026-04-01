@@ -48,6 +48,8 @@ export class VoiceCommandRecognizer {
   onCommand: VoiceCommandHandler | null = null;
   onQuestion: QuestionHandler | null = null;
   onUtterance: UtteranceHandler | null = null;
+  onSpeechStart: (() => void) | null = null;
+  onSpeechEnd: (() => void) | null = null;
 
   constructor() {
     const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -60,6 +62,14 @@ export class VoiceCommandRecognizer {
     this.recognition.continuous = true;
     this.recognition.interimResults = false;
     this.recognition.lang = 'en-US';
+
+    this.recognition.onspeechstart = () => {
+      this.onSpeechStart?.();
+    };
+
+    this.recognition.onspeechend = () => {
+      this.onSpeechEnd?.();
+    };
 
     this.recognition.onresult = (event: any) => {
       const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();

@@ -136,6 +136,7 @@ export function useSessionOrchestrator() {
         silenceTimerRef.current = null;
       }
       setPlaying(false);
+      useAudioStore.getState().setVoiceState('listening');
       // Clear the active run so resume can re-trigger
       activeRunRef.current = '';
     }
