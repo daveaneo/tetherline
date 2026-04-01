@@ -15,9 +15,12 @@ import { createSettingsRoutes } from './routes/settings.js';
 import { createHealthRoutes } from './routes/health.js';
 import { createAudioRoutes } from './routes/audio.js';
 import { createRepoRoutes } from './routes/repos.js';
+import { createOnboardingRoutes } from './routes/onboarding.js';
+import { createDigestRoutes } from './routes/digest.js';
+import { DigestScheduler } from './digest/scheduler.js';
 import { handleWebSocket } from './ws/handler.js';
 
-export async function createServer(overrides: { port?: number; repoPath?: string } = {}): Promise<{ app: express.Express; wss: WebSocketServer; server: http.Server; db: Database; config: AppConfig }> {
+export async function createServer(overrides: { port?: number; repoPath?: string } = {}): Promise<{ app: express.Express; wss: WebSocketServer; server: http.Server; db: Database; config: AppConfig; digestScheduler: DigestScheduler }> {
   const config = loadConfig(overrides);
 
   // Ensure data directories exist
@@ -41,6 +44,9 @@ export async function createServer(overrides: { port?: number; repoPath?: string
   router.use('/settings', createSettingsRoutes(db));
   router.use('/audio', createAudioRoutes(db, config));
   router.use('/repos', createRepoRoutes(db, config));
+  router.use('/onboarding', createOnboardingRoutes(db, config));
+  const digestScheduler = new DigestScheduler(db, config);
+  router.use('/digest', createDigestRoutes(db, config, digestScheduler));
   app.use(API_PREFIX, router);
 
   // Serve frontend static files in production
@@ -62,5 +68,5 @@ export async function createServer(overrides: { port?: number; repoPath?: string
     handleWebSocket(ws, db, config);
   });
 
-  return { app, wss, server, db, config };
+  return { app, wss, server, db, config, digestScheduler };
 }

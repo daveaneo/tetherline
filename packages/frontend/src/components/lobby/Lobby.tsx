@@ -260,6 +260,8 @@ function EntryModeDialog({ repo, onSelect, onClose }: { repo: Repo; onSelect: (m
       onSelect('full_walkthrough');
     } else if (text.includes('update') || text.includes('what changed') || text.includes("what's new") || text.includes('recent')) {
       onSelect('updates');
+    } else if (text.includes('onboarding') || text.includes('learn') || text.includes('program')) {
+      onSelect('onboarding');
     }
   }, [lastToast, onSelect]);
 
@@ -331,6 +333,20 @@ function EntryModeDialog({ repo, onSelect, onClose }: { repo: Repo; onSelect: (m
               Review recent changes. See what happened since your last session with a focused diff walkthrough.
             </p>
             <p className="text-xs text-[var(--color-text-muted)] ml-8 mt-1 opacity-60">or say "updates"</p>
+          </button>
+
+          <button
+            onClick={() => onSelect('onboarding')}
+            className="w-full text-left p-4 rounded-xl border border-[var(--color-border)] hover:border-[var(--color-accent)]/50 hover:bg-[var(--color-surface-hover)] transition-all group"
+          >
+            <div className="flex items-center gap-3 mb-1">
+              <span className="text-lg">&#127891;</span>
+              <h3 className="font-medium group-hover:text-[var(--color-accent)] transition-colors">Onboarding Program</h3>
+            </div>
+            <p className="text-sm text-[var(--color-text-muted)] ml-8">
+              A structured 5-day program to learn this codebase from the ground up.
+            </p>
+            <p className="text-xs text-[var(--color-text-muted)] ml-8 mt-1 opacity-60">or say "onboarding"</p>
           </button>
         </div>
 

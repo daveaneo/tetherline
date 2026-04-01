@@ -217,7 +217,16 @@ export class IntelligenceAnalyzer {
     });
   }
 
-  async generateProposal(areas: Area[], entryMode: 'updates' | 'full_walkthrough', languages: string[]): Promise<string> {
+  async generateProposal(areas: Area[], entryMode: 'updates' | 'full_walkthrough' | 'onboarding', languages: string[]): Promise<string> {
+    if (entryMode === 'onboarding') {
+      const stats = `${areas.length} key area${areas.length !== 1 ? 's' : ''}, primarily ${languages.slice(0, 3).join(', ') || 'mixed languages'}`;
+      const prompt = `Generate a short, warm welcome message for a developer starting an onboarding program for this codebase. The project has ${stats}. Mention that we'll go through a structured multi-day program to build understanding progressively. Keep it to 2-3 sentences, spoken aloud. Do not use bullet points or markdown.`;
+      return this.claude.streamText({
+        system: this.systemPrompt,
+        messages: [{ role: 'user', content: prompt }],
+        maxTokens: 300,
+      });
+    }
     if (entryMode === 'full_walkthrough') {
       const stats = `${areas.length} key area${areas.length !== 1 ? 's' : ''}, primarily ${languages.slice(0, 3).join(', ') || 'mixed languages'}`;
       const prompt = `Generate a short, warm proposal message for a full walkthrough code review. The project has ${stats}. The areas are: ${areas.map(a => a.name).join(', ')}. Suggest starting with the big picture and working into the components. Ask if that sounds good or if there's something specific to see first. Keep it to 2-3 sentences, spoken aloud. Do not use bullet points or markdown.`;

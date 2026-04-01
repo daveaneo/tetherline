@@ -52,4 +52,31 @@ export const api = {
 
   removeRepo: (id: string) =>
     fetchApi<{ ok: boolean }>(`/repos/${id}`, { method: 'DELETE' }),
+
+  generateOnboarding: (repoPath: string) =>
+    fetchApi<{ program: any; alreadyExists?: boolean }>('/onboarding/generate', {
+      method: 'POST',
+      body: JSON.stringify({ repoPath }),
+    }),
+  getOnboardingProgram: (id: string) =>
+    fetchApi<{ program: any; progress: any }>(`/onboarding/programs/${id}`),
+  startOnboarding: (id: string) =>
+    fetchApi<{ progress: any }>(`/onboarding/programs/${id}/start`, { method: 'POST' }),
+  completeOnboardingDay: (id: string, dayNumber: number) =>
+    fetchApi<{ progress: any }>(`/onboarding/programs/${id}/complete-day`, {
+      method: 'POST',
+      body: JSON.stringify({ dayNumber }),
+    }),
+
+  digestLatest: () =>
+    fetchApi<{ digest: any; deliveryStatus?: string }>('/digest/latest'),
+
+  digestGenerate: () =>
+    fetchApi<{ digest: any; markdown: string; html: string }>('/digest/generate', { method: 'POST' }),
+
+  digestSend: () =>
+    fetchApi<{ ok: boolean }>('/digest/send', { method: 'POST' }),
+
+  digestHistory: () =>
+    fetchApi<{ digests: any[] }>('/digest/history'),
 };

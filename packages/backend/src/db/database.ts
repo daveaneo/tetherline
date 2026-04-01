@@ -7,6 +7,7 @@ import { SettingsRepository } from './repositories/settings-repo.js';
 import { AreaRepository } from './repositories/area-repo.js';
 import { RepoRepository } from './repositories/repo-repo.js';
 import { UnderstandingRepository } from './repositories/understanding-repo.js';
+import { OnboardingRepository } from './repositories/onboarding-repo.js';
 
 export class Database {
   private db: BetterSqlite3.Database;
@@ -16,6 +17,7 @@ export class Database {
   private areaRepo: AreaRepository;
   private repoRepo: RepoRepository;
   private understandingRepo: UnderstandingRepository;
+  private onboardingRepo: OnboardingRepository;
 
   constructor(dbPath: string) {
     // Ensure directory exists
@@ -33,6 +35,7 @@ export class Database {
     this.areaRepo = new AreaRepository(this.db);
     this.repoRepo = new RepoRepository(this.db);
     this.understandingRepo = new UnderstandingRepository(this.db);
+    this.onboardingRepo = new OnboardingRepository(this.db);
   }
 
   private runMigrations() {
@@ -172,6 +175,35 @@ export class Database {
       );
 
       CREATE INDEX IF NOT EXISTS idx_annotations_repo ON annotations(repo_path);
+
+      CREATE TABLE IF NOT EXISTS onboarding_programs (
+        id TEXT PRIMARY KEY,
+        repo_path TEXT NOT NULL,
+        name TEXT NOT NULL,
+        total_days INTEGER NOT NULL,
+        days TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS onboarding_progress (
+        id TEXT PRIMARY KEY,
+        program_id TEXT NOT NULL REFERENCES onboarding_programs(id),
+        current_day INTEGER DEFAULT 1,
+        completed_days TEXT DEFAULT '[]',
+        started_at TEXT NOT NULL DEFAULT (datetime('now')),
+        last_active_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS digest_history (
+        id TEXT PRIMARY KEY,
+        generated_at TEXT NOT NULL,
+        period_start TEXT NOT NULL,
+        period_end TEXT NOT NULL,
+        content TEXT NOT NULL,
+        delivery_status TEXT DEFAULT 'pending',
+        delivered_at TEXT,
+        error TEXT
+      );
     `);
 
     // Migration: add impact/theme columns to areas table for existing databases
@@ -197,6 +229,7 @@ export class Database {
   getAreaRepo(): AreaRepository { return this.areaRepo; }
   getRepoRepo(): RepoRepository { return this.repoRepo; }
   getUnderstandingRepo(): UnderstandingRepository { return this.understandingRepo; }
+  getOnboardingRepo(): OnboardingRepository { return this.onboardingRepo; }
   getRawDb(): BetterSqlite3.Database { return this.db; }
 
   close() {

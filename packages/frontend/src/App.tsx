@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { AppShell } from './components/layout/AppShell.js';
 import { Lobby } from './components/lobby/Lobby.js';
 import { Room } from './components/room/Room.js';
@@ -10,11 +11,27 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
 import { useSessionOrchestrator } from './hooks/useSessionOrchestrator.js';
 import { useVoiceInput } from './hooks/useVoiceInput.js';
 import { useSessionStore } from './state/session-store.js';
+import { sendEvent } from './lib/ws-client.js';
+import type { EntryMode } from '@interactive-reviewer/shared';
 
 export function App() {
   const { connected, reconnecting } = useWebSocket();
   const phase = useSessionStore(s => s.state.phase);
   const inSession = phase !== 'IDLE';
+  const deepLinkHandled = useRef(false);
+
+  // Handle deep links from digest emails (e.g. ?repo=/path&mode=updates)
+  useEffect(() => {
+    if (!connected || deepLinkHandled.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const repo = params.get('repo');
+    const mode = params.get('mode');
+    if (repo && mode) {
+      deepLinkHandled.current = true;
+      sendEvent({ type: 'session:start', payload: { repoPath: repo, sinceDays: 7, entryMode: mode as EntryMode } });
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, [connected]);
 
   useKeyboardShortcuts();
   useSessionOrchestrator();

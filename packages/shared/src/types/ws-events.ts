@@ -6,6 +6,7 @@ import type { Session, SessionSummary } from './session.js';
 import type { UnderstandingState } from './understanding.js';
 import type { SkillResult } from './skills.js';
 import type { VisualLayer } from './visual-layer.js';
+import type { OnboardingDay } from './onboarding.js';
 
 // Client → Server
 export type ClientEvent =
@@ -22,7 +23,8 @@ export type ClientEvent =
   | { type: 'command:export'; payload: { format: 'slides' | 'markdown' } }
   | { type: 'audio:segment_finished'; payload: { segmentId: string } }
   | { type: 'user:utterance'; payload: { text: string; timestamp: number } }
-  | { type: 'action:confirm_issue'; payload: { title: string; body: string; labels: string[] } };
+  | { type: 'action:confirm_issue'; payload: { title: string; body: string; labels: string[] } }
+  | { type: 'session:start_onboarding'; payload: { repoPath: string; programId?: string; dayNumber?: number } };
 
 // Server → Client
 export type ServerEvent =
@@ -55,6 +57,8 @@ export type ServerEvent =
   | { type: 'session:tour_progress'; payload: { total: number; covered: number; percentage: number } }
   | { type: 'action:issue_created'; payload: { url: string; number: number } }
   | { type: 'action:issue_failed'; payload: { error: string } }
+  | { type: 'session:onboarding_day'; payload: { day: OnboardingDay; programName: string; totalDays: number } }
+  | { type: 'session:onboarding_complete'; payload: { programId: string; completedDays: number; totalDays: number } }
   | { type: 'error'; payload: { code: string; message: string; recoverable: boolean } };
 
 // Session state types

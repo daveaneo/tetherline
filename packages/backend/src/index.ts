@@ -13,15 +13,17 @@ const port = parseInt(process.env.PORT ?? String(DEFAULT_PORT), 10);
 const repoPath = process.env.REPO_PATH ?? process.cwd();
 
 async function main() {
-  const { app, wss, server, db } = await createServer({ port, repoPath });
+  const { app, wss, server, db, digestScheduler } = await createServer({ port, repoPath });
 
   server.listen(port, () => {
     console.log(`Interactive Reviewer running at http://localhost:${port}`);
     console.log(`Analyzing repo: ${repoPath}`);
+    digestScheduler.start();
   });
 
   const shutdown = () => {
     console.log('\nShutting down...');
+    digestScheduler.stop();
     wss.close();
     db.close();
     server.close(() => process.exit(0));

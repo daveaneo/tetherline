@@ -1,5 +1,13 @@
 export type TTSProvider = 'openai' | 'browser';
 
+export interface DigestConfig {
+  enabled: boolean;
+  schedule: string; // cron expression, default "0 8 * * 1" (Monday 8am)
+  delivery: 'app' | 'email' | 'slack';
+  emailTo?: string;
+  slackWebhookUrl?: string;
+}
+
 export interface Settings {
   anthropicApiKey?: string;
   openaiApiKey?: string;
@@ -13,6 +21,7 @@ export interface Settings {
   };
   sinceDays: number;
   autoOpen: boolean;
+  digest?: DigestConfig;
 }
 
 export const DEFAULT_SETTINGS: Settings = {

@@ -9,4 +9,5 @@ export * from './types/settings.js';
 export * from './types/understanding.js';
 export * from './types/skills.js';
 export * from './types/visual-layer.js';
+export * from './types/onboarding.js';
 export * from './constants.js';
