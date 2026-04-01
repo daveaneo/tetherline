@@ -8,6 +8,7 @@ import { ErrorBanner } from './components/layout/ErrorBanner.js';
 import { SpeechToasts } from './components/audio/SpeechToasts.js';
 import { useWebSocket } from './hooks/useWebSocket.js';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
+import { useInterrupt } from './hooks/useInterrupt.js';
 import { useSessionOrchestrator } from './hooks/useSessionOrchestrator.js';
 import { useVoiceInput } from './hooks/useVoiceInput.js';
 import { useSessionStore } from './state/session-store.js';
@@ -35,6 +36,7 @@ export function App() {
   }, [connected]);
 
   useKeyboardShortcuts();
+  useInterrupt();
   useSessionOrchestrator();
   useVoiceInput();
 

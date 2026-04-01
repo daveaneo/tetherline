@@ -22,6 +22,11 @@ interface AudioStore {
   muteOutput: () => void;
   unmuteOutput: () => void;
 
+  // Interrupt backoff — prevents AI from speaking immediately after being interrupted
+  interruptBackoffUntil: number;
+  setInterruptBackoff: (until: number) => void;
+  isInBackoff: () => boolean;
+
   // Mic start function — set by useVoiceInput, callable from anywhere (e.g. Lobby click)
   _startMicFn: (() => void) | null;
   setStartMicFn: (fn: () => void) => void;
@@ -43,6 +48,7 @@ export const useAudioStore = create<AudioStore>((set, get) => ({
   voiceState: 'listening',
   speechToasts: [],
   audioElement: null,
+  interruptBackoffUntil: 0,
   _startMicFn: null,
 
   setAudioElement: (el) => set({ audioElement: el }),
@@ -55,6 +61,9 @@ export const useAudioStore = create<AudioStore>((set, get) => ({
     // After a hard stop, we don't resume — the orchestrator will play the next segment
     // This is intentional: interrupt = stop talking, not pause-and-resume
   },
+
+  setInterruptBackoff: (until) => set({ interruptBackoffUntil: until }),
+  isInBackoff: () => Date.now() < get().interruptBackoffUntil,
 
   setStartMicFn: (fn) => set({ _startMicFn: fn }),
   requestMicStart: () => { get()._startMicFn?.(); },

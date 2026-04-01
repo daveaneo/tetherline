@@ -30,6 +30,17 @@ export function useSessionOrchestrator() {
       // If already aborted before we start, bail out
       if (signal?.aborted) { resolve(); return; }
 
+      // Respect interrupt backoff — don't start speaking if user just interrupted
+      const store = useAudioStore.getState();
+      if (store.isInBackoff()) {
+        // Wait for backoff to expire
+        const remaining = store.interruptBackoffUntil - Date.now();
+        if (remaining > 0) {
+          await new Promise(r => setTimeout(r, remaining));
+          if (signal?.aborted) { resolve(); return; }
+        }
+      }
+
       setPlaying(true);
       // Create a temporary NarrationSegment for display
       const tempSegment: NarrationSegment = {
