@@ -850,14 +850,43 @@ export class SessionManager {
         const answer = await this.activeAnalyzer.answerQuestion(question, context);
         this.emit({ type: 'qa:answer_chunk', payload: { text: answer, done: true } });
         return;
-      } catch {
-        // Fall through to fallback
+      } catch (err: any) {
+        console.error('Q&A error:', err.message);
       }
+    }
+
+    // Try to create a client on-the-fly if we don't have one
+    try {
+      const mode = this.config.intelligenceMode;
+      if (mode === 'local' || mode === 'auto') {
+        const { ClaudeCodeClient } = await import('../intelligence/claude-code-client.js');
+        if (await ClaudeCodeClient.isAvailable()) {
+          const client = new ClaudeCodeClient();
+          const answer = await client.streamText({
+            system: 'You are helping a developer understand their codebase during an interactive review session. Answer concisely and conversationally.',
+            messages: [{ role: 'user' as const, content: question }],
+          });
+          this.emit({ type: 'qa:answer_chunk', payload: { text: answer, done: true } });
+          return;
+        }
+      }
+      if ((mode === 'cloud' || mode === 'auto') && this.config.anthropicApiKey) {
+        const { ClaudeClient } = await import('../intelligence/claude-client.js');
+        const client = new ClaudeClient(this.config.anthropicApiKey);
+        const answer = await client.streamText({
+          system: 'You are helping a developer understand their codebase during an interactive review session. Answer concisely and conversationally.',
+          messages: [{ role: 'user' as const, content: question }],
+        });
+        this.emit({ type: 'qa:answer_chunk', payload: { text: answer, done: true } });
+        return;
+      }
+    } catch (err: any) {
+      console.error('Q&A fallback error:', err.message);
     }
 
     this.emit({
       type: 'qa:answer_chunk',
-      payload: { text: `I can't answer questions without an Anthropic API key configured. Try adding ANTHROPIC_API_KEY to your .env file.`, done: true },
+      payload: { text: `I couldn't process that question. Make sure the Claude CLI is installed (for local mode) or ANTHROPIC_API_KEY is set (for cloud mode).`, done: true },
     });
   }
 
