@@ -217,7 +217,11 @@ export class IntelligenceAnalyzer {
     });
   }
 
-  async generateProposal(areas: Area[], entryMode: 'updates' | 'full_walkthrough' | 'onboarding', languages: string[]): Promise<string> {
+  async generateProposal(areas: Area[], entryMode: string, languages: string[]): Promise<string> {
+    if (entryMode === 'explore') {
+      const areaNames = areas.slice(0, 5).map(a => a.name).join(', ');
+      return `Here's your codebase. I can see ${areas.length} main areas: ${areaNames}. What would you like to explore?`;
+    }
     if (entryMode === 'onboarding') {
       const stats = `${areas.length} key area${areas.length !== 1 ? 's' : ''}, primarily ${languages.slice(0, 3).join(', ') || 'mixed languages'}`;
       const prompt = `Generate a short, warm welcome message for a developer starting an onboarding program for this codebase. The project has ${stats}. Mention that we'll go through a structured multi-day program to build understanding progressively. Keep it to 2-3 sentences, spoken aloud. Do not use bullet points or markdown.`;

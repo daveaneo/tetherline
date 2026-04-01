@@ -23,6 +23,7 @@ interface SessionStore {
   context: StateContext;
   areas: AreaWithContent[];
   activeRepoPath: string;
+  entryMode: string;
   analysisProgress: AnalysisProgress | null;
   heatmap: HeatmapData | null;
   concerns: Concern[];
@@ -55,6 +56,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   context: { sessionId: '', totalAreas: 0, modes: { ...DEFAULT_MODES }, concerns: [] },
   areas: [],
   activeRepoPath: '',
+  entryMode: '',
   analysisProgress: null,
   heatmap: null,
   concerns: [],
@@ -87,6 +89,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     context: { sessionId: '', totalAreas: 0, modes: { ...DEFAULT_MODES }, concerns: [] },
     areas: [],
     activeRepoPath: '',
+  entryMode: '',
     analysisProgress: null,
     heatmap: null,
     concerns: [],

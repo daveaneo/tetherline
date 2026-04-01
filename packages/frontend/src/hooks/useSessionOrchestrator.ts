@@ -9,6 +9,7 @@ import { API_PREFIX } from '@interactive-reviewer/shared';
 export function useSessionOrchestrator() {
   const state = useSessionStore(s => s.state);
   const areas = useSessionStore(s => s.areas);
+  const entryMode = useSessionStore(s => s.entryMode);
   const modes = useSettingsStore(s => s.modes);
   const { setCurrentSegment, setPlaying, clearQueue } = useAudioStore();
   const ttsProvider = useSettingsStore(s => s.settings.ttsProvider);
@@ -304,6 +305,10 @@ export function useSessionOrchestrator() {
         }
 
         case 'OVERVIEW': {
+          if (entryMode === 'explore') {
+            // Explore mode: don't auto-advance. User leads.
+            break;
+          }
           if (modes.narration && areas.length > 0) {
             const areaNames = areas.slice(0, 3).map(a => a.name).join(', ');
             const greeting = areas.length === 1

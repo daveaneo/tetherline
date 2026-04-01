@@ -67,7 +67,7 @@ export function Lobby() {
     // Start mic from this click handler (user gesture = browser allows mic access)
     const { requestMicStart } = useAudioStore.getState();
     requestMicStart();
-    useSessionStore.setState({ activeRepoPath: selectedRepo.path });
+    useSessionStore.setState({ activeRepoPath: selectedRepo.path, entryMode: mode });
     sendEvent({ type: 'session:start', payload: { repoPath: selectedRepo.path, sinceDays: 7, entryMode: mode } });
     setSelectedRepo(null);
   };
@@ -264,6 +264,8 @@ function EntryModeDialog({ repo, onSelect, onClose }: { repo: Repo; onSelect: (m
       onSelect('updates');
     } else if (text.includes('onboarding') || text.includes('learn') || text.includes('program')) {
       onSelect('onboarding');
+    } else if (text.includes('explore') || text.includes('manual') || text.includes('free') || text.includes('self')) {
+      onSelect('explore');
     }
   }, [lastToast, onSelect]);
 
@@ -349,6 +351,20 @@ function EntryModeDialog({ repo, onSelect, onClose }: { repo: Repo; onSelect: (m
               A structured 5-day program to learn this codebase from the ground up.
             </p>
             <p className="text-xs text-[var(--color-text-muted)] ml-8 mt-1 opacity-60">or say "onboarding"</p>
+          </button>
+
+          <button
+            onClick={() => onSelect('explore')}
+            className="w-full text-left p-4 rounded-xl border border-[var(--color-border)] hover:border-[var(--color-accent)]/50 hover:bg-[var(--color-surface-hover)] transition-all group"
+          >
+            <div className="flex items-center gap-3 mb-1">
+              <span className="text-lg">&#128270;</span>
+              <h3 className="font-medium group-hover:text-[var(--color-accent)] transition-colors">Explore</h3>
+            </div>
+            <p className="text-sm text-[var(--color-text-muted)] ml-8">
+              Free exploration. You lead — ask questions, navigate, and dive into whatever interests you.
+            </p>
+            <p className="text-xs text-[var(--color-text-muted)] ml-8 mt-1 opacity-60">or say "explore"</p>
           </button>
         </div>
 

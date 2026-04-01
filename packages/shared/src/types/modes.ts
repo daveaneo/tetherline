@@ -14,4 +14,4 @@ export const DEFAULT_MODES: SessionModes = {
 
 export type ModeKey = keyof SessionModes;
 
-export type EntryMode = 'full_walkthrough' | 'updates' | 'onboarding';
+export type EntryMode = 'full_walkthrough' | 'updates' | 'onboarding' | 'explore';

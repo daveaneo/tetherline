@@ -1368,7 +1368,15 @@ export class SessionManager {
 
   /** Accept the proposal and transition to the first tour phase. */
   private acceptProposal(): void {
-    if (this.entryMode === 'full_walkthrough') {
+    if (this.entryMode === 'explore') {
+      // Explore mode: show architecture and wait. User leads.
+      this.setVisualLayer(3);
+      this.setState({ phase: 'OVERVIEW' });
+      this.emit({
+        type: 'narration:greeting',
+        payload: { text: `Here's the architecture. Explore freely — ask me anything, say "go deeper" on any area, or "show the code" to see files.` },
+      });
+    } else if (this.entryMode === 'full_walkthrough') {
       this.setState({ phase: 'PROJECT_OVERVIEW' });
       this.setVisualLayer(1);
     } else {
