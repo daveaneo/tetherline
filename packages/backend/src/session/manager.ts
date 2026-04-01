@@ -102,7 +102,27 @@ export class SessionManager {
           this.emit({ type: 'error', payload: { code: 'UTTERANCE_FAILED', message: err.message ?? 'Failed to handle utterance', recoverable: true } });
         });
         break;
+      case 'action:confirm_issue':
+        this.confirmIssue(event.payload).catch(err => {
+          this.emit({ type: 'action:issue_failed', payload: { error: err.message } });
+        });
+        break;
     }
+  }
+
+  private async confirmIssue(payload: { title: string; body: string; labels: string[] }) {
+    const { GitHubIntegration } = await import('../integrations/github.js');
+
+    if (!await GitHubIntegration.isAvailable()) {
+      this.emit({ type: 'action:issue_failed', payload: { error: 'GitHub CLI (gh) not installed. Install it from https://cli.github.com' } });
+      return;
+    }
+
+    const repoPath = this.activeRepoPath || this.config.repoPath;
+    const result = await GitHubIntegration.createIssue(repoPath, payload.title, payload.body, payload.labels);
+
+    this.emit({ type: 'action:issue_created', payload: result });
+    this.emit({ type: 'narration:greeting', payload: { text: `Issue created: number ${result.number}. You can find it at ${result.url}` } });
   }
 
   private async startSession(repoPath: string, sinceDays?: number) {
@@ -161,10 +181,32 @@ export class SessionManager {
       // Handle zero commits
       if (commits.length === 0) {
         if (this.entryMode === 'updates') {
-          // Nothing changed since last review — offer to switch to full walkthrough
+          // Query understanding repo for weakest areas
+          const understandingState = this.db.getUnderstandingRepo().getState(effectivePath);
+          const weakAreas = understandingState.layers
+            .flatMap(layer => {
+              const items = this.db.getUnderstandingRepo().getByLayer(effectivePath, layer.level);
+              return items
+                .filter(i => i.status !== 'understood')
+                .map(i => ({ name: i.itemName, percentage: 0 }));
+            })
+            .slice(0, 5);
+
+          // Build quiet-week greeting
+          let greetingText: string;
+          let proposalMessage: string;
+          if (weakAreas.length > 0) {
+            const weakNames = weakAreas.slice(0, 3).map(a => a.name).join(', ');
+            greetingText = `Nothing's changed in ${repoName} since your last review. But I noticed you haven't explored ${weakNames} yet.`;
+            proposalMessage = `No new commits since your last review. I'd suggest exploring some areas you haven't covered yet, like ${weakNames}. Or you can do a full walkthrough to explore the architecture, or wrap up.`;
+          } else {
+            greetingText = `Nothing's changed in ${repoName} since your last review. Want to do a full walkthrough instead?`;
+            proposalMessage = `No new commits since your last review. You can do a full walkthrough to explore the architecture, or wrap up.`;
+          }
+
           this.emit({
             type: 'narration:greeting',
-            payload: { text: `Nothing's changed in ${repoName} since your last review. Want to do a full walkthrough instead?` },
+            payload: { text: greetingText },
           });
 
           // Still compute heatmap and finish the session record
@@ -190,9 +232,9 @@ export class SessionManager {
           this.emit({
             type: 'session:proposal',
             payload: {
-              message: `No new commits since your last review. You can do a full walkthrough to explore the architecture, or wrap up.`,
+              message: proposalMessage,
               suggestedOrder: [],
-              areas: [],
+              areas: weakAreas.map((a, i) => ({ id: `weak-${i}`, name: a.name, significance: 'minor' as const })),
             },
           });
           this.setState({ phase: 'PROPOSAL' });
@@ -353,13 +395,47 @@ export class SessionManager {
           return intelligence.generateArchitecture(fileTree, areas);
         })();
 
-        const [narrativeResults, detectedConcerns, architecture] = await Promise.all([
+        const impactRankingPromise = (async () => {
+          try {
+            return await intelligence.rankByImpact(areas);
+          } catch {
+            // Non-critical — skip if impact ranking fails
+            return null;
+          }
+        })();
+
+        const [narrativeResults, detectedConcerns, architecture, impactRankings] = await Promise.all([
           Promise.all(narrativePromises),
           concernsPromise,
           architecturePromise,
+          impactRankingPromise,
         ]);
 
         concerns = detectedConcerns;
+
+        // Apply impact rankings to areas and sort by impact score descending
+        if (impactRankings) {
+          for (const ranking of impactRankings) {
+            const area = areas[ranking.areaIndex];
+            if (area) {
+              area.impactScore = ranking.overallImpact;
+              area.impactSummary = ranking.impactSummary;
+              area.riskFlags = ranking.riskFlags;
+              areaRepo.updateArea(area.id, {
+                impactScore: ranking.overallImpact,
+                impactSummary: ranking.impactSummary,
+                riskFlags: ranking.riskFlags,
+                theme: area.theme,
+              });
+            }
+          }
+          // Sort areas by impact score descending (highest impact first)
+          areas.sort((a, b) => (b.impactScore ?? 0) - (a.impactScore ?? 0));
+          // Update order indices after sorting
+          areas.forEach((area, idx) => {
+            area.orderIndex = idx;
+          });
+        }
 
         // Store architecture data on each area (shared diagram across areas)
         for (const area of areas) {
@@ -881,6 +957,14 @@ export class SessionManager {
       'show the overview': () => this.handleZoomCommand('zoom_out'),
       'show the code': () => this.handleZoomCommand('zoom_to_code'),
       'show the architecture': () => this.handleZoomCommand('zoom_to_architecture'),
+      // Action commands
+      'create a ticket': () => this.triggerSkill('create_issue'),
+      'create an issue': () => this.triggerSkill('create_issue'),
+      'file an issue': () => this.triggerSkill('create_issue'),
+      'open a ticket': () => this.triggerSkill('create_issue'),
+      'share this': () => this.triggerSkill('share_explanation'),
+      'share this explanation': () => this.triggerSkill('share_explanation'),
+      'copy this': () => this.triggerSkill('share_explanation'),
     };
     for (const [phrase, handler] of Object.entries(QUICK_COMMANDS)) {
       if (lower === phrase || lower.startsWith(phrase + ' ')) {
@@ -909,6 +993,13 @@ export class SessionManager {
     if (lower === 'show concerns' || lower === 'show issues') { this.handleModeToggle('advisory', true); return true; }
     if (lower === 'hide concerns') { this.handleModeToggle('advisory', false); return true; }
     return false;
+  }
+
+  private triggerSkill(skillName: SkillName): void {
+    const currentArea = this.state.areaIndex !== undefined ? this.areas[this.state.areaIndex] : undefined;
+    this.executeSkillWithDeviation(skillName, {}, currentArea).catch(err => {
+      this.emit({ type: 'error', payload: { code: 'SKILL_FAILED', message: err.message ?? 'Skill execution failed', recoverable: true } });
+    });
   }
 
   private async handleQuestion(question: string) {
@@ -1099,6 +1190,12 @@ export class SessionManager {
       // Handle zoom commands from classifier
       if (['zoom_in', 'zoom_out', 'zoom_to_code', 'zoom_to_architecture'].includes(classification.navigationCommand)) {
         this.handleZoomCommand(classification.navigationCommand);
+        return;
+      }
+
+      // Handle action commands that map to skills
+      if (['create_issue', 'share_explanation'].includes(classification.navigationCommand)) {
+        this.triggerSkill(classification.navigationCommand as SkillName);
         return;
       }
 

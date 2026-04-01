@@ -20,6 +20,8 @@ Each area should have:
 - The list of commit hashes that belong to it
 - A significance rating: "major" (new features, architectural changes), "minor" (enhancements, moderate fixes), or "maintenance" (dependency updates, formatting, small fixes)
 
+For each area, also provide a "theme" — a high-level category like "Security", "Performance", "Data model", "Testing", "DevOps", "UI/UX", "API", or "Documentation".
+
 Commits that touch the same files or relate to the same feature should be grouped together. A commit can belong to multiple areas if it spans concerns, but prefer assigning each commit to its primary area.
 
 Commits:
@@ -49,8 +51,12 @@ export const CLUSTERING_TOOL = {
               enum: ['major', 'minor', 'maintenance'],
               description: 'Impact level',
             },
+            theme: {
+              type: 'string',
+              description: 'High-level category: Security, Performance, Data model, Testing, DevOps, UI/UX, API, Documentation, or similar',
+            },
           },
-          required: ['name', 'description', 'commitHashes', 'significance'],
+          required: ['name', 'description', 'commitHashes', 'significance', 'theme'],
         },
       },
     },
@@ -64,5 +70,6 @@ export interface ClusteringResult {
     description: string;
     commitHashes: string[];
     significance: 'major' | 'minor' | 'maintenance';
+    theme: string;
   }>;
 }

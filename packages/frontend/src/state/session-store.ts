@@ -203,6 +203,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         set({ visualLayer: (event.payload as { layer: VisualLayer }).layer });
         break;
 
+      case 'action:issue_created':
+        // Issue created successfully; narration greeting handles the notification
+        break;
+
+      case 'action:issue_failed':
+        set({ error: { code: 'ISSUE_FAILED', message: (event.payload as { error: string }).error, recoverable: true } });
+        break;
+
       case 'error':
         console.error('Server error:', event.payload);
         set({ error: event.payload });

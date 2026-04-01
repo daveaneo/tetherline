@@ -14,6 +14,8 @@ import { buildClusteringPrompt, CLUSTERING_TOOL, type ClusteringResult } from '.
 import { buildNarrativePrompt, NARRATIVE_TOOL, type NarrativeResult } from './prompts/narrative.js';
 import { buildArchitecturePrompt, ARCHITECTURE_TOOL, type ArchitectureResult } from './prompts/architecture.js';
 import { buildConcernsPrompt, CONCERNS_TOOL, type ConcernsResult } from './prompts/concerns.js';
+import { buildImpactRankingPrompt, IMPACT_RANKING_TOOL, type ImpactRanking } from './prompts/impact-ranking.js';
+import { buildQuietWeekPrompt, QUIET_WEEK_TOOL, type QuietWeekResult } from './prompts/quiet-week.js';
 
 export class IntelligenceAnalyzer {
   private claude: IClaudeClient;
@@ -69,6 +71,7 @@ export class IntelligenceAnalyzer {
         commitHashes: fullHashes,
         affectedFiles,
         significance: area.significance,
+        theme: area.theme,
       };
     });
   }
@@ -160,6 +163,35 @@ export class IntelligenceAnalyzer {
       codeReferences: [],
       acknowledged: false,
     }));
+  }
+
+  async rankByImpact(areas: Area[]): Promise<ImpactRanking[]> {
+    const prompt = buildImpactRankingPrompt(areas.map(a => ({
+      name: a.name,
+      description: a.description,
+      significance: a.significance,
+      fileCount: a.affectedFiles.length,
+      commitCount: a.commitHashes.length,
+    })));
+    const result = await this.claude.structuredCall<{ rankings: ImpactRanking[] }>({
+      system: this.systemPrompt,
+      messages: [{ role: 'user', content: prompt }],
+      toolName: IMPACT_RANKING_TOOL.name,
+      toolDescription: IMPACT_RANKING_TOOL.description,
+      inputSchema: IMPACT_RANKING_TOOL.inputSchema,
+    });
+    return result.rankings;
+  }
+
+  async generateQuietWeekSuggestion(repoName: string, weakAreas: Array<{ name: string; percentage: number }>): Promise<QuietWeekResult> {
+    const prompt = buildQuietWeekPrompt(repoName, weakAreas);
+    return this.claude.structuredCall<QuietWeekResult>({
+      system: this.systemPrompt,
+      messages: [{ role: 'user', content: prompt }],
+      toolName: QUIET_WEEK_TOOL.name,
+      toolDescription: QUIET_WEEK_TOOL.description,
+      inputSchema: QUIET_WEEK_TOOL.inputSchema,
+    });
   }
 
   async answerQuestion(question: string, context: string): Promise<string> {

@@ -42,6 +42,10 @@ export interface Area {
   commitHashes: string[];
   affectedFiles: string[];
   significance: 'major' | 'minor' | 'maintenance';
+  theme?: string;
+  impactScore?: number;
+  impactSummary?: string;
+  riskFlags?: string[];
 }
 
 export interface AreaWithContent extends Area {

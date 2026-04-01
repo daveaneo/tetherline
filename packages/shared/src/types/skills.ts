@@ -1,4 +1,4 @@
-export type SkillName = 'visualize' | 'explain' | 'compare' | 'critique' | 'summarize' | 'navigate' | 'teach' | 'annotate';
+export type SkillName = 'visualize' | 'explain' | 'compare' | 'critique' | 'summarize' | 'navigate' | 'teach' | 'annotate' | 'create_issue' | 'share_explanation';
 
 export interface SkillResult {
   skillName: SkillName;

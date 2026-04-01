@@ -6,11 +6,13 @@ export class AreaRepository {
 
   createArea(area: Area & { sessionId: string }): void {
     this.db.prepare(`
-      INSERT INTO areas (id, session_id, name, description, order_index, commit_hashes, affected_files, significance)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO areas (id, session_id, name, description, order_index, commit_hashes, affected_files, significance, theme, impact_score, impact_summary, risk_flags)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       area.id, area.sessionId, area.name, area.description, area.orderIndex,
-      JSON.stringify(area.commitHashes), JSON.stringify(area.affectedFiles), area.significance
+      JSON.stringify(area.commitHashes), JSON.stringify(area.affectedFiles), area.significance,
+      area.theme ?? null, area.impactScore ?? null, area.impactSummary ?? null,
+      JSON.stringify(area.riskFlags ?? [])
     );
   }
 
@@ -28,6 +30,10 @@ export class AreaRepository {
     reviewedAt: string;
     deepDiveGenerated: boolean;
     deepDiveContent: string;
+    theme: string;
+    impactScore: number;
+    impactSummary: string;
+    riskFlags: string[];
   }>): void {
     const sets: string[] = [];
     const values: any[] = [];
@@ -39,6 +45,10 @@ export class AreaRepository {
     if (updates.reviewedAt !== undefined) { sets.push('reviewed_at = ?'); values.push(updates.reviewedAt); }
     if (updates.deepDiveGenerated !== undefined) { sets.push('deep_dive_generated = ?'); values.push(updates.deepDiveGenerated ? 1 : 0); }
     if (updates.deepDiveContent !== undefined) { sets.push('deep_dive_content = ?'); values.push(updates.deepDiveContent); }
+    if (updates.theme !== undefined) { sets.push('theme = ?'); values.push(updates.theme); }
+    if (updates.impactScore !== undefined) { sets.push('impact_score = ?'); values.push(updates.impactScore); }
+    if (updates.impactSummary !== undefined) { sets.push('impact_summary = ?'); values.push(updates.impactSummary); }
+    if (updates.riskFlags !== undefined) { sets.push('risk_flags = ?'); values.push(JSON.stringify(updates.riskFlags)); }
     if (sets.length === 0) return;
     values.push(id);
     this.db.prepare(`UPDATE areas SET ${sets.join(', ')} WHERE id = ?`).run(...values);
@@ -62,6 +72,10 @@ export class AreaRepository {
       deepDiveContent: row.deep_dive_content ? JSON.parse(row.deep_dive_content) : undefined,
       reviewed: !!row.reviewed,
       reviewedAt: row.reviewed_at,
+      theme: row.theme ?? undefined,
+      impactScore: row.impact_score ?? undefined,
+      impactSummary: row.impact_summary ?? undefined,
+      riskFlags: row.risk_flags ? JSON.parse(row.risk_flags) : undefined,
     };
   }
 }

@@ -9,6 +9,8 @@ import { UnderstandingMap } from '../heatmap/UnderstandingMap.js';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { AreaWithContent, Concern, UnderstandingState, SkillResult } from '@interactive-reviewer/shared';
 import { sendEvent } from '../../lib/ws-client.js';
+import { IssueDraftPreview } from '../actions/IssueDraftPreview.js';
+import { SharePanel } from '../actions/SharePanel.js';
 
 export function ContentPanel() {
   const { state, areas, analysisProgress, context } = useSession();
@@ -315,30 +317,86 @@ function RecapContent({ recap, previousSession }: { recap: string | null; previo
 }
 
 function OverviewContent({ areas }: { areas: AreaWithContent[] }) {
+  // Sort areas by impact score descending (if available), then by original order
+  const sortedAreas = [...areas].sort((a, b) => (b.impactScore ?? 0) - (a.impactScore ?? 0));
+
+  // Group areas by theme
+  const themes = new Map<string, AreaWithContent[]>();
+  for (const area of sortedAreas) {
+    const theme = area.theme ?? 'Other';
+    if (!themes.has(theme)) themes.set(theme, []);
+    themes.get(theme)!.push(area);
+  }
+
+  const hasThemes = sortedAreas.some(a => a.theme);
+
   return (
     <div className="space-y-4 py-4">
       <h2 className="text-xl font-semibold">This Week's Changes</h2>
-      <div className="space-y-3">
-        {areas.map((area) => (
-          <div
-            key={area.id}
-            className="p-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)]"
-          >
-            <div className="flex items-center gap-2 mb-1">
-              <span className={`w-2 h-2 rounded-full ${
-                area.significance === 'major' ? 'bg-[var(--color-red)]' :
-                area.significance === 'minor' ? 'bg-[var(--color-yellow)]' :
-                'bg-[var(--color-green)]'
-              }`} />
-              <h3 className="font-medium">{area.name}</h3>
+      {hasThemes ? (
+        // Grouped by theme
+        Array.from(themes.entries()).map(([theme, themeAreas]) => (
+          <div key={theme} className="space-y-2">
+            <h3 className="text-sm font-medium text-[var(--color-text-muted)] uppercase tracking-wide">{theme}</h3>
+            <div className="space-y-3">
+              {themeAreas.map((area) => (
+                <OverviewAreaCard key={area.id} area={area} />
+              ))}
             </div>
-            <p className="text-sm text-[var(--color-text-muted)]">{area.description}</p>
-            <p className="text-xs text-[var(--color-text-muted)] mt-2">
-              {area.commitHashes.length} commits &middot; {area.affectedFiles.length} files
-            </p>
           </div>
-        ))}
+        ))
+      ) : (
+        // Flat list (no themes available)
+        <div className="space-y-3">
+          {sortedAreas.map((area) => (
+            <OverviewAreaCard key={area.id} area={area} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OverviewAreaCard({ area }: { area: AreaWithContent }) {
+  return (
+    <div className="p-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)]">
+      <div className="flex items-center gap-2 mb-1">
+        <span className={`w-2 h-2 rounded-full ${
+          area.significance === 'major' ? 'bg-[var(--color-red)]' :
+          area.significance === 'minor' ? 'bg-[var(--color-yellow)]' :
+          'bg-[var(--color-green)]'
+        }`} />
+        <h3 className="font-medium">{area.name}</h3>
+        {area.impactScore != null && (
+          <div className="ml-auto flex items-center gap-1.5">
+            <div className="w-16 h-1.5 bg-[var(--color-border)] rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{
+                  width: `${area.impactScore}%`,
+                  backgroundColor: area.impactScore >= 70 ? 'var(--color-red)' :
+                    area.impactScore >= 40 ? 'var(--color-yellow)' : 'var(--color-green)',
+                }}
+              />
+            </div>
+            <span className="text-[10px] font-medium text-[var(--color-text-muted)]">{area.impactScore}</span>
+          </div>
+        )}
       </div>
+      <p className="text-sm text-[var(--color-text-muted)]">{area.description}</p>
+      {area.impactSummary && (
+        <p className="text-xs text-[var(--color-accent)] mt-1.5 italic">{area.impactSummary}</p>
+      )}
+      <p className="text-xs text-[var(--color-text-muted)] mt-2">
+        {area.commitHashes.length} commits &middot; {area.affectedFiles.length} files
+      </p>
+      {area.riskFlags && area.riskFlags.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-2">
+          {area.riskFlags.map((flag, i) => (
+            <span key={i} className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/20">{flag}</span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -573,6 +631,8 @@ const SKILL_LABELS: Record<string, string> = {
   navigate: 'Navigation',
   teach: 'Lesson',
   annotate: 'Annotation',
+  create_issue: 'GitHub Issue',
+  share_explanation: 'Share',
 };
 
 const SKILL_TYPE_ICONS: Record<string, string> = {
@@ -585,6 +645,27 @@ const SKILL_TYPE_ICONS: Record<string, string> = {
 };
 
 function SkillResultPanel({ result, onDismiss }: { result: SkillResult; onDismiss: () => void }) {
+  // Action-specific renderers
+  if (result.visualPayload.action === 'issue_preview') {
+    return (
+      <IssueDraftPreview
+        title={result.visualPayload.issueTitle as string}
+        body={result.visualPayload.issueBody as string}
+        labels={(result.visualPayload.issueLabels as string[]) ?? []}
+        onDismiss={onDismiss}
+      />
+    );
+  }
+
+  if (result.visualPayload.action === 'share_preview') {
+    return (
+      <SharePanel
+        markdown={result.visualPayload.markdown as string}
+        onDismiss={onDismiss}
+      />
+    );
+  }
+
   return (
     <div className="p-5 rounded-xl border border-[var(--color-accent)]/30 bg-[var(--color-accent)]/5 relative">
       <button

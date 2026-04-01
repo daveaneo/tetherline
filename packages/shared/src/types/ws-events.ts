@@ -21,7 +21,8 @@ export type ClientEvent =
   | { type: 'command:toggle_mode'; payload: { mode: ModeKey; enabled: boolean } }
   | { type: 'command:export'; payload: { format: 'slides' | 'markdown' } }
   | { type: 'audio:segment_finished'; payload: { segmentId: string } }
-  | { type: 'user:utterance'; payload: { text: string; timestamp: number } };
+  | { type: 'user:utterance'; payload: { text: string; timestamp: number } }
+  | { type: 'action:confirm_issue'; payload: { title: string; body: string; labels: string[] } };
 
 // Server → Client
 export type ServerEvent =
@@ -52,6 +53,8 @@ export type ServerEvent =
   | { type: 'skill:clarify'; payload: { message: string; options: string[] } }
   | { type: 'session:proposal'; payload: { message: string; suggestedOrder: string[]; areas: Array<{ id: string; name: string; significance: string }> } }
   | { type: 'session:tour_progress'; payload: { total: number; covered: number; percentage: number } }
+  | { type: 'action:issue_created'; payload: { url: string; number: number } }
+  | { type: 'action:issue_failed'; payload: { error: string } }
   | { type: 'error'; payload: { code: string; message: string; recoverable: boolean } };
 
 // Session state types

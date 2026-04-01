@@ -13,6 +13,10 @@ const NAVIGATION_PHRASES: Record<string, string> = {
   'back to the tour': 'resume_tour', 'resume tour': 'resume_tour', 'resume the tour': 'resume_tour',
   'back to the walkthrough': 'resume_tour', 'resume walkthrough': 'resume_tour',
   "let's continue the tour": 'resume_tour', "where were we": 'resume_tour',
+  // Action commands
+  'create a ticket': 'create_issue', 'create an issue': 'create_issue', 'file an issue': 'create_issue',
+  'open a ticket': 'create_issue', 'create a bug': 'create_issue',
+  'share this': 'share_explanation', 'share this explanation': 'share_explanation', 'copy this': 'share_explanation',
   // Export commands
   'export slides': 'export_slides', 'make slides': 'export_slides', 'create a presentation': 'export_slides',
   'export markdown': 'export_markdown', 'make a summary': 'export_markdown', 'write it up': 'export_markdown',
@@ -100,6 +104,8 @@ ${context}`;
 - navigate: user wants to MOVE somewhere in the codebase ("go to", "show me the file", "open")
 - teach: user wants to LEARN a concept ("what is", "explain the pattern", "teach me about")
 - annotate: user wants to MARK something ("flag this", "remember this", "note")
+- create_issue: user wants to CREATE a GitHub issue ("create a ticket", "file an issue", "open a bug")
+- share_explanation: user wants to SHARE or COPY the current explanation ("share this", "copy this")
 
 Return the skill name, a confidence score from 0 to 1, and any extracted parameters (like file names, component names, etc).`,
         messages: [{
@@ -111,7 +117,7 @@ Return the skill name, a confidence score from 0 to 1, and any extracted paramet
         inputSchema: {
           type: 'object' as const,
           properties: {
-            skillName: { type: 'string', enum: ['visualize', 'explain', 'compare', 'critique', 'summarize', 'navigate', 'teach', 'annotate'] },
+            skillName: { type: 'string', enum: ['visualize', 'explain', 'compare', 'critique', 'summarize', 'navigate', 'teach', 'annotate', 'create_issue', 'share_explanation'] },
             confidence: { type: 'number', description: 'Confidence score from 0 to 1' },
             params: { type: 'object', additionalProperties: { type: 'string' }, description: 'Extracted parameters' },
           },

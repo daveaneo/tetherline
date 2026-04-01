@@ -70,6 +70,10 @@ export class Database {
         deep_dive_content TEXT,
         reviewed INTEGER DEFAULT 0,
         reviewed_at TEXT,
+        theme TEXT,
+        impact_score REAL,
+        impact_summary TEXT,
+        risk_flags TEXT DEFAULT '[]',
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
 
@@ -169,6 +173,22 @@ export class Database {
 
       CREATE INDEX IF NOT EXISTS idx_annotations_repo ON annotations(repo_path);
     `);
+
+    // Migration: add impact/theme columns to areas table for existing databases
+    const areaColumns = this.db.pragma('table_info(areas)') as Array<{ name: string }>;
+    const areaColumnNames = new Set(areaColumns.map(c => c.name));
+    if (!areaColumnNames.has('theme')) {
+      this.db.exec(`ALTER TABLE areas ADD COLUMN theme TEXT`);
+    }
+    if (!areaColumnNames.has('impact_score')) {
+      this.db.exec(`ALTER TABLE areas ADD COLUMN impact_score REAL`);
+    }
+    if (!areaColumnNames.has('impact_summary')) {
+      this.db.exec(`ALTER TABLE areas ADD COLUMN impact_summary TEXT`);
+    }
+    if (!areaColumnNames.has('risk_flags')) {
+      this.db.exec(`ALTER TABLE areas ADD COLUMN risk_flags TEXT DEFAULT '[]'`);
+    }
   }
 
   getSessionRepo(): SessionRepository { return this.sessionRepo; }
