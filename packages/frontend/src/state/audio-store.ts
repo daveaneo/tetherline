@@ -48,13 +48,12 @@ export const useAudioStore = create<AudioStore>((set, get) => ({
   setAudioElement: (el) => set({ audioElement: el }),
   muteOutput: () => {
     const el = get().audioElement;
-    if (el) el.volume = 0;
-    if ('speechSynthesis' in window) speechSynthesis.pause();
+    if (el) { el.pause(); el.currentTime = el.duration || 0; } // hard stop, not just volume
+    if ('speechSynthesis' in window) speechSynthesis.cancel(); // cancel, not pause — more reliable
   },
   unmuteOutput: () => {
-    const el = get().audioElement;
-    if (el) el.volume = 1;
-    if ('speechSynthesis' in window) speechSynthesis.resume();
+    // After a hard stop, we don't resume — the orchestrator will play the next segment
+    // This is intentional: interrupt = stop talking, not pause-and-resume
   },
 
   setStartMicFn: (fn) => set({ _startMicFn: fn }),

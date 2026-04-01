@@ -162,9 +162,12 @@ export class AudioCapture {
     }, VAD_POLL_MS);
   }
 
-  private onSoundDetected(rms: number): void {
-    // INSTANT MUTE: kill AI audio locally before anything else (~1ms)
+  private onSoundDetected(_rms: number): void {
     const store = useAudioStore.getState();
+
+    // INSTANT MUTE: kill AI audio locally before anything else (~1ms)
+    // We hard-stop the audio — no way to resume it. But that's the right UX:
+    // any sound from the user means "I want your attention."
     if (store.isPlaying && !this.isMuted) {
       store.muteOutput();
       this.isMuted = true;
@@ -189,11 +192,9 @@ export class AudioCapture {
       clearTimeout(this.confirmTimer);
       this.confirmTimer = null;
 
-      // It was just noise — unmute the AI
-      if (this.isMuted) {
-        useAudioStore.getState().unmuteOutput();
-        this.isMuted = false;
-      }
+      // It was just noise — the AI audio was already hard-stopped though.
+      // The orchestrator will resume on next phase/segment change.
+      this.isMuted = false;
       return;
     }
 

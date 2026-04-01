@@ -1063,10 +1063,8 @@ export class SessionManager {
     // The answer is spoken aloud and shown in the narration bar.
 
     const answerAndNarrate = async (answer: string) => {
-      // Emit as narration greeting so the orchestrator speaks it
+      // Emit only narration:greeting — the store records it as conversation and the orchestrator speaks it
       this.emit({ type: 'narration:greeting', payload: { text: answer } });
-      // Also emit as qa:answer_chunk for the content panel
-      this.emit({ type: 'qa:answer_chunk', payload: { text: answer, done: true } });
     };
 
     // Try the active analyzer first
