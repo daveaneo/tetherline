@@ -1,6 +1,7 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useSession } from '../../hooks/useSession.js';
-import { useSessionStore } from '../../state/session-store.js';
+import { useSessionStore, type ConversationEntry } from '../../state/session-store.js';
+import { useAudioStore } from '../../state/audio-store.js';
 import { CodeSnippet } from '../code/CodeSnippet.js';
 import { CodeMorphing } from '../code/CodeMorphing.js';
 import { DiffView } from '../code/DiffView.js';
@@ -19,6 +20,9 @@ export function ContentPanel() {
   const proposal = useSessionStore(s => s.proposal);
   const skillResult = useSessionStore(s => s.skillResult);
   const skillClarification = useSessionStore(s => s.skillClarification);
+  const conversationHistory = useSessionStore(s => s.conversationHistory);
+  const voiceState = useAudioStore(s => s.voiceState);
+  const speechToasts = useAudioStore(s => s.speechToasts);
 
   const currentArea = state.areaIndex !== undefined ? areas[state.areaIndex] : undefined;
   const currentSegment = currentArea?.narrationSegments?.[state.segmentIndex ?? 0];
@@ -36,116 +40,204 @@ export function ContentPanel() {
     useSessionStore.setState({ skillResult: null, skillClarification: null });
   }, [state.phase, state.areaIndex, state.segmentIndex]);
 
+  const lastSpeechText = speechToasts.length > 0 ? speechToasts[speechToasts.length - 1].text : null;
+
   return (
-    <div className="h-full p-6 overflow-y-auto">
-      {/* Skill result overlay -- takes priority when present */}
-      <AnimatePresence>
-        {skillResult && (
+    <div className="h-full flex flex-col">
+      {/* Phase content area (~70%) */}
+      <div className="flex-[7] p-6 overflow-y-auto relative">
+        {/* Processing overlay */}
+        <AnimatePresence>
+          {voiceState === 'processing' && (
+            <motion.div
+              key="processing-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="absolute inset-0 z-10 flex items-center justify-center bg-[var(--color-surface)]/80 backdrop-blur-sm"
+            >
+              <div className="text-center space-y-3">
+                {lastSpeechText && (
+                  <p className="text-sm text-[var(--color-green)] font-medium">
+                    &ldquo;{lastSpeechText}&rdquo;
+                  </p>
+                )}
+                <div className="flex items-center justify-center gap-2">
+                  <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                    className="w-5 h-5 border-2 rounded-full border-[var(--color-yellow)] border-t-transparent"
+                  />
+                  <span className="text-sm text-[var(--color-yellow)] font-medium">Thinking...</span>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Skill result overlay -- takes priority when present */}
+        <AnimatePresence>
+          {skillResult && (
+            <motion.div
+              key="skill-result"
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.2 }}
+              className="mb-6"
+            >
+              <SkillResultPanel result={skillResult} onDismiss={() => useSessionStore.setState({ skillResult: null })} />
+            </motion.div>
+          )}
+          {skillClarification && !skillResult && (
+            <motion.div
+              key="skill-clarify"
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.2 }}
+              className="mb-6"
+            >
+              <SkillClarifyPanel
+                message={skillClarification.message}
+                options={skillClarification.options}
+                onSelect={(option) => {
+                  sendEvent({ type: 'user:utterance', payload: { text: option, timestamp: Date.now() } });
+                  useSessionStore.setState({ skillClarification: null });
+                }}
+                onDismiss={() => useSessionStore.setState({ skillClarification: null })}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence mode="wait">
           <motion.div
-            key="skill-result"
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.2 }}
-            className="mb-6"
+            key={`${state.phase}-${state.areaIndex}-${state.segmentIndex}`}
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            transition={{ duration: 0.25 }}
           >
-            <SkillResultPanel result={skillResult} onDismiss={() => useSessionStore.setState({ skillResult: null })} />
+            {state.phase === 'ANALYZING' && (
+              <AnalyzingContent progress={analysisProgress} />
+            )}
+
+            {state.phase === 'PROPOSAL' && proposal && (
+              <ProposalContent proposal={proposal} />
+            )}
+
+            {state.phase === 'PREVIOUSLY_ON' && (
+              <RecapContent recap={recap} previousSession={previousSession} />
+            )}
+
+            {state.phase === 'HEATMAP' && (
+              <div>
+                <h2 className="text-xl font-semibold mb-4">Understanding Map</h2>
+                <UnderstandingMap data={heatmap} />
+              </div>
+            )}
+
+            {state.phase === 'PROJECT_OVERVIEW' && (
+              <ProjectOverviewContent areas={areas} understanding={understanding} />
+            )}
+
+            {state.phase === 'ARCHITECTURE_OVERVIEW' && (
+              <ArchitectureOverviewContent areas={areas} understanding={understanding} />
+            )}
+
+            {state.phase === 'COMPONENT_TOUR' && currentArea && (
+              <AreaContent area={currentArea} segment={currentSegment} />
+            )}
+
+            {state.phase === 'OVERVIEW' && (
+              <OverviewContent areas={areas} />
+            )}
+
+            {(state.phase === 'AREA_WALKTHROUGH' || state.phase === 'QA') && currentArea && (
+              <AreaContent area={currentArea} segment={currentSegment} />
+            )}
+
+            {state.phase === 'ADVISORY' && (
+              <ConcernsContent concerns={concerns} />
+            )}
+
+            {state.phase === 'WRAP_UP' && (
+              <WrapUpContent heatmap={heatmap} sessionId={context.sessionId} />
+            )}
+
+            {state.phase === 'COMPLETED' && (
+              <div className="text-center py-12">
+                <h2 className="text-2xl font-bold mb-3">Session Complete</h2>
+                <p className="text-[var(--color-text-muted)]">Your understanding map has been updated.</p>
+              </div>
+            )}
+
+            {state.phase === 'ERROR' && (
+              <div className="text-center py-12">
+                <h2 className="text-xl font-bold text-red-400 mb-3">Something went wrong</h2>
+                <p className="text-[var(--color-text-muted)]">{state.error ?? 'An unexpected error occurred'}</p>
+              </div>
+            )}
           </motion.div>
-        )}
-        {skillClarification && !skillResult && (
-          <motion.div
-            key="skill-clarify"
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.2 }}
-            className="mb-6"
-          >
-            <SkillClarifyPanel
-              message={skillClarification.message}
-              options={skillClarification.options}
-              onSelect={(option) => {
-                sendEvent({ type: 'user:utterance', payload: { text: option, timestamp: Date.now() } });
-                useSessionStore.setState({ skillClarification: null });
-              }}
-              onDismiss={() => useSessionStore.setState({ skillClarification: null })}
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
+        </AnimatePresence>
+      </div>
 
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={`${state.phase}-${state.areaIndex}-${state.segmentIndex}`}
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -20 }}
-          transition={{ duration: 0.25 }}
-        >
-          {state.phase === 'ANALYZING' && (
-            <AnalyzingContent progress={analysisProgress} />
-          )}
-
-          {state.phase === 'PROPOSAL' && proposal && (
-            <ProposalContent proposal={proposal} />
-          )}
-
-          {state.phase === 'PREVIOUSLY_ON' && (
-            <RecapContent recap={recap} previousSession={previousSession} />
-          )}
-
-          {state.phase === 'HEATMAP' && (
-            <div>
-              <h2 className="text-xl font-semibold mb-4">Understanding Map</h2>
-              <UnderstandingMap data={heatmap} />
-            </div>
-          )}
-
-          {state.phase === 'PROJECT_OVERVIEW' && (
-            <ProjectOverviewContent areas={areas} understanding={understanding} />
-          )}
-
-          {state.phase === 'ARCHITECTURE_OVERVIEW' && (
-            <ArchitectureOverviewContent areas={areas} understanding={understanding} />
-          )}
-
-          {state.phase === 'COMPONENT_TOUR' && currentArea && (
-            <AreaContent area={currentArea} segment={currentSegment} />
-          )}
-
-          {state.phase === 'OVERVIEW' && (
-            <OverviewContent areas={areas} />
-          )}
-
-          {(state.phase === 'AREA_WALKTHROUGH' || state.phase === 'QA') && currentArea && (
-            <AreaContent area={currentArea} segment={currentSegment} />
-          )}
-
-          {state.phase === 'ADVISORY' && (
-            <ConcernsContent concerns={concerns} />
-          )}
-
-          {state.phase === 'WRAP_UP' && (
-            <WrapUpContent heatmap={heatmap} sessionId={context.sessionId} />
-          )}
-
-          {state.phase === 'COMPLETED' && (
-            <div className="text-center py-12">
-              <h2 className="text-2xl font-bold mb-3">Session Complete</h2>
-              <p className="text-[var(--color-text-muted)]">Your understanding map has been updated.</p>
-            </div>
-          )}
-
-          {state.phase === 'ERROR' && (
-            <div className="text-center py-12">
-              <h2 className="text-xl font-bold text-red-400 mb-3">Something went wrong</h2>
-              <p className="text-[var(--color-text-muted)]">{state.error ?? 'An unexpected error occurred'}</p>
-            </div>
-          )}
-        </motion.div>
-      </AnimatePresence>
+      {/* Conversation history (~30%) */}
+      {conversationHistory.length > 0 && (
+        <div className="flex-[3] border-t border-[var(--color-border)]">
+          <ConversationHistory entries={conversationHistory} />
+        </div>
+      )}
     </div>
   );
+}
+
+function ConversationHistory({ entries }: { entries: ConversationEntry[] }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const displayEntries = entries.slice(-20);
+
+  // Auto-scroll to bottom on new entries
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [displayEntries.length]);
+
+  return (
+    <div className="h-full flex flex-col">
+      <div className="px-4 py-2 flex items-center gap-2 shrink-0">
+        <span className="text-xs font-medium text-[var(--color-text-muted)]">Conversation</span>
+        <span className="text-xs text-[var(--color-text-muted)] opacity-50">{entries.length} messages</span>
+      </div>
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 pb-3 space-y-2">
+        {displayEntries.map((entry, i) => (
+          <div key={`${entry.timestamp}-${i}`} className="flex gap-2 text-sm">
+            <span className={`shrink-0 text-xs font-medium w-8 pt-0.5 ${
+              entry.speaker === 'you' ? 'text-[var(--color-green)]' : 'text-[var(--color-accent)]'
+            }`}>
+              {entry.speaker === 'you' ? 'You' : 'AI'}
+            </span>
+            <p className={`flex-1 leading-relaxed ${
+              entry.speaker === 'you' ? 'text-[var(--color-green)]' : 'text-[var(--color-text)]'
+            }`}>
+              {entry.text.length > 200 ? entry.text.slice(0, 200) + '...' : entry.text}
+            </p>
+            <span className="shrink-0 text-[10px] text-[var(--color-text-muted)] opacity-40 pt-0.5">
+              {formatTime(entry.timestamp)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function formatTime(ts: number): string {
+  const d = new Date(ts);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 function AnalyzingContent({ progress }: { progress: { phase: string; progress: number; message: string } | null }) {

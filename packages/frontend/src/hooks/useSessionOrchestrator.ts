@@ -22,6 +22,7 @@ export function useSessionOrchestrator() {
   const activeRunRef = useRef<string>('');
   const abortRef = useRef<AbortController | null>(null);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const postAnswerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Speak text via TTS (returns a promise that resolves when done speaking)
   const speak = useCallback(async (text: string, signal?: AbortSignal): Promise<void> => {
@@ -134,6 +135,10 @@ export function useSessionOrchestrator() {
       if (silenceTimerRef.current) {
         clearTimeout(silenceTimerRef.current);
         silenceTimerRef.current = null;
+      }
+      if (postAnswerTimerRef.current) {
+        clearTimeout(postAnswerTimerRef.current);
+        postAnswerTimerRef.current = null;
       }
       setPlaying(false);
       useAudioStore.getState().setVoiceState('listening');
@@ -358,6 +363,11 @@ export function useSessionOrchestrator() {
   // 20-second silence rule
   const resetSilenceTimer = useCallback(() => {
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    // Also cancel the post-answer auto-resume timer when user interacts
+    if (postAnswerTimerRef.current) {
+      clearTimeout(postAnswerTimerRef.current);
+      postAnswerTimerRef.current = null;
+    }
 
     // Only run silence timer when in a session and not analyzing
     const currentPhase = useSessionStore.getState().state.phase;
@@ -395,13 +405,18 @@ export function useSessionOrchestrator() {
   // Speak greeting/answer whenever it changes (covers Q&A answers delivered as narration:greeting)
   const greeting = useSessionStore(s => s.greeting);
   const greetingSpokenRef = useRef<string>('');
+  const greetingPhaseRef = useRef<string>('');
   useEffect(() => {
     if (!greeting || greeting === greetingSpokenRef.current) return;
     if (state.phase === 'IDLE' || state.phase === 'ANALYZING') return; // handled by main orchestration
     if (state.paused) return;
     if (!modes.narration) return;
 
+    // Detect if this greeting is a Q&A answer (phase didn't change) vs. phase-transition greeting
+    const isQaAnswer = greetingPhaseRef.current === state.phase && greetingSpokenRef.current !== '';
+
     greetingSpokenRef.current = greeting;
+    greetingPhaseRef.current = state.phase;
 
     // Abort current narration and speak the answer
     if (abortRef.current) abortRef.current.abort();
@@ -409,8 +424,38 @@ export function useSessionOrchestrator() {
     abortRef.current = controller;
     activeRunRef.current = ''; // allow re-trigger after answer
 
-    speak(greeting, controller.signal);
+    speak(greeting, controller.signal).then(() => {
+      if (controller.signal.aborted) return;
+      // After speaking a Q&A answer, auto-resume the tour after 5 seconds of silence
+      if (isQaAnswer) {
+        if (postAnswerTimerRef.current) clearTimeout(postAnswerTimerRef.current);
+        postAnswerTimerRef.current = setTimeout(() => {
+          const currentState = useSessionStore.getState().state;
+          if (currentState.paused) {
+            sendEvent({ type: 'command:resume' });
+          }
+        }, 5000);
+      }
+    });
   }, [greeting, state.phase, state.paused, modes.narration, speak]);
+
+  // Cancel post-answer auto-resume when user starts speaking (voiceState becomes 'hearing')
+  const voiceState = useAudioStore(s => s.voiceState);
+  const speechToasts = useAudioStore(s => s.speechToasts);
+  useEffect(() => {
+    if (voiceState === 'hearing' && postAnswerTimerRef.current) {
+      clearTimeout(postAnswerTimerRef.current);
+      postAnswerTimerRef.current = null;
+    }
+  }, [voiceState]);
+
+  // Also cancel if a new speech toast appears (user spoke)
+  useEffect(() => {
+    if (speechToasts.length > 0 && postAnswerTimerRef.current) {
+      clearTimeout(postAnswerTimerRef.current);
+      postAnswerTimerRef.current = null;
+    }
+  }, [speechToasts]);
 
   // Reset tracking when session goes back to IDLE
   useEffect(() => {
@@ -423,6 +468,10 @@ export function useSessionOrchestrator() {
       if (silenceTimerRef.current) {
         clearTimeout(silenceTimerRef.current);
         silenceTimerRef.current = null;
+      }
+      if (postAnswerTimerRef.current) {
+        clearTimeout(postAnswerTimerRef.current);
+        postAnswerTimerRef.current = null;
       }
       clearQueue();
     }
@@ -446,6 +495,9 @@ export function useSessionOrchestrator() {
       }
       if (silenceTimerRef.current) {
         clearTimeout(silenceTimerRef.current);
+      }
+      if (postAnswerTimerRef.current) {
+        clearTimeout(postAnswerTimerRef.current);
       }
     };
   }, []);

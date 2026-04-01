@@ -28,6 +28,19 @@ export function Lobby() {
     try {
       const data = await api.listRepos();
       setRepos(data.repos);
+
+      // Enrich repos with commit counts and contributors in the background
+      const enriched = await Promise.all(
+        data.repos.map(async (repo: Repo) => {
+          try {
+            const details = await api.getRepo(repo.id);
+            return { ...repo, newCommits: details.newCommits, contributors: details.contributors };
+          } catch {
+            return repo;
+          }
+        })
+      );
+      setRepos(enriched);
     } catch (err) {
       console.error('Failed to load repos:', err);
     } finally {
@@ -157,6 +170,12 @@ export function Lobby() {
                 ) : (
                   <span className="text-[var(--color-yellow)]">Never reviewed</span>
                 )}
+                {repo.newCommits != null && repo.newCommits > 0 && (
+                  <span className="text-xs text-[var(--color-accent)]">{repo.newCommits} new commits</span>
+                )}
+                {repo.contributors && repo.contributors.length > 0 && (
+                  <span className="text-xs text-[var(--color-text-muted)]">{repo.contributors.length} contributors</span>
+                )}
               </div>
 
               {/* Path */}
@@ -167,6 +186,9 @@ export function Lobby() {
           ))}
         </div>
       )}
+
+      {/* Recent Sessions */}
+      <RecentSessions />
 
       {/* Entry Mode Selection */}
       <AnimatePresence>
@@ -185,6 +207,43 @@ export function Lobby() {
           <AddRepoDialog onClose={() => setShowAddDialog(false)} onAdded={handleRepoAdded} />
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+function RecentSessions() {
+  const [sessions, setSessions] = useState<any[]>([]);
+
+  useEffect(() => {
+    api.listSessions()
+      .then(data => setSessions(data.sessions.slice(0, 10)))
+      .catch(() => {});
+  }, []);
+
+  if (sessions.length === 0) return null;
+
+  return (
+    <div className="mt-12">
+      <h2 className="text-lg font-semibold mb-4">Recent Sessions</h2>
+      <div className="space-y-2">
+        {sessions.map(session => (
+          <div
+            key={session.id}
+            className="flex items-center justify-between p-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] hover:bg-[var(--color-surface-hover)] transition-colors cursor-pointer"
+            onClick={() => sendEvent({ type: 'session:resume', payload: { sessionId: session.id } })}
+          >
+            <div>
+              <span className="text-sm font-medium">{session.repoName}</span>
+              <span className="text-xs text-[var(--color-text-muted)] ml-3">
+                {new Date(session.startedAt).toLocaleDateString()} · {session.totalAreas} areas · {session.totalCommits} commits
+              </span>
+            </div>
+            {session.summary && (
+              <span className="text-xs text-[var(--color-text-muted)] max-w-xs truncate">{session.summary}</span>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { useAudioStore, type VoiceState } from '../../state/audio-store.js';
 import { useSessionStore } from '../../state/session-store.js';
 import { motion, AnimatePresence } from 'framer-motion';
 import { sendEvent } from '../../lib/ws-client.js';
+import { VoiceHelp } from './VoiceHelp.js';
 
 const STATE_CONFIG: Record<VoiceState, { color: string; borderColor: string; label: string }> = {
   speaking: { color: 'var(--color-accent)', borderColor: 'rgba(99, 102, 241, 0.4)', label: 'AI Speaking' },
@@ -123,6 +124,9 @@ export function NarrationBar() {
         >
           Skip \u2192
         </button>
+        <div className="relative">
+          <VoiceHelp />
+        </div>
       </div>
     </motion.div>
   );

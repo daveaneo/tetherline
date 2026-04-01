@@ -71,6 +71,9 @@ function handleTranscript(text: string) {
   const audioStore = useAudioStore.getState();
   audioStore.addSpeechToast(text);
 
+  // Record in conversation history
+  useSessionStore.getState().addConversation('you', text);
+
   // Check for navigation commands
   const command = matchCommand(text);
   if (command) {

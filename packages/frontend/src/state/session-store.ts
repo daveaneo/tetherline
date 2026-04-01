@@ -12,6 +12,12 @@ interface ProposalData {
   areas: Array<{ id: string; name: string; significance: string }>;
 }
 
+export interface ConversationEntry {
+  speaker: 'ai' | 'you';
+  text: string;
+  timestamp: number;
+}
+
 interface SessionStore {
   state: SessionState;
   context: StateContext;
@@ -31,8 +37,10 @@ interface SessionStore {
   tourProgress: { total: number; covered: number; percentage: number } | null;
   error: { code: string; message: string; recoverable: boolean } | null;
   connected: boolean;
+  conversationHistory: ConversationEntry[];
 
   handleServerEvent: (event: ServerEvent) => void;
+  addConversation: (speaker: 'ai' | 'you', text: string) => void;
   clearError: () => void;
   setConnected: (v: boolean) => void;
   resetSession: () => void;
@@ -57,6 +65,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   tourProgress: null,
   error: null,
   connected: false,
+  conversationHistory: [],
+
+  addConversation: (speaker, text) => set(s => ({
+    conversationHistory: [...s.conversationHistory.slice(-49), { speaker, text, timestamp: Date.now() }],
+  })),
 
   clearError: () => set({ error: null }),
   setConnected: (v: boolean) => set({ connected: v }),
@@ -79,6 +92,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     skillClarification: null,
     tourProgress: null,
     error: null,
+    conversationHistory: [],
   }),
 
   handleServerEvent: (event: ServerEvent) => {
@@ -138,10 +152,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           qaAnswer: event.payload.done ? event.payload.text : s.qaAnswer + event.payload.text,
           qaAnswerDone: event.payload.done,
         }));
+        if (event.payload.done) {
+          get().addConversation('ai', event.payload.text);
+        }
         break;
 
       case 'narration:greeting':
         set({ greeting: event.payload.text });
+        get().addConversation('ai', event.payload.text);
         break;
 
       case 'session:understanding':
@@ -150,6 +168,9 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
       case 'skill:result':
         set({ skillResult: event.payload.result, skillClarification: null });
+        if (event.payload.result.narration) {
+          get().addConversation('ai', event.payload.result.narration);
+        }
         break;
 
       case 'skill:clarify':
