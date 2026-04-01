@@ -831,6 +831,67 @@ export class SessionManager {
     }
   }
 
+  /** Quick-match well-known voice commands without needing the AI classifier. */
+  private handleQuickCommand(text: string): boolean {
+    const lower = text.toLowerCase().trim();
+    const QUICK_COMMANDS: Record<string, () => void> = {
+      'next': () => this.handleNavigation('command:next'),
+      'move on': () => this.handleNavigation('command:next'),
+      'continue': () => this.handleNavigation('command:next'),
+      'go back': () => this.handleNavigation('command:previous'),
+      'previous': () => this.handleNavigation('command:previous'),
+      'back': () => this.handleNavigation('command:previous'),
+      'skip': () => this.handleNavigation('command:skip'),
+      'skip this': () => this.handleNavigation('command:skip'),
+      'pause': () => this.handleNavigation('command:pause'),
+      'stop': () => this.handleNavigation('command:pause'),
+      'resume': () => this.handleNavigation('command:resume'),
+      'play': () => this.handleNavigation('command:resume'),
+      'dive deeper': () => this.handleNavigation('command:dive_deeper'),
+      'more detail': () => this.handleNavigation('command:dive_deeper'),
+      'tell me more': () => this.handleNavigation('command:dive_deeper'),
+      'export slides': () => this.handleExport('slides'),
+      'make slides': () => this.handleExport('slides'),
+      'export markdown': () => this.handleExport('markdown'),
+      'make a summary': () => this.handleExport('markdown'),
+      'write it up': () => this.handleExport('markdown'),
+      'exit': () => this.setState({ phase: 'IDLE' }),
+      'go home': () => this.setState({ phase: 'IDLE' }),
+      'back to lobby': () => this.setState({ phase: 'IDLE' }),
+      'quit': () => this.setState({ phase: 'IDLE' }),
+      'back to the tour': () => this.resumeTour(),
+      'resume tour': () => this.resumeTour(),
+      'resume the tour': () => this.resumeTour(),
+    };
+    for (const [phrase, handler] of Object.entries(QUICK_COMMANDS)) {
+      if (lower === phrase || lower.startsWith(phrase + ' ')) {
+        handler();
+        return true;
+      }
+    }
+    // Toggle commands
+    const toggleMatch = lower.match(/^turn (on|off) (narration|advisory|active learning|alerts)$/);
+    if (toggleMatch) {
+      const [, state, mode] = toggleMatch;
+      const modeMap: Record<string, string> = {
+        'narration': 'narration',
+        'advisory': 'advisory',
+        'active learning': 'activeLearning',
+        'alerts': 'alerts',
+      };
+      const modeKey = modeMap[mode];
+      if (modeKey) {
+        this.handleModeToggle(modeKey, state === 'on');
+        return true;
+      }
+    }
+    if (lower === 'mute') { this.handleModeToggle('narration', false); return true; }
+    if (lower === 'unmute') { this.handleModeToggle('narration', true); return true; }
+    if (lower === 'show concerns' || lower === 'show issues') { this.handleModeToggle('advisory', true); return true; }
+    if (lower === 'hide concerns') { this.handleModeToggle('advisory', false); return true; }
+    return false;
+  }
+
   private async handleQuestion(question: string) {
     // Voice-first: answer inline via narration, don't transition to QA modal.
     // The answer is spoken aloud and shown in the narration bar.
@@ -968,6 +1029,10 @@ export class SessionManager {
       return;
     }
 
+    // Fast-path: check for well-known navigation/action phrases before AI classification
+    const handled = this.handleQuickCommand(text);
+    if (handled) return;
+
     // If no intent classifier available, fall back to treating it as a question
     if (!this.intentClassifier) {
       this.handleQuestion(text);
@@ -985,6 +1050,30 @@ export class SessionManager {
       // Handle resume_tour specially — pop deviation and restore position
       if (classification.navigationCommand === 'resume_tour') {
         this.resumeTour();
+        return;
+      }
+
+      // Handle export commands
+      if (classification.navigationCommand === 'export_slides') {
+        this.handleExport('slides');
+        return;
+      }
+      if (classification.navigationCommand === 'export_markdown') {
+        this.handleExport('markdown');
+        return;
+      }
+
+      // Handle mode toggle commands
+      const toggleMatch = classification.navigationCommand.match(/^toggle_(\w+)_(on|off)$/);
+      if (toggleMatch) {
+        const [, modeKey, state] = toggleMatch;
+        this.handleModeToggle(modeKey, state === 'on');
+        return;
+      }
+
+      // Handle exit session
+      if (classification.navigationCommand === 'exit_session') {
+        this.setState({ phase: 'IDLE' });
         return;
       }
 

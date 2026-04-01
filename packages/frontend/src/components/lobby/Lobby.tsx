@@ -43,6 +43,9 @@ export function Lobby() {
 
   const handleSelectRepo = (repo: Repo) => {
     setSelectedRepo(repo);
+    // Start mic from this click handler (user gesture = browser allows mic access)
+    const { requestMicStart } = useAudioStore.getState();
+    requestMicStart();
   };
 
   const handleStartSession = (mode: EntryMode) => {
@@ -187,6 +190,20 @@ export function Lobby() {
 }
 
 function EntryModeDialog({ repo, onSelect, onClose }: { repo: Repo; onSelect: (mode: EntryMode) => void; onClose: () => void }) {
+  const speechToasts = useAudioStore(s => s.speechToasts);
+  const lastToast = speechToasts[speechToasts.length - 1];
+
+  useEffect(() => {
+    if (!lastToast) return;
+    const text = lastToast.text.toLowerCase();
+    if (text.startsWith('[')) return; // ignore system toasts like [Mic: started]
+    if (text.includes('full') || text.includes('walkthrough') || text.includes('everything')) {
+      onSelect('full_walkthrough');
+    } else if (text.includes('update') || text.includes('what changed') || text.includes("what's new") || text.includes('recent')) {
+      onSelect('updates');
+    }
+  }, [lastToast, onSelect]);
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -226,7 +243,7 @@ function EntryModeDialog({ repo, onSelect, onClose }: { repo: Repo; onSelect: (m
           </div>
         </div>
 
-        <p className="text-sm text-[var(--color-text-muted)] mb-5">How would you like to review this repository?</p>
+        <p className="text-sm text-[var(--color-text-muted)] mb-5">How would you like to review this repository? You can also say your choice.</p>
 
         <div className="space-y-3">
           <button
@@ -240,6 +257,7 @@ function EntryModeDialog({ repo, onSelect, onClose }: { repo: Repo; onSelect: (m
             <p className="text-sm text-[var(--color-text-muted)] ml-8">
               Start from scratch. Get a project overview, architecture tour, and component-by-component walkthrough.
             </p>
+            <p className="text-xs text-[var(--color-text-muted)] ml-8 mt-1 opacity-60">or say "full walkthrough"</p>
           </button>
 
           <button
@@ -253,6 +271,7 @@ function EntryModeDialog({ repo, onSelect, onClose }: { repo: Repo; onSelect: (m
             <p className="text-sm text-[var(--color-text-muted)] ml-8">
               Review recent changes. See what happened since your last session with a focused diff walkthrough.
             </p>
+            <p className="text-xs text-[var(--color-text-muted)] ml-8 mt-1 opacity-60">or say "updates"</p>
           </button>
         </div>
 

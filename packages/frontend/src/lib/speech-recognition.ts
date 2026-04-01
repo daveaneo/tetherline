@@ -1,6 +1,12 @@
 export type VoiceCommand =
   | 'next' | 'previous' | 'dive_deeper' | 'skip'
-  | 'pause' | 'resume' | 'show_concerns';
+  | 'pause' | 'resume' | 'show_concerns'
+  | 'export_slides' | 'export_markdown'
+  | 'toggle_narration_off' | 'toggle_narration_on'
+  | 'toggle_advisory_off' | 'toggle_advisory_on'
+  | 'toggle_activeLearning_off' | 'toggle_activeLearning_on'
+  | 'toggle_alerts_off' | 'toggle_alerts_on'
+  | 'exit_session';
 
 export type VoiceCommandHandler = (command: VoiceCommand) => void;
 export type QuestionHandler = (question: string) => void;
@@ -26,6 +32,31 @@ const COMMAND_PHRASES: Record<string, VoiceCommand> = {
   'show concerns': 'show_concerns',
   'any issues': 'show_concerns',
   'concerns': 'show_concerns',
+  // Export commands
+  'export slides': 'export_slides',
+  'make slides': 'export_slides',
+  'create a presentation': 'export_slides',
+  'export markdown': 'export_markdown',
+  'make a summary': 'export_markdown',
+  'write it up': 'export_markdown',
+  // Mode toggle commands
+  'turn on narration': 'toggle_narration_on',
+  'unmute': 'toggle_narration_on',
+  'turn off narration': 'toggle_narration_off',
+  'mute': 'toggle_narration_off',
+  'turn on advisory': 'toggle_advisory_on',
+  'show issues': 'toggle_advisory_on',
+  'turn off advisory': 'toggle_advisory_off',
+  'hide concerns': 'toggle_advisory_off',
+  'turn on active learning': 'toggle_activeLearning_on',
+  'turn off active learning': 'toggle_activeLearning_off',
+  'turn on alerts': 'toggle_alerts_on',
+  'turn off alerts': 'toggle_alerts_off',
+  // Exit / back to lobby
+  'exit': 'exit_session',
+  'go home': 'exit_session',
+  'back to lobby': 'exit_session',
+  'quit': 'exit_session',
 };
 
 // Web Speech API types are not fully available in all TypeScript lib versions.

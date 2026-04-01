@@ -14,6 +14,20 @@ const COMMAND_PHRASES: Record<string, VoiceCommand> = {
   'pause': 'pause', 'stop': 'pause',
   'resume': 'resume', 'go': 'resume', 'play': 'resume',
   'show concerns': 'show_concerns', 'concerns': 'show_concerns',
+  // Export commands
+  'export slides': 'export_slides', 'make slides': 'export_slides', 'create a presentation': 'export_slides',
+  'export markdown': 'export_markdown', 'make a summary': 'export_markdown', 'write it up': 'export_markdown',
+  // Mode toggle commands
+  'turn on narration': 'toggle_narration_on', 'unmute': 'toggle_narration_on',
+  'turn off narration': 'toggle_narration_off', 'mute': 'toggle_narration_off',
+  'turn on advisory': 'toggle_advisory_on', 'show issues': 'toggle_advisory_on',
+  'turn off advisory': 'toggle_advisory_off', 'hide concerns': 'toggle_advisory_off',
+  'turn on active learning': 'toggle_activeLearning_on',
+  'turn off active learning': 'toggle_activeLearning_off',
+  'turn on alerts': 'toggle_alerts_on',
+  'turn off alerts': 'toggle_alerts_off',
+  // Exit / back to lobby
+  'exit': 'exit_session', 'go home': 'exit_session', 'back to lobby': 'exit_session', 'quit': 'exit_session',
 };
 
 const COMMAND_TO_EVENT: Record<VoiceCommand, () => void> = {
@@ -24,6 +38,23 @@ const COMMAND_TO_EVENT: Record<VoiceCommand, () => void> = {
   pause: () => sendEvent({ type: 'command:pause' }),
   resume: () => sendEvent({ type: 'command:resume' }),
   show_concerns: () => sendEvent({ type: 'command:toggle_mode', payload: { mode: 'advisory', enabled: true } }),
+  // Export commands
+  export_slides: () => sendEvent({ type: 'command:export', payload: { format: 'slides' } }),
+  export_markdown: () => sendEvent({ type: 'command:export', payload: { format: 'markdown' } }),
+  // Mode toggle commands
+  toggle_narration_on: () => sendEvent({ type: 'command:toggle_mode', payload: { mode: 'narration', enabled: true } }),
+  toggle_narration_off: () => sendEvent({ type: 'command:toggle_mode', payload: { mode: 'narration', enabled: false } }),
+  toggle_advisory_on: () => sendEvent({ type: 'command:toggle_mode', payload: { mode: 'advisory', enabled: true } }),
+  toggle_advisory_off: () => sendEvent({ type: 'command:toggle_mode', payload: { mode: 'advisory', enabled: false } }),
+  toggle_activeLearning_on: () => sendEvent({ type: 'command:toggle_mode', payload: { mode: 'activeLearning', enabled: true } }),
+  toggle_activeLearning_off: () => sendEvent({ type: 'command:toggle_mode', payload: { mode: 'activeLearning', enabled: false } }),
+  toggle_alerts_on: () => sendEvent({ type: 'command:toggle_mode', payload: { mode: 'alerts', enabled: true } }),
+  toggle_alerts_off: () => sendEvent({ type: 'command:toggle_mode', payload: { mode: 'alerts', enabled: false } }),
+  // Exit / back to lobby
+  exit_session: () => {
+    sendEvent({ type: 'command:pause' });
+    useSessionStore.getState().resetSession();
+  },
 };
 
 function matchCommand(text: string): VoiceCommand | null {

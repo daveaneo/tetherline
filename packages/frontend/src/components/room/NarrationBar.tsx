@@ -112,12 +112,14 @@ export function NarrationBar() {
         <button
           onClick={() => sendEvent(state.paused ? { type: 'command:resume' } : { type: 'command:pause' })}
           className="px-3 py-1.5 text-xs rounded-md border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors"
+          title={state.paused ? 'or say "resume"' : 'or say "pause"'}
         >
           {state.paused ? '\u25B6 Resume' : '\u23F8 Pause'}
         </button>
         <button
           onClick={() => sendEvent({ type: 'command:skip' })}
           className="px-3 py-1.5 text-xs rounded-md border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors"
+          title='or say "skip"'
         >
           Skip \u2192
         </button>

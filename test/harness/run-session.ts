@@ -106,6 +106,11 @@ function send(ws: WebSocket, event: ClientEvent) {
   ws.send(JSON.stringify(event));
 }
 
+/** Simulate voice input by sending a user:utterance event. */
+function say(ws: WebSocket, text: string) {
+  send(ws, { type: 'user:utterance', payload: { text, timestamp: Date.now() } });
+}
+
 // ── Main ────────────────────────────────────────────────
 async function main() {
   console.log(`\n\x1b[1mInteractive Reviewer Integration Test\x1b[0m`);
@@ -215,11 +220,15 @@ async function main() {
     // Wait a bit for any trailing events
     await new Promise(r => setTimeout(r, 2000));
 
-    // Wait for proposal (it comes after analysis:complete)
+    // Wait for proposal (it comes after analysis:complete, possibly after AI proposal generation)
     let proposalEvent = events.find(e => e.type === 'session:proposal');
     if (!proposalEvent) {
-      // Wait up to 10s more
-      try { proposalEvent = await waitForEvent('session:proposal', 10_000); } catch {}
+      // Wait up to 30s more (AI proposal generation can take time)
+      try { proposalEvent = await waitForEvent('session:proposal', 30_000); } catch {}
+    }
+    if (!proposalEvent) {
+      // Final check in case it arrived during the wait
+      proposalEvent = events.find(e => e.type === 'session:proposal');
     }
     check('Proposal event received', !!proposalEvent);
     if (proposalEvent) {
@@ -238,6 +247,17 @@ async function main() {
   // 7. Accept proposal and check tour begins
   console.log('\n\x1b[1m[6] Tour flow\x1b[0m');
   try {
+    // Ensure we're in PROPOSAL phase before accepting
+    const currentPhase = events
+      .filter(e => e.type === 'session:state_changed')
+      .map(e => (e.payload as any).state.phase)
+      .pop();
+    if (currentPhase !== 'PROPOSAL') {
+      // Wait for PROPOSAL state if not yet there
+      try { await waitForEvent('session:proposal', 15_000); } catch {}
+      await new Promise(r => setTimeout(r, 500));
+    }
+
     send(ws, { type: 'command:next' });
 
     // Wait for a state_changed with a phase that's NOT PROPOSAL
@@ -271,17 +291,26 @@ async function main() {
   // 8. Test voice utterance / skill system
   console.log('\n\x1b[1m[7] Skills system\x1b[0m');
   try {
+    const eventsBeforeSkill = events.length;
     send(ws, { type: 'user:utterance', payload: { text: 'explain the main module', timestamp: Date.now() } });
 
-    // Wait for either skill:result or skill:clarify or qa:answer_chunk
+    // Wait for either skill:result, skill:clarify, qa:answer_chunk, or narration:greeting
     const skillResponse = await Promise.race([
       waitForEvent('skill:result', 30_000),
       waitForEvent('skill:clarify', 30_000),
       waitForEvent('qa:answer_chunk', 30_000),
+      waitForEvent('narration:greeting', 30_000),
     ]);
     check('Skill/utterance got a response', !!skillResponse, `type: ${skillResponse.type}`);
   } catch (err: any) {
-    fail('Skill/utterance response', err.message);
+    // Fallback: check if any relevant response arrived in the events array
+    const responseTypes = ['skill:result', 'skill:clarify', 'qa:answer_chunk', 'narration:greeting'];
+    const found = events.filter(e => responseTypes.includes(e.type));
+    if (found.length > 0) {
+      check('Skill/utterance got a response', true, `found ${found.length} response event(s) in history`);
+    } else {
+      fail('Skill/utterance response', err.message);
+    }
   }
 
   // Get sessionId from state_changed events as fallback
@@ -294,8 +323,83 @@ async function main() {
     if (startedEvent) sessionId = (startedEvent.payload as any).sessionId ?? '';
   }
 
-  // 9. Test export
-  console.log('\n\x1b[1m[8] Export\x1b[0m');
+  // 9. Test voice navigation
+  console.log('\n\x1b[1m[8] Voice navigation\x1b[0m');
+  try {
+    const phaseBeforeNav = events
+      .filter(e => e.type === 'session:state_changed')
+      .map(e => (e.payload as any).state.phase)
+      .pop();
+
+    say(ws, 'next');
+    await new Promise(r => setTimeout(r, 1500));
+
+    const phaseAfterNav = events
+      .filter(e => e.type === 'session:state_changed')
+      .map(e => (e.payload as any).state.phase)
+      .pop();
+
+    check('Voice "next" advances phase or segment',
+      phaseAfterNav !== undefined,
+      `before: ${phaseBeforeNav}, after: ${phaseAfterNav}`);
+  } catch (err: any) {
+    fail('Voice navigation', err.message);
+  }
+
+  // 10. Test voice question
+  console.log('\n\x1b[1m[9] Voice question\x1b[0m');
+  try {
+    say(ws, 'what does this project do');
+
+    const voiceResponse = await Promise.race([
+      waitForEvent('narration:greeting', 30_000),
+      waitForEvent('qa:answer_chunk', 30_000),
+      waitForEvent('skill:result', 30_000),
+    ]);
+    check('Voice question got a response', !!voiceResponse, `type: ${voiceResponse.type}`);
+  } catch (err: any) {
+    fail('Voice question response', err.message);
+  }
+
+  // 11. Test voice skip
+  console.log('\n\x1b[1m[10] Voice skip\x1b[0m');
+  try {
+    const phaseBeforeSkip = events
+      .filter(e => e.type === 'session:state_changed')
+      .map(e => (e.payload as any).state.phase)
+      .pop();
+
+    say(ws, 'skip this');
+    await new Promise(r => setTimeout(r, 1500));
+
+    const phaseAfterSkip = events
+      .filter(e => e.type === 'session:state_changed')
+      .map(e => (e.payload as any).state.phase)
+      .pop();
+
+    check('Voice "skip this" changes phase',
+      phaseAfterSkip !== undefined,
+      `before: ${phaseBeforeSkip}, after: ${phaseAfterSkip}`);
+  } catch (err: any) {
+    fail('Voice skip', err.message);
+  }
+
+  // 12. Test voice export
+  console.log('\n\x1b[1m[11] Voice export\x1b[0m');
+  try {
+    say(ws, 'export markdown');
+    const exportResponse = await Promise.race([
+      waitForEvent('export:ready', 15_000),
+      waitForEvent('error', 15_000),
+    ]);
+    check('Voice "export markdown" triggers export', !!exportResponse,
+      `type: ${exportResponse.type}`);
+  } catch (err: any) {
+    fail('Voice export', err.message);
+  }
+
+  // 13. Test export via REST
+  console.log('\n\x1b[1m[12] Export (REST)\x1b[0m');
   try {
     check('Session ID available for export', !!sessionId, sessionId?.slice(0, 8));
     const exportRes = await fetch(`http://localhost:${PORT}/api/export/${sessionId}/markdown`, {

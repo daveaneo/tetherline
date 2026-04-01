@@ -13,6 +13,20 @@ const NAVIGATION_PHRASES: Record<string, string> = {
   'back to the tour': 'resume_tour', 'resume tour': 'resume_tour', 'resume the tour': 'resume_tour',
   'back to the walkthrough': 'resume_tour', 'resume walkthrough': 'resume_tour',
   "let's continue the tour": 'resume_tour', "where were we": 'resume_tour',
+  // Export commands
+  'export slides': 'export_slides', 'make slides': 'export_slides', 'create a presentation': 'export_slides',
+  'export markdown': 'export_markdown', 'make a summary': 'export_markdown', 'write it up': 'export_markdown',
+  // Mode toggle commands
+  'turn on advisory': 'toggle_advisory_on', 'show concerns': 'toggle_advisory_on', 'show issues': 'toggle_advisory_on',
+  'turn off advisory': 'toggle_advisory_off', 'hide concerns': 'toggle_advisory_off',
+  'turn on narration': 'toggle_narration_on', 'unmute': 'toggle_narration_on',
+  'turn off narration': 'toggle_narration_off', 'mute': 'toggle_narration_off',
+  'turn on active learning': 'toggle_activeLearning_on',
+  'turn off active learning': 'toggle_activeLearning_off',
+  'turn on alerts': 'toggle_alerts_on',
+  'turn off alerts': 'toggle_alerts_off',
+  // Exit / back to lobby commands
+  'exit': 'exit_session', 'go home': 'exit_session', 'back to lobby': 'exit_session', 'quit': 'exit_session',
 };
 
 // Correction phrases that trigger re-classification

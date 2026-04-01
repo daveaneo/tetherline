@@ -33,7 +33,7 @@ export function Toolbar() {
           <button
             onClick={resetSession}
             className="flex items-center gap-1.5 text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors mr-2"
-            title="Back to lobby"
+            title='Back to lobby (or say "exit")'
           >
             <span className="text-base">&larr;</span>
             <span>Exit</span>

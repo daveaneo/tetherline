@@ -193,12 +193,15 @@ function ProposalContent({ proposal }: { proposal: { message: string; suggestedO
         </div>
       </div>
 
-      <button
-        onClick={() => sendEvent({ type: 'command:next' })}
-        className="px-5 py-2.5 bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white rounded-lg text-sm transition-colors"
-      >
-        Let's go
-      </button>
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => sendEvent({ type: 'command:next' })}
+          className="px-5 py-2.5 bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white rounded-lg text-sm transition-colors"
+        >
+          Let's go
+        </button>
+        <span className="text-xs text-[var(--color-text-muted)] opacity-60">or say "let's go"</span>
+      </div>
     </div>
   );
 }
@@ -586,19 +589,22 @@ function WrapUpContent({ heatmap, sessionId }: { heatmap: any; sessionId: string
     <div className="space-y-6 py-4">
       <h2 className="text-xl font-semibold">Session Complete</h2>
       <UnderstandingMap data={heatmap} />
-      <div className="flex gap-3">
-        <button
-          onClick={() => handleExport('slides')}
-          className="px-5 py-2.5 bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white rounded-lg text-sm transition-colors"
-        >
-          Export Slides
-        </button>
-        <button
-          onClick={() => handleExport('markdown')}
-          className="px-5 py-2.5 border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] rounded-lg text-sm transition-colors"
-        >
-          Export Markdown
-        </button>
+      <div className="flex flex-col gap-2">
+        <div className="flex gap-3">
+          <button
+            onClick={() => handleExport('slides')}
+            className="px-5 py-2.5 bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white rounded-lg text-sm transition-colors"
+          >
+            Export Slides
+          </button>
+          <button
+            onClick={() => handleExport('markdown')}
+            className="px-5 py-2.5 border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] rounded-lg text-sm transition-colors"
+          >
+            Export Markdown
+          </button>
+        </div>
+        <span className="text-xs text-[var(--color-text-muted)] opacity-60">or say "export slides" / "export markdown"</span>
       </div>
     </div>
   );
