@@ -832,30 +832,30 @@ export class SessionManager {
   }
 
   private async handleQuestion(question: string) {
-    // Save return state
-    if (this.state.phase !== 'QA') {
-      this.setState({
-        phase: 'QA',
-        returnToPhase: this.state.phase,
-        returnToAreaIndex: this.state.areaIndex,
-        returnToSegmentIndex: this.state.segmentIndex,
-      });
-    }
+    // Voice-first: answer inline via narration, don't transition to QA modal.
+    // The answer is spoken aloud and shown in the narration bar.
 
-    // Try to answer with the intelligence analyzer
+    const answerAndNarrate = async (answer: string) => {
+      // Emit as narration greeting so the orchestrator speaks it
+      this.emit({ type: 'narration:greeting', payload: { text: answer } });
+      // Also emit as qa:answer_chunk for the content panel
+      this.emit({ type: 'qa:answer_chunk', payload: { text: answer, done: true } });
+    };
+
+    // Try the active analyzer first
     if (this.activeAnalyzer) {
       try {
         const currentArea = this.state.areaIndex !== undefined ? this.areas[this.state.areaIndex] : undefined;
         const context = `Current area: ${currentArea?.name ?? 'none'}. ${currentArea?.description ?? ''}`;
         const answer = await this.activeAnalyzer.answerQuestion(question, context);
-        this.emit({ type: 'qa:answer_chunk', payload: { text: answer, done: true } });
+        await answerAndNarrate(answer);
         return;
       } catch (err: any) {
         console.error('Q&A error:', err.message);
       }
     }
 
-    // Try to create a client on-the-fly if we don't have one
+    // Try to create a client on-the-fly
     try {
       const mode = this.config.intelligenceMode;
       if (mode === 'local' || mode === 'auto') {
@@ -863,10 +863,10 @@ export class SessionManager {
         if (await ClaudeCodeClient.isAvailable()) {
           const client = new ClaudeCodeClient();
           const answer = await client.streamText({
-            system: 'You are helping a developer understand their codebase during an interactive review session. Answer concisely and conversationally.',
+            system: 'You are helping a developer understand their codebase during an interactive review session. Answer concisely and conversationally — this will be spoken aloud.',
             messages: [{ role: 'user' as const, content: question }],
           });
-          this.emit({ type: 'qa:answer_chunk', payload: { text: answer, done: true } });
+          await answerAndNarrate(answer);
           return;
         }
       }
@@ -874,20 +874,17 @@ export class SessionManager {
         const { ClaudeClient } = await import('../intelligence/claude-client.js');
         const client = new ClaudeClient(this.config.anthropicApiKey);
         const answer = await client.streamText({
-          system: 'You are helping a developer understand their codebase during an interactive review session. Answer concisely and conversationally.',
+          system: 'You are helping a developer understand their codebase during an interactive review session. Answer concisely and conversationally — this will be spoken aloud.',
           messages: [{ role: 'user' as const, content: question }],
         });
-        this.emit({ type: 'qa:answer_chunk', payload: { text: answer, done: true } });
+        await answerAndNarrate(answer);
         return;
       }
     } catch (err: any) {
       console.error('Q&A fallback error:', err.message);
     }
 
-    this.emit({
-      type: 'qa:answer_chunk',
-      payload: { text: `I couldn't process that question. Make sure the Claude CLI is installed (for local mode) or ANTHROPIC_API_KEY is set (for cloud mode).`, done: true },
-    });
+    await answerAndNarrate("Sorry, I couldn't process that. Make sure the Claude CLI is installed or an API key is set.");
   }
 
   private handleModeToggle(mode: string, enabled: boolean) {

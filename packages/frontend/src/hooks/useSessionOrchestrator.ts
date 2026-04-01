@@ -392,6 +392,26 @@ export function useSessionOrchestrator() {
     resetSilenceTimer();
   }, [state.phase, state.areaIndex, state.segmentIndex, resetSilenceTimer]);
 
+  // Speak greeting/answer whenever it changes (covers Q&A answers delivered as narration:greeting)
+  const greeting = useSessionStore(s => s.greeting);
+  const greetingSpokenRef = useRef<string>('');
+  useEffect(() => {
+    if (!greeting || greeting === greetingSpokenRef.current) return;
+    if (state.phase === 'IDLE' || state.phase === 'ANALYZING') return; // handled by main orchestration
+    if (state.paused) return;
+    if (!modes.narration) return;
+
+    greetingSpokenRef.current = greeting;
+
+    // Abort current narration and speak the answer
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    activeRunRef.current = ''; // allow re-trigger after answer
+
+    speak(greeting, controller.signal);
+  }, [greeting, state.phase, state.paused, modes.narration, speak]);
+
   // Reset tracking when session goes back to IDLE
   useEffect(() => {
     if (state.phase === 'IDLE') {

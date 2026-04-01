@@ -4,7 +4,6 @@ import { Room } from './components/room/Room.js';
 import { Toolbar } from './components/layout/Toolbar.js';
 import { SettingsPanel } from './components/settings/SettingsPanel.js';
 import { ErrorBanner } from './components/layout/ErrorBanner.js';
-import { QuestionPanel } from './components/session/QuestionPanel.js';
 import { SpeechToasts } from './components/audio/SpeechToasts.js';
 import { useWebSocket } from './hooks/useWebSocket.js';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
@@ -54,7 +53,6 @@ export function App() {
       <main className="flex-1 overflow-hidden">
         {inSession ? <Room /> : <Lobby />}
       </main>
-      <QuestionPanel />
       <SpeechToasts />
       <SettingsPanel />
     </AppShell>
