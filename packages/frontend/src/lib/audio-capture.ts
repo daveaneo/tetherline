@@ -1,14 +1,15 @@
 /**
- * Audio capture with echo cancellation + voice activity detection.
- * Replaces Web Speech API for speech-to-text.
+ * Audio capture with echo cancellation, dynamic VAD, and instant interrupt.
  *
- * Flow:
- * 1. getUserMedia with echoCancellation → raw mic stream (speaker audio subtracted)
- * 2. AnalyserNode monitors volume → detects speech start/end
- * 3. MediaRecorder captures audio during speech
- * 4. On speech end, sends WAV to /api/audio/transcribe (local Whisper)
+ * Key design: sub-20ms interrupt latency.
+ * - When the AI is speaking, we raise the mic threshold above the echo bleed level
+ * - The instant the user's voice exceeds that threshold, we mute the AI (volume=0) LOCALLY
+ *   before any WebSocket round-trip
+ * - If the sound persists 200ms, we formally pause and start Whisper recording
+ * - If it stops within 200ms (cough, noise), we unmute and continue
  */
 import { API_PREFIX } from '@interactive-reviewer/shared';
+import { useAudioStore } from '../state/audio-store.js';
 
 export interface AudioCaptureCallbacks {
   onSpeechStart: () => void;
@@ -18,11 +19,15 @@ export interface AudioCaptureCallbacks {
   onStateChange: (state: string) => void;
 }
 
-// Voice activity detection thresholds
-const VAD_SPEECH_THRESHOLD = 15;   // RMS level to consider as speech
-const VAD_SILENCE_THRESHOLD = 8;   // RMS level to consider as silence
-const VAD_SPEECH_MIN_MS = 300;     // Min speech duration to record
-const VAD_SILENCE_TIMEOUT_MS = 1200; // Silence duration to end recording
+// VAD config
+const VAD_POLL_MS = 20;              // Poll every 20ms (fast detection)
+const BASE_THRESHOLD = 12;            // RMS threshold when AI is silent
+const MIN_SPEAKING_THRESHOLD = 30;    // Minimum threshold when AI is speaking
+const ECHO_THRESHOLD_MULTIPLIER = 2.5; // How far above echo bleed the user must be
+const ECHO_CALIBRATION_MS = 500;      // How long to sample echo bleed
+const CONFIRM_SPEECH_MS = 200;        // Sound must persist this long to be "real speech"
+const SILENCE_TIMEOUT_MS = 1200;      // Silence this long ends recording
+const MIN_RECORDING_MS = 300;         // Minimum recording duration to transcribe
 
 export class AudioCapture {
   private stream: MediaStream | null = null;
@@ -32,10 +37,18 @@ export class AudioCapture {
   private chunks: Blob[] = [];
   private isCapturing = false;
   private isSpeaking = false;
+  private isMuted = false;
   private silenceTimer: ReturnType<typeof setTimeout> | null = null;
+  private confirmTimer: ReturnType<typeof setTimeout> | null = null;
   private speechStartTime = 0;
   private vadInterval: ReturnType<typeof setInterval> | null = null;
   private callbacks: AudioCaptureCallbacks;
+
+  // Dynamic threshold
+  private dynamicThreshold = BASE_THRESHOLD;
+  private echoCalibrating = false;
+  private echoSamples: number[] = [];
+  private echoCalibrationTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(callbacks: AudioCaptureCallbacks) {
     this.callbacks = callbacks;
@@ -59,6 +72,17 @@ export class AudioCapture {
 
       this.isCapturing = true;
       this.startVAD();
+
+      // Subscribe to playback state changes for dynamic threshold
+      useAudioStore.subscribe((state) => {
+        if (state.isPlaying && !this.echoCalibrating) {
+          this.startEchoCalibration();
+        } else if (!state.isPlaying) {
+          this.stopEchoCalibration();
+          this.dynamicThreshold = BASE_THRESHOLD;
+        }
+      });
+
       this.callbacks.onStateChange('capture_started');
     } catch (err: any) {
       this.callbacks.onError(`Mic access failed: ${err.message}`);
@@ -67,30 +91,43 @@ export class AudioCapture {
 
   stop(): void {
     this.isCapturing = false;
-    if (this.vadInterval) {
-      clearInterval(this.vadInterval);
-      this.vadInterval = null;
-    }
-    if (this.silenceTimer) {
-      clearTimeout(this.silenceTimer);
-      this.silenceTimer = null;
-    }
-    if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
-      this.mediaRecorder.stop();
-    }
-    if (this.stream) {
-      this.stream.getTracks().forEach(t => t.stop());
-      this.stream = null;
-    }
-    if (this.audioContext) {
-      this.audioContext.close();
-      this.audioContext = null;
-    }
+    if (this.vadInterval) { clearInterval(this.vadInterval); this.vadInterval = null; }
+    if (this.silenceTimer) { clearTimeout(this.silenceTimer); this.silenceTimer = null; }
+    if (this.confirmTimer) { clearTimeout(this.confirmTimer); this.confirmTimer = null; }
+    if (this.echoCalibrationTimer) { clearTimeout(this.echoCalibrationTimer); this.echoCalibrationTimer = null; }
+    if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') { this.mediaRecorder.stop(); }
+    if (this.stream) { this.stream.getTracks().forEach(t => t.stop()); this.stream = null; }
+    if (this.audioContext) { this.audioContext.close(); this.audioContext = null; }
   }
+
+  // --- Echo calibration: measure bleed level when AI speaks ---
+
+  private startEchoCalibration(): void {
+    this.echoCalibrating = true;
+    this.echoSamples = [];
+
+    // Sample for ECHO_CALIBRATION_MS, then compute threshold
+    this.echoCalibrationTimer = setTimeout(() => {
+      this.echoCalibrating = false;
+      if (this.echoSamples.length > 0) {
+        const avgBleed = this.echoSamples.reduce((a, b) => a + b, 0) / this.echoSamples.length;
+        this.dynamicThreshold = Math.max(avgBleed * ECHO_THRESHOLD_MULTIPLIER, MIN_SPEAKING_THRESHOLD);
+      } else {
+        this.dynamicThreshold = MIN_SPEAKING_THRESHOLD;
+      }
+    }, ECHO_CALIBRATION_MS);
+  }
+
+  private stopEchoCalibration(): void {
+    this.echoCalibrating = false;
+    if (this.echoCalibrationTimer) { clearTimeout(this.echoCalibrationTimer); this.echoCalibrationTimer = null; }
+    this.echoSamples = [];
+  }
+
+  // --- Voice Activity Detection ---
 
   private startVAD(): void {
     if (!this.analyser) return;
-
     const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
 
     this.vadInterval = setInterval(() => {
@@ -106,70 +143,108 @@ export class AudioCapture {
       }
       const rms = Math.sqrt(sum / dataArray.length) * 100;
 
-      if (!this.isSpeaking && rms > VAD_SPEECH_THRESHOLD) {
-        this.onSpeechDetected();
-      } else if (this.isSpeaking && rms < VAD_SILENCE_THRESHOLD) {
-        this.onSilenceDetected();
-      } else if (this.isSpeaking && rms >= VAD_SILENCE_THRESHOLD) {
-        // Still speaking — reset silence timer
-        if (this.silenceTimer) {
-          clearTimeout(this.silenceTimer);
-          this.silenceTimer = null;
-        }
+      // If calibrating echo, collect samples
+      if (this.echoCalibrating) {
+        this.echoSamples.push(rms);
+        return; // Don't trigger during calibration
       }
-    }, 50); // Check every 50ms
+
+      const threshold = this.dynamicThreshold;
+
+      if (!this.isSpeaking && rms > threshold) {
+        this.onSoundDetected(rms);
+      } else if (this.isSpeaking && rms < threshold * 0.6) {
+        this.onSilenceDetected();
+      } else if (this.isSpeaking && rms >= threshold * 0.6) {
+        // Still speaking — reset silence timer
+        if (this.silenceTimer) { clearTimeout(this.silenceTimer); this.silenceTimer = null; }
+      }
+    }, VAD_POLL_MS);
   }
 
-  private onSpeechDetected(): void {
-    this.isSpeaking = true;
-    this.speechStartTime = Date.now();
-    this.callbacks.onSpeechStart();
+  private onSoundDetected(rms: number): void {
+    // INSTANT MUTE: kill AI audio locally before anything else (~1ms)
+    const store = useAudioStore.getState();
+    if (store.isPlaying && !this.isMuted) {
+      store.muteOutput();
+      this.isMuted = true;
+    }
 
-    // Start recording
-    if (this.stream) {
-      this.chunks = [];
-      this.mediaRecorder = new MediaRecorder(this.stream, {
-        mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-          ? 'audio/webm;codecs=opus'
-          : 'audio/webm',
-      });
-      this.mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) this.chunks.push(e.data);
-      };
-      this.mediaRecorder.onstop = () => {
-        this.processRecording();
-      };
-      this.mediaRecorder.start(100); // Collect in 100ms chunks
+    // Start confirmation timer — if sound persists, it's real speech
+    if (!this.confirmTimer) {
+      this.confirmTimer = setTimeout(() => {
+        this.confirmTimer = null;
+        // Sound persisted — this is real speech
+        this.isSpeaking = true;
+        this.speechStartTime = Date.now();
+        this.callbacks.onSpeechStart();
+        this.startRecording();
+      }, CONFIRM_SPEECH_MS);
     }
   }
 
   private onSilenceDetected(): void {
-    if (this.silenceTimer) return; // Already waiting
+    // If we haven't confirmed speech yet, cancel and unmute
+    if (this.confirmTimer) {
+      clearTimeout(this.confirmTimer);
+      this.confirmTimer = null;
 
+      // It was just noise — unmute the AI
+      if (this.isMuted) {
+        useAudioStore.getState().unmuteOutput();
+        this.isMuted = false;
+      }
+      return;
+    }
+
+    // Confirmed speech in progress — wait for silence timeout
+    if (this.silenceTimer) return;
     this.silenceTimer = setTimeout(() => {
       this.silenceTimer = null;
       this.isSpeaking = false;
       this.callbacks.onSpeechEnd();
-
-      // Stop recording
       if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
         this.mediaRecorder.stop();
       }
-    }, VAD_SILENCE_TIMEOUT_MS);
+    }, SILENCE_TIMEOUT_MS);
+  }
+
+  // --- Recording ---
+
+  private startRecording(): void {
+    if (!this.stream) return;
+    this.chunks = [];
+    this.mediaRecorder = new MediaRecorder(this.stream, {
+      mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : 'audio/webm',
+    });
+    this.mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) this.chunks.push(e.data);
+    };
+    this.mediaRecorder.onstop = () => {
+      this.processRecording();
+    };
+    this.mediaRecorder.start(100);
   }
 
   private async processRecording(): Promise<void> {
     const duration = Date.now() - this.speechStartTime;
 
-    // Ignore very short bursts (likely noise)
-    if (duration < VAD_SPEECH_MIN_MS || this.chunks.length === 0) {
+    // Unmute the AI now that we have the recording
+    if (this.isMuted) {
+      // Don't unmute yet — wait for transcript processing
+      // The orchestrator will handle resumption
+      this.isMuted = false;
+    }
+
+    if (duration < MIN_RECORDING_MS || this.chunks.length === 0) {
       return;
     }
 
     const blob = new Blob(this.chunks, { type: 'audio/webm' });
     this.chunks = [];
 
-    // Convert to WAV and send to Whisper
     try {
       const wavBlob = await this.webmToWav(blob);
       const response = await fetch(`${API_PREFIX}/audio/transcribe`, {
@@ -193,15 +268,11 @@ export class AudioCapture {
   }
 
   private async webmToWav(webmBlob: Blob): Promise<Blob> {
-    // Decode webm to raw audio using AudioContext, then encode as WAV
     const arrayBuffer = await webmBlob.arrayBuffer();
     const audioCtx = new AudioContext({ sampleRate: 16000 });
-
     try {
       const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
       const channelData = audioBuffer.getChannelData(0);
-
-      // Encode as 16-bit PCM WAV
       const wavBuffer = encodeWav(channelData, 16000);
       return new Blob([wavBuffer], { type: 'audio/wav' });
     } finally {
@@ -214,22 +285,20 @@ function encodeWav(samples: Float32Array, sampleRate: number): ArrayBuffer {
   const buffer = new ArrayBuffer(44 + samples.length * 2);
   const view = new DataView(buffer);
 
-  // WAV header
   writeString(view, 0, 'RIFF');
   view.setUint32(4, 36 + samples.length * 2, true);
   writeString(view, 8, 'WAVE');
   writeString(view, 12, 'fmt ');
-  view.setUint32(16, 16, true);          // chunk size
-  view.setUint16(20, 1, true);           // PCM format
-  view.setUint16(22, 1, true);           // mono
-  view.setUint32(24, sampleRate, true);   // sample rate
-  view.setUint32(28, sampleRate * 2, true); // byte rate
-  view.setUint16(32, 2, true);           // block align
-  view.setUint16(34, 16, true);          // bits per sample
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
   writeString(view, 36, 'data');
   view.setUint32(40, samples.length * 2, true);
 
-  // PCM data
   let offset = 44;
   for (let i = 0; i < samples.length; i++) {
     const s = Math.max(-1, Math.min(1, samples[i]));

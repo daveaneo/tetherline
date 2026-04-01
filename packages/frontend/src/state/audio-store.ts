@@ -16,6 +16,12 @@ interface AudioStore {
   voiceState: VoiceState;
   speechToasts: SpeechToast[];
 
+  // Shared audio element — the orchestrator sets this, voice input reads it for instant muting
+  audioElement: HTMLAudioElement | null;
+  setAudioElement: (el: HTMLAudioElement) => void;
+  muteOutput: () => void;
+  unmuteOutput: () => void;
+
   // Mic start function — set by useVoiceInput, callable from anywhere (e.g. Lobby click)
   _startMicFn: (() => void) | null;
   setStartMicFn: (fn: () => void) => void;
@@ -36,7 +42,20 @@ export const useAudioStore = create<AudioStore>((set, get) => ({
   queue: [],
   voiceState: 'listening',
   speechToasts: [],
+  audioElement: null,
   _startMicFn: null,
+
+  setAudioElement: (el) => set({ audioElement: el }),
+  muteOutput: () => {
+    const el = get().audioElement;
+    if (el) el.volume = 0;
+    if ('speechSynthesis' in window) speechSynthesis.pause();
+  },
+  unmuteOutput: () => {
+    const el = get().audioElement;
+    if (el) el.volume = 1;
+    if ('speechSynthesis' in window) speechSynthesis.resume();
+  },
 
   setStartMicFn: (fn) => set({ _startMicFn: fn }),
   requestMicStart: () => { get()._startMicFn?.(); },

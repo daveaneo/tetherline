@@ -72,7 +72,10 @@ export function useSessionOrchestrator() {
             const blob = await res.blob();
             if (signal?.aborted) { cleanup(); return; }
             const url = URL.createObjectURL(blob);
-            if (!audioRef.current) audioRef.current = new Audio();
+            if (!audioRef.current) {
+              audioRef.current = new Audio();
+              useAudioStore.getState().setAudioElement(audioRef.current);
+            }
             audioRef.current.src = url;
             audioRef.current.onended = () => {
               URL.revokeObjectURL(url);
