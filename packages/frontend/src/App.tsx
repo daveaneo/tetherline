@@ -5,9 +5,11 @@ import { Toolbar } from './components/layout/Toolbar.js';
 import { SettingsPanel } from './components/settings/SettingsPanel.js';
 import { ErrorBanner } from './components/layout/ErrorBanner.js';
 import { QuestionPanel } from './components/session/QuestionPanel.js';
+import { SpeechToasts } from './components/audio/SpeechToasts.js';
 import { useWebSocket } from './hooks/useWebSocket.js';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
 import { useSessionOrchestrator } from './hooks/useSessionOrchestrator.js';
+import { useVoiceInput } from './hooks/useVoiceInput.js';
 import { useSessionStore } from './state/session-store.js';
 
 export function App() {
@@ -17,6 +19,7 @@ export function App() {
 
   useKeyboardShortcuts();
   useSessionOrchestrator();
+  useVoiceInput();
 
   if (!connected && !reconnecting) {
     return (
@@ -52,6 +55,7 @@ export function App() {
         {inSession ? <Room /> : <Lobby />}
       </main>
       <QuestionPanel />
+      <SpeechToasts />
       <SettingsPanel />
     </AppShell>
   );

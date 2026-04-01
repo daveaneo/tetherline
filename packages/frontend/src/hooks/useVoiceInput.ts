@@ -35,7 +35,6 @@ export function useVoiceInput() {
     };
 
     recognizer.onSpeechEnd = () => {
-      // Brief transition to processing while we wait for the transcript
       const audioStore = useAudioStore.getState();
       if (audioStore.voiceState === 'hearing') {
         audioStore.setVoiceState('processing');
@@ -43,9 +42,10 @@ export function useVoiceInput() {
     };
 
     recognizer.onCommand = (command) => {
-      useAudioStore.getState().setVoiceState('processing');
+      const audioStore = useAudioStore.getState();
+      audioStore.setVoiceState('processing');
+      audioStore.addSpeechToast(`"${command}"`);
       COMMAND_TO_EVENT[command]?.();
-      // Brief processing state, then back to listening
       setTimeout(() => {
         const store = useAudioStore.getState();
         if (store.voiceState === 'processing') store.setVoiceState('listening');
@@ -53,13 +53,15 @@ export function useVoiceInput() {
     };
 
     recognizer.onQuestion = (question) => {
+      useAudioStore.getState().addSpeechToast(question);
       sendEvent({ type: 'command:ask', payload: { question } });
     };
 
     recognizer.onUtterance = (text) => {
-      useAudioStore.getState().setVoiceState('processing');
+      const audioStore = useAudioStore.getState();
+      audioStore.setVoiceState('processing');
+      audioStore.addSpeechToast(text);
       sendEvent({ type: 'user:utterance', payload: { text, timestamp: Date.now() } });
-      // Processing state stays until AI responds (setPlaying(true) will change it to 'speaking')
     };
 
     return () => {
@@ -67,23 +69,28 @@ export function useVoiceInput() {
     };
   }, []);
 
-  // Auto-start voice recognition when entering a session, auto-stop when returning to IDLE
-  const phase = useSessionStore(s => s.state.phase);
+  // Register startListening with the audio store so Lobby can call it from a click handler
+  const startListening = useCallback(() => {
+    if (!recognizerRef.current || listening) return;
+    try {
+      recognizerRef.current.start();
+      setListening(true);
+    } catch {
+      // Already started or not allowed
+    }
+  }, [listening]);
 
   useEffect(() => {
-    if (!recognizerRef.current || !recognizerRef.current.isSupported()) return;
-    if (phase !== 'IDLE' && !listening) {
-      try {
-        recognizerRef.current.start();
-        setListening(true);
-      } catch {
-        // Speech recognition may throw if already started or not allowed
-      }
-    } else if (phase === 'IDLE' && listening) {
+    useAudioStore.getState().setStartMicFn(startListening);
+  }, [startListening]);
+
+  // Auto-stop when returning to IDLE
+  const phase = useSessionStore(s => s.state.phase);
+  useEffect(() => {
+    if (phase === 'IDLE' && listening && recognizerRef.current) {
       recognizerRef.current.stop();
       setListening(false);
     }
-    // Only react to phase changes — listening is intentionally excluded to avoid loops
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
 
@@ -98,5 +105,5 @@ export function useVoiceInput() {
     }
   }, [listening]);
 
-  return { listening, toggleListening, supported };
+  return { listening, toggleListening, startListening, supported };
 }
