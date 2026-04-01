@@ -27,6 +27,7 @@ export function useVoiceInput() {
     recognizer.onSpeechStart = () => {
       const audioStore = useAudioStore.getState();
       audioStore.setVoiceState('hearing');
+      audioStore.addSpeechToast('[hearing...]');
 
       // INTERRUPT: if the AI is speaking, pause it immediately
       if (audioStore.isPlaying) {
@@ -64,6 +65,14 @@ export function useVoiceInput() {
       sendEvent({ type: 'user:utterance', payload: { text, timestamp: Date.now() } });
     };
 
+    recognizer.onError = (error) => {
+      useAudioStore.getState().addSpeechToast(`[Mic error: ${error}]`);
+    };
+
+    recognizer.onStateChange = (state) => {
+      useAudioStore.getState().addSpeechToast(`[${state}]`);
+    };
+
     return () => {
       recognizer.stop();
     };
@@ -71,12 +80,20 @@ export function useVoiceInput() {
 
   // Register startListening with the audio store so Lobby can call it from a click handler
   const startListening = useCallback(() => {
-    if (!recognizerRef.current || listening) return;
+    if (!recognizerRef.current) {
+      useAudioStore.getState().addSpeechToast('[Mic: not supported]');
+      return;
+    }
+    if (listening) {
+      useAudioStore.getState().addSpeechToast('[Mic: already listening]');
+      return;
+    }
     try {
       recognizerRef.current.start();
       setListening(true);
-    } catch {
-      // Already started or not allowed
+      useAudioStore.getState().addSpeechToast('[Mic: started]');
+    } catch (err: any) {
+      useAudioStore.getState().addSpeechToast(`[Mic error: ${err.message}]`);
     }
   }, [listening]);
 

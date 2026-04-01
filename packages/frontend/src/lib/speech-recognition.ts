@@ -48,6 +48,9 @@ export class VoiceCommandRecognizer {
   onCommand: VoiceCommandHandler | null = null;
   onQuestion: QuestionHandler | null = null;
   onUtterance: UtteranceHandler | null = null;
+  onError: ((error: string) => void) | null = null;
+  onAudioStart: (() => void) | null = null;
+  onStateChange: ((state: string) => void) | null = null;
   onSpeechStart: (() => void) | null = null;
   onSpeechEnd: (() => void) | null = null;
 
@@ -63,12 +66,27 @@ export class VoiceCommandRecognizer {
     this.recognition.interimResults = false;
     this.recognition.lang = 'en-US';
 
+    this.recognition.onaudiostart = () => {
+      this.onAudioStart?.();
+      this.onStateChange?.('audio_started');
+    };
+
+    this.recognition.onaudioend = () => {
+      this.onStateChange?.('audio_ended');
+    };
+
     this.recognition.onspeechstart = () => {
       this.onSpeechStart?.();
+      this.onStateChange?.('speech_detected');
     };
 
     this.recognition.onspeechend = () => {
       this.onSpeechEnd?.();
+      this.onStateChange?.('speech_ended');
+    };
+
+    this.recognition.onnomatch = () => {
+      this.onStateChange?.('no_match');
     };
 
     this.recognition.onresult = (event: any) => {
@@ -104,6 +122,7 @@ export class VoiceCommandRecognizer {
     this.recognition.onerror = (event: any) => {
       if (event.error !== 'no-speech' && event.error !== 'aborted') {
         console.error('Speech recognition error:', event.error);
+        this.onError?.(event.error);
       }
     };
 
