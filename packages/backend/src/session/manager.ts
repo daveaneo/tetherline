@@ -107,6 +107,11 @@ export class SessionManager {
           this.emit({ type: 'action:issue_failed', payload: { error: err.message } });
         });
         break;
+      case 'session:start_onboarding':
+        this.startOnboardingSession(event.payload.repoPath, event.payload.programId, event.payload.dayNumber).catch(err => {
+          this.emit({ type: 'error', payload: { code: 'ONBOARDING_FAILED', message: err.message, recoverable: true } });
+        });
+        break;
     }
   }
 
@@ -123,6 +128,59 @@ export class SessionManager {
 
     this.emit({ type: 'action:issue_created', payload: result });
     this.emit({ type: 'narration:greeting', payload: { text: `Issue created: number ${result.number}. You can find it at ${result.url}` } });
+  }
+
+  private async startOnboardingSession(repoPath: string, programId?: string, dayNumber?: number) {
+    const effectivePath = repoPath || this.config.repoPath;
+    const repoName = path.basename(effectivePath);
+
+    // Get or generate program
+    let program: any;
+    if (programId) {
+      program = this.db.getOnboardingRepo().getProgram(programId);
+    } else {
+      const programs = this.db.getOnboardingRepo().getProgramsForRepo(effectivePath);
+      program = programs[0]; // Use most recent
+    }
+
+    if (!program) {
+      this.emit({ type: 'error', payload: { code: 'NO_PROGRAM', message: 'No onboarding program found. Generate one first via the API.', recoverable: true } });
+      return;
+    }
+
+    // Get or start progress
+    let progress = this.db.getOnboardingRepo().getProgress(program.id);
+    if (!progress) {
+      progress = this.db.getOnboardingRepo().startProgress(program.id);
+    }
+
+    const day = dayNumber ?? progress.currentDay;
+    const dayData = program.days[day - 1];
+    if (!dayData) {
+      this.emit({ type: 'error', payload: { code: 'INVALID_DAY', message: `Day ${day} not found in program`, recoverable: true } });
+      return;
+    }
+
+    // Emit onboarding day event
+    this.emit({
+      type: 'session:onboarding_day',
+      payload: { day: dayData, programName: program.name, totalDays: program.totalDays },
+    });
+
+    // Set visual layer based on the day's target layer
+    const layerMap: Record<string, VisualLayer> = {
+      project: 1,
+      conceptual: 2,
+      architecture: 3,
+      component: 4,
+      code: 5,
+    };
+    const targetLayer = layerMap[dayData.targetLayer] ?? 1;
+    this.setVisualLayer(targetLayer);
+
+    // Set entry mode and start a regular session scoped to this day's content
+    this.entryMode = 'onboarding';
+    await this.startSession(effectivePath, 365); // Use full history for onboarding
   }
 
   private async startSession(repoPath: string, sinceDays?: number) {
@@ -697,8 +755,6 @@ export class SessionManager {
       case 'PROJECT_OVERVIEW':
         // Mark project-level understanding
         this.markPhaseUnderstood('project', this.activeRepoPath, this.activeRepoPath);
-        // Transition through layer 2 (concept) before arriving at architecture
-        this.setVisualLayer(2);
         this.setState({ phase: 'ARCHITECTURE_OVERVIEW' });
         this.setVisualLayer(3);
         break;

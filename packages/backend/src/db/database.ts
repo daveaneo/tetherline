@@ -115,16 +115,6 @@ export class Database {
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
 
-      CREATE TABLE IF NOT EXISTS questions (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL REFERENCES sessions(id),
-        area_id TEXT REFERENCES areas(id),
-        question TEXT NOT NULL,
-        answer TEXT NOT NULL,
-        code_references TEXT DEFAULT '[]',
-        created_at TEXT NOT NULL DEFAULT (datetime('now'))
-      );
-
       CREATE TABLE IF NOT EXISTS repositories (
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -140,7 +130,6 @@ export class Database {
       CREATE INDEX IF NOT EXISTS idx_familiarity_repo ON file_familiarity(repo_path);
       CREATE INDEX IF NOT EXISTS idx_concerns_session ON concerns(session_id);
       CREATE INDEX IF NOT EXISTS idx_concerns_severity ON concerns(severity);
-      CREATE INDEX IF NOT EXISTS idx_questions_session ON questions(session_id);
 
       CREATE TABLE IF NOT EXISTS understanding (
         id TEXT PRIMARY KEY,

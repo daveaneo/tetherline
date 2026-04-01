@@ -22,6 +22,7 @@ interface SessionStore {
   state: SessionState;
   context: StateContext;
   areas: AreaWithContent[];
+  activeRepoPath: string;
   analysisProgress: AnalysisProgress | null;
   heatmap: HeatmapData | null;
   concerns: Concern[];
@@ -37,6 +38,7 @@ interface SessionStore {
   visualLayer: VisualLayer;
   conceptualSteps: ConceptualStep[];
   tourProgress: { total: number; covered: number; percentage: number } | null;
+  lastIssueResult: { url: string; number: number } | null;
   error: { code: string; message: string; recoverable: boolean } | null;
   connected: boolean;
   conversationHistory: ConversationEntry[];
@@ -52,6 +54,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   state: { phase: 'IDLE' },
   context: { sessionId: '', totalAreas: 0, modes: { ...DEFAULT_MODES }, concerns: [] },
   areas: [],
+  activeRepoPath: '',
   analysisProgress: null,
   heatmap: null,
   concerns: [],
@@ -67,6 +70,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   visualLayer: 1 as VisualLayer,
   conceptualSteps: [],
   tourProgress: null,
+  lastIssueResult: null,
   error: null,
   connected: false,
   conversationHistory: [],
@@ -82,6 +86,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     state: { phase: 'IDLE' },
     context: { sessionId: '', totalAreas: 0, modes: { ...DEFAULT_MODES }, concerns: [] },
     areas: [],
+    activeRepoPath: '',
     analysisProgress: null,
     heatmap: null,
     concerns: [],
@@ -97,6 +102,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     visualLayer: 1 as VisualLayer,
     conceptualSteps: [],
     tourProgress: null,
+    lastIssueResult: null,
     error: null,
     conversationHistory: [],
   }),
@@ -204,7 +210,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         break;
 
       case 'action:issue_created':
-        // Issue created successfully; narration greeting handles the notification
+        set({ lastIssueResult: event.payload as { url: string; number: number } });
         break;
 
       case 'action:issue_failed':

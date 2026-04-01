@@ -1,9 +1,10 @@
+import cron from 'node-cron';
 import type { Database } from '../db/database.js';
 import type { AppConfig } from '../config.js';
 import { generateDigest, formatDigestAsMarkdown, formatDigestAsHtml } from './generator.js';
 
 export class DigestScheduler {
-  private intervalId: ReturnType<typeof setInterval> | null = null;
+  private job: cron.ScheduledTask | null = null;
 
   constructor(
     private db: Database,
@@ -11,17 +12,28 @@ export class DigestScheduler {
   ) {}
 
   start() {
-    // Check every hour if it's time to send a digest
-    this.intervalId = setInterval(() => this.checkAndSend(), 3600_000);
-    // Also check on startup (for missed digests)
+    const settings = this.db.getSettingsRepo().getAll();
+    const digestConfig = (settings as any).digest;
+    const schedule = digestConfig?.schedule ?? '0 8 * * 1'; // default Monday 8am
+
+    const validSchedule = cron.validate(schedule) ? schedule : '0 8 * * 1';
+    if (!cron.validate(schedule)) {
+      console.log(`[digest] Invalid schedule: ${schedule}, using default`);
+    }
+
+    this.job = cron.schedule(validSchedule, async () => {
+      await this.checkAndSend();
+    });
+
+    // Check on startup for missed digests
     setTimeout(() => this.checkAndSend(), 5000);
-    console.log('[digest] Scheduler started');
+    console.log(`[digest] Scheduler started (${validSchedule})`);
   }
 
   stop() {
-    if (this.intervalId) {
-      clearInterval(this.intervalId);
-      this.intervalId = null;
+    if (this.job) {
+      this.job.stop();
+      this.job = null;
     }
   }
 
@@ -40,15 +52,6 @@ export class DigestScheduler {
       const daysSince = (Date.now() - lastSent.getTime()) / 86400000;
       if (daysSince < 6) return; // Don't send more than once a week
     }
-
-    // Check if it's the right day and time
-    const now = new Date();
-    const schedule = digestConfig.schedule ?? '0 8 * * 1'; // default Monday 8am
-    // Simple check: is it Monday and after 8am?
-    // For a proper implementation, use node-cron. For now, simple day check.
-    const targetDay = 1; // Monday
-    if (now.getDay() !== targetDay) return;
-    if (now.getHours() < 8) return;
 
     await this.sendDigest(digestConfig);
   }

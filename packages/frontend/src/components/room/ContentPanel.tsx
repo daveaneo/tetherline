@@ -11,6 +11,7 @@ import type { AreaWithContent, Concern, UnderstandingState, SkillResult } from '
 import { sendEvent } from '../../lib/ws-client.js';
 import { IssueDraftPreview } from '../actions/IssueDraftPreview.js';
 import { SharePanel } from '../actions/SharePanel.js';
+import { AnnotationsList } from '../actions/AnnotationsList.js';
 
 export function ContentPanel() {
   const { state, areas, analysisProgress, context } = useSession();
@@ -23,6 +24,7 @@ export function ContentPanel() {
   const skillResult = useSessionStore(s => s.skillResult);
   const skillClarification = useSessionStore(s => s.skillClarification);
   const conversationHistory = useSessionStore(s => s.conversationHistory);
+  const activeRepoPath = useSessionStore(s => s.activeRepoPath);
   const voiceState = useAudioStore(s => s.voiceState);
   const speechToasts = useAudioStore(s => s.speechToasts);
 
@@ -185,6 +187,13 @@ export function ContentPanel() {
           </motion.div>
         </AnimatePresence>
       </div>
+
+      {/* Annotations list */}
+      {activeRepoPath && (
+        <div className="px-4 py-2 shrink-0">
+          <AnnotationsList repoPath={activeRepoPath} />
+        </div>
+      )}
 
       {/* Conversation history (~30%) */}
       {conversationHistory.length > 0 && (

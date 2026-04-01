@@ -47,6 +47,17 @@ export async function createServer(overrides: { port?: number; repoPath?: string
   router.use('/onboarding', createOnboardingRoutes(db, config));
   const digestScheduler = new DigestScheduler(db, config);
   router.use('/digest', createDigestRoutes(db, config, digestScheduler));
+
+  // Annotations endpoint
+  router.get('/annotations', (req, res) => {
+    const repoPath = req.query.repoPath as string;
+    if (!repoPath) { res.status(400).json({ error: 'repoPath required' }); return; }
+    const rows = db.getRawDb().prepare(
+      'SELECT * FROM annotations WHERE repo_path = ? ORDER BY created_at DESC'
+    ).all(repoPath);
+    res.json({ annotations: rows });
+  });
+
   app.use(API_PREFIX, router);
 
   // Serve frontend static files in production

@@ -28,6 +28,7 @@ export function App() {
     const mode = params.get('mode');
     if (repo && mode) {
       deepLinkHandled.current = true;
+      useSessionStore.setState({ activeRepoPath: repo });
       sendEvent({ type: 'session:start', payload: { repoPath: repo, sinceDays: 7, entryMode: mode as EntryMode } });
       window.history.replaceState({}, '', window.location.pathname);
     }

@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { sendEvent } from '../../lib/ws-client.js';
+import { useSessionStore } from '../../state/session-store.js';
 import { motion } from 'framer-motion';
 
 interface Props {
@@ -13,13 +14,22 @@ export function IssueDraftPreview({ title, body, labels, onDismiss }: Props) {
   const [editTitle, setEditTitle] = useState(title);
   const [editBody, setEditBody] = useState(body);
   const [creating, setCreating] = useState(false);
+  const lastIssueResult = useSessionStore(s => s.lastIssueResult);
 
   const handleCreate = () => {
     setCreating(true);
     sendEvent({ type: 'action:confirm_issue', payload: { title: editTitle, body: editBody, labels } });
     // The result comes back via action:issue_created or action:issue_failed
-    setTimeout(onDismiss, 3000);
   };
+
+  // Dismiss after successful creation
+  useEffect(() => {
+    if (lastIssueResult && creating) {
+      // Issue was created successfully, dismiss after brief delay
+      const timer = setTimeout(onDismiss, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [lastIssueResult, creating, onDismiss]);
 
   return (
     <motion.div
@@ -50,7 +60,7 @@ export function IssueDraftPreview({ title, body, labels, onDismiss }: Props) {
           disabled={creating}
           className="px-4 py-2 bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white rounded-lg text-sm disabled:opacity-50"
         >
-          {creating ? 'Creating...' : 'Create Issue'}
+          {creating ? (lastIssueResult ? 'Created!' : 'Creating...') : 'Create Issue'}
         </button>
         <button onClick={onDismiss} className="px-4 py-2 text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text)]">
           Cancel

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '../../lib/api-client.js';
 import { sendEvent } from '../../lib/ws-client.js';
 import { useAudioStore } from '../../state/audio-store.js';
+import { useSessionStore } from '../../state/session-store.js';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { EntryMode } from '@interactive-reviewer/shared';
 
@@ -66,6 +67,7 @@ export function Lobby() {
     // Start mic from this click handler (user gesture = browser allows mic access)
     const { requestMicStart } = useAudioStore.getState();
     requestMicStart();
+    useSessionStore.setState({ activeRepoPath: selectedRepo.path });
     sendEvent({ type: 'session:start', payload: { repoPath: selectedRepo.path, sinceDays: 7, entryMode: mode } });
     setSelectedRepo(null);
   };

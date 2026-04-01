@@ -228,15 +228,25 @@ export function useSessionOrchestrator() {
 
         case 'PROJECT_OVERVIEW': {
           if (modes.narration) {
-            // The project overview narration text comes from the greeting or is generated
             const storeAreas = useSessionStore.getState().areas;
             const areaCount = storeAreas.length;
             const intro = areaCount > 0
-              ? `Let me introduce you to this project. I've identified ${areaCount} key areas to explore. Let's start with a high-level overview.`
-              : `Let me introduce you to this project. Let's start with a high-level overview.`;
+              ? `Let me introduce you to this project. I've identified ${areaCount} key areas to explore.`
+              : `Let me introduce you to this project.`;
             await speak(intro, signal);
+            if (signal.aborted) return;
+
+            // Show conceptual flow (layer 2) briefly before advancing
+            const conceptualSteps = useSessionStore.getState().conceptualSteps;
+            if (conceptualSteps.length > 0) {
+              useSessionStore.setState({ visualLayer: 2 });
+              await speak("Here's how it works at a high level.", signal);
+              if (signal.aborted) return;
+              // Give time for the animation
+              await new Promise(r => setTimeout(r, 2000));
+              if (signal.aborted) return;
+            }
           }
-          if (signal.aborted) return;
           scheduleAdvance(500);
           break;
         }
