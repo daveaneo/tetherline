@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type {
   SessionState, StateContext, ServerEvent, AreaWithContent,
   AnalysisProgress, Concern, HeatmapData, SessionSummary, UnderstandingState,
-  SkillResult,
+  SkillResult, VisualLayer, ConceptualStep,
 } from '@interactive-reviewer/shared';
 import { DEFAULT_MODES } from '@interactive-reviewer/shared';
 
@@ -34,6 +34,8 @@ interface SessionStore {
   understanding: UnderstandingState | null;
   skillResult: SkillResult | null;
   skillClarification: { message: string; options: string[] } | null;
+  visualLayer: VisualLayer;
+  conceptualSteps: ConceptualStep[];
   tourProgress: { total: number; covered: number; percentage: number } | null;
   error: { code: string; message: string; recoverable: boolean } | null;
   connected: boolean;
@@ -62,6 +64,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   understanding: null,
   skillResult: null,
   skillClarification: null,
+  visualLayer: 1 as VisualLayer,
+  conceptualSteps: [],
   tourProgress: null,
   error: null,
   connected: false,
@@ -90,6 +94,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     understanding: null,
     skillResult: null,
     skillClarification: null,
+    visualLayer: 1 as VisualLayer,
+    conceptualSteps: [],
     tourProgress: null,
     error: null,
     conversationHistory: [],
@@ -126,17 +132,29 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         });
         break;
 
-      case 'session:state_changed':
-        set({ state: event.payload.state, context: event.payload.context });
+      case 'session:state_changed': {
+        const stateUpdate: Partial<SessionStore> = { state: event.payload.state, context: event.payload.context };
+        // Sync visualLayer from session state if present
+        if (event.payload.state.visualLayer) {
+          stateUpdate.visualLayer = event.payload.state.visualLayer;
+        }
+        set(stateUpdate);
         break;
+      }
 
       case 'session:recap':
         set({ previousSession: event.payload.previousSession, recap: event.payload.narrative });
         break;
 
-      case 'session:proposal':
-        set({ proposal: event.payload });
+      case 'session:proposal': {
+        const proposalPayload = event.payload as ProposalData & { conceptualSteps?: ConceptualStep[] };
+        const updates: Partial<SessionStore> = { proposal: proposalPayload };
+        if (proposalPayload.conceptualSteps?.length) {
+          updates.conceptualSteps = proposalPayload.conceptualSteps;
+        }
+        set(updates);
         break;
+      }
 
       case 'session:heatmap':
         set({ heatmap: event.payload.heatmap });
@@ -179,6 +197,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
       case 'session:tour_progress':
         set({ tourProgress: event.payload });
+        break;
+
+      case 'visual:layer_change':
+        set({ visualLayer: (event.payload as { layer: VisualLayer }).layer });
         break;
 
       case 'error':

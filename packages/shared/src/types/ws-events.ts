@@ -5,6 +5,7 @@ import type { SessionModes, ModeKey, EntryMode } from './modes.js';
 import type { Session, SessionSummary } from './session.js';
 import type { UnderstandingState } from './understanding.js';
 import type { SkillResult } from './skills.js';
+import type { VisualLayer } from './visual-layer.js';
 
 // Client → Server
 export type ClientEvent =
@@ -38,6 +39,7 @@ export type ServerEvent =
   | { type: 'visual:show_code'; payload: { filePath: string; code: string; language: string; highlightLines?: number[] } }
   | { type: 'visual:diagram_focus'; payload: { nodeId: string; zoom?: number } }
   | { type: 'visual:diagram_update'; payload: { nodes: DiagramNode[]; edges: DiagramEdge[] } }
+  | { type: 'visual:layer_change'; payload: { layer: VisualLayer; targetNodeId?: string; filePath?: string } }
   | { type: 'advisory:concern'; payload: { concern: Concern } }
   | { type: 'advisory:alert'; payload: { concern: Concern } }
   | { type: 'qa:answer_chunk'; payload: { text: string; done: boolean } }
@@ -85,6 +87,7 @@ export interface SessionState {
   returnToSegmentIndex?: number;
   exportFormat?: 'slides' | 'markdown';
   error?: string;
+  visualLayer?: VisualLayer;
 }
 
 export interface StateContext {

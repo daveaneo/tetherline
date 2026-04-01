@@ -25,6 +25,9 @@ const NAVIGATION_PHRASES: Record<string, string> = {
   'turn off active learning': 'toggle_activeLearning_off',
   'turn on alerts': 'toggle_alerts_on',
   'turn off alerts': 'toggle_alerts_off',
+  // Zoom commands
+  'show me the big picture': 'zoom_out', 'show the overview': 'zoom_out',
+  'show the code': 'zoom_to_code', 'show the architecture': 'zoom_to_architecture',
   // Exit / back to lobby commands
   'exit': 'exit_session', 'go home': 'exit_session', 'back to lobby': 'exit_session', 'quit': 'exit_session',
 };

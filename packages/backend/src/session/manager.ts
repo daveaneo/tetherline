@@ -14,6 +14,7 @@ import type {
   UnderstandingState,
   SkillResult,
   SkillName,
+  VisualLayer,
 } from '@interactive-reviewer/shared';
 import { DEFAULT_MODES } from '@interactive-reviewer/shared';
 import { v4 as uuid } from 'uuid';
@@ -55,6 +56,7 @@ export class SessionManager {
   private tourPlan: TourPlan | null = null;
   private detectedLanguages: string[] = [];
   private proposalSuggestedOrder: string[] = [];
+  private visualLayer: VisualLayer = 1;
 
   constructor(
     private db: Database,
@@ -494,6 +496,7 @@ export class SessionManager {
             purpose: repoName,
             techStack: languages,
             keyAreas: this.areas.slice(0, 5).map(a => a.name),
+            conceptualSteps: [],
           };
         }
         this.seedUnderstandingItems(effectivePath, repoName, this.areas);
@@ -618,7 +621,10 @@ export class SessionManager {
       case 'PROJECT_OVERVIEW':
         // Mark project-level understanding
         this.markPhaseUnderstood('project', this.activeRepoPath, this.activeRepoPath);
+        // Transition through layer 2 (concept) before arriving at architecture
+        this.setVisualLayer(2);
         this.setState({ phase: 'ARCHITECTURE_OVERVIEW' });
+        this.setVisualLayer(3);
         break;
 
       case 'ARCHITECTURE_OVERVIEW':
@@ -626,6 +632,7 @@ export class SessionManager {
         this.markPhaseUnderstood('architecture', this.activeRepoPath, 'architecture');
         if (this.areas.length > 0) {
           this.setState({ phase: 'COMPONENT_TOUR', areaIndex: 0, segmentIndex: 0 });
+          this.setVisualLayer(4, this.areas[0]?.id);
         } else {
           this.setState({ phase: 'WRAP_UP' });
         }
@@ -688,6 +695,9 @@ export class SessionManager {
         const nextIndex = this.state.areaIndex ?? 0;
         const nextPhase = this.entryMode === 'full_walkthrough' ? 'COMPONENT_TOUR' : 'AREA_WALKTHROUGH';
         this.setState({ phase: nextPhase, areaIndex: nextIndex, segmentIndex: 0 });
+        if (nextPhase === 'COMPONENT_TOUR') {
+          this.setVisualLayer(4, this.areas[nextIndex]?.id);
+        }
         break;
       }
 
@@ -828,6 +838,9 @@ export class SessionManager {
   private handleDiveDeeper() {
     if (this.state.phase === 'AREA_WALKTHROUGH' || this.state.phase === 'COMPONENT_TOUR') {
       this.setState({ ...this.state, deepDive: true });
+      const currentArea = this.state.areaIndex !== undefined ? this.areas[this.state.areaIndex] : undefined;
+      const filePath = currentArea?.affectedFiles?.[0];
+      this.setVisualLayer(5, undefined, filePath);
     }
   }
 
@@ -862,6 +875,12 @@ export class SessionManager {
       'back to the tour': () => this.resumeTour(),
       'resume tour': () => this.resumeTour(),
       'resume the tour': () => this.resumeTour(),
+      'zoom in': () => this.handleZoomCommand('zoom_in'),
+      'zoom out': () => this.handleZoomCommand('zoom_out'),
+      'show me the big picture': () => this.handleZoomCommand('zoom_out'),
+      'show the overview': () => this.handleZoomCommand('zoom_out'),
+      'show the code': () => this.handleZoomCommand('zoom_to_code'),
+      'show the architecture': () => this.handleZoomCommand('zoom_to_architecture'),
     };
     for (const [phrase, handler] of Object.entries(QUICK_COMMANDS)) {
       if (lower === phrase || lower.startsWith(phrase + ' ')) {
@@ -1077,6 +1096,12 @@ export class SessionManager {
         return;
       }
 
+      // Handle zoom commands from classifier
+      if (['zoom_in', 'zoom_out', 'zoom_to_code', 'zoom_to_architecture'].includes(classification.navigationCommand)) {
+        this.handleZoomCommand(classification.navigationCommand);
+        return;
+      }
+
       const navMap: Record<string, string> = {
         next: 'command:next',
         previous: 'command:previous',
@@ -1084,7 +1109,6 @@ export class SessionManager {
         pause: 'command:pause',
         resume: 'command:resume',
         dive_deeper: 'command:dive_deeper',
-        zoom_out: 'command:previous',
       };
       const eventType = navMap[classification.navigationCommand];
       if (eventType) {
@@ -1195,6 +1219,7 @@ export class SessionManager {
   private acceptProposal(): void {
     if (this.entryMode === 'full_walkthrough') {
       this.setState({ phase: 'PROJECT_OVERVIEW' });
+      this.setVisualLayer(1);
     } else {
       // Updates mode: go through PREVIOUSLY_ON or straight to HEATMAP
       if (this.previousSession) {
@@ -1310,6 +1335,36 @@ export class SessionManager {
     this.emit({ type: 'session:tour_progress', payload: progress });
   }
 
+  private handleZoomCommand(command: string) {
+    switch (command) {
+      case 'zoom_in': {
+        const next = Math.min(5, this.visualLayer + 1) as VisualLayer;
+        this.setVisualLayer(next);
+        break;
+      }
+      case 'zoom_out': {
+        const prev = Math.max(1, this.visualLayer - 1) as VisualLayer;
+        this.setVisualLayer(prev);
+        break;
+      }
+      case 'zoom_to_code':
+        this.setVisualLayer(5);
+        break;
+      case 'zoom_to_architecture':
+        this.setVisualLayer(3);
+        break;
+    }
+  }
+
+  private setVisualLayer(layer: VisualLayer, targetNodeId?: string, filePath?: string) {
+    this.visualLayer = layer;
+    this.state.visualLayer = layer;
+    this.emit({
+      type: 'visual:layer_change',
+      payload: { layer, targetNodeId, filePath },
+    });
+  }
+
   private setState(state: SessionState) {
     this.state = state;
     if (state.phase === 'AREA_WALKTHROUGH' || state.phase === 'COMPONENT_TOUR') {
@@ -1396,6 +1451,7 @@ export class SessionManager {
         purpose: repoName,
         techStack: languages,
         keyAreas: [],
+        conceptualSteps: [],
       };
     }
 

@@ -2,37 +2,36 @@ import { useMemo } from 'react';
 import { useSession } from '../../hooks/useSession.js';
 import { useSessionStore } from '../../state/session-store.js';
 import { ArchitectureDiagram } from '../diagrams/ArchitectureDiagram.js';
+import { BookJacket } from '../layers/BookJacket.js';
+import { ConceptualFlow } from '../layers/ConceptualFlow.js';
+import { CodeLayer } from '../layers/CodeLayer.js';
+import { LAYER_NAMES, type VisualLayer } from '@interactive-reviewer/shared';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export function DiagramPanel() {
   const { state, areas } = useSession();
-  const heatmap = useSessionStore(s => s.heatmap);
+  const visualLayer = useSessionStore(s => s.visualLayer);
 
-  // Collect all nodes and edges from areas
+  // Collect all nodes and edges from areas (used by layers 3-4)
   const { nodes, edges } = useMemo(() => {
     const allNodes = areas.flatMap(a => a.architectureNodes ?? []);
     const allEdges = areas.flatMap(a => a.architectureEdges ?? []);
     return { nodes: allNodes, edges: allEdges };
   }, [areas]);
 
-  // Determine focused node based on current state
+  // Determine focused node based on current state (layers 3-4)
   const focusedNodeId = useMemo(() => {
-    if (state.phase === 'AREA_WALKTHROUGH' && state.areaIndex !== undefined) {
+    if ((visualLayer === 3 || visualLayer === 4) && state.areaIndex !== undefined) {
       const area = areas[state.areaIndex];
-      if (area) {
-        // Find the segment's visual cue
-        const segment = area.narrationSegments?.[state.segmentIndex ?? 0];
-        if (segment?.visualCue?.diagramNodeId) {
-          return segment.visualCue.diagramNodeId;
-        }
-      }
+      const segment = area?.narrationSegments?.[state.segmentIndex ?? 0];
+      return segment?.visualCue?.diagramNodeId;
     }
     return undefined;
-  }, [state, areas]);
+  }, [visualLayer, state, areas]);
 
   // Highlighted files from current area
   const highlightedFiles = useMemo(() => {
-    if (state.phase === 'AREA_WALKTHROUGH' && state.areaIndex !== undefined) {
+    if (state.areaIndex !== undefined) {
       return areas[state.areaIndex]?.affectedFiles ?? [];
     }
     return [];
@@ -43,7 +42,22 @@ export function DiagramPanel() {
 
   return (
     <div className="h-full relative">
+      {/* Layer indicator */}
+      <div className="absolute top-3 right-3 z-10 px-3 py-1.5 bg-[var(--color-surface)]/80 backdrop-blur-sm rounded-lg border border-[var(--color-border)] text-xs text-[var(--color-text-muted)]">
+        Layer {visualLayer}: {LAYER_NAMES[visualLayer as VisualLayer]}
+      </div>
+
+      {/* Area indicator (layers 3+) */}
+      {state.phase !== 'IDLE' && state.areaIndex !== undefined && visualLayer >= 3 && (
+        <div className="absolute top-3 left-3 z-10 px-3 py-1.5 bg-[var(--color-surface)]/80 backdrop-blur-sm rounded-lg border border-[var(--color-border)] text-xs">
+          <span className="text-[var(--color-text-muted)]">Area {(state.areaIndex ?? 0) + 1} of {areas.length}</span>
+          <span className="mx-2 text-[var(--color-border)]">&middot;</span>
+          <span className="text-[var(--color-accent)]">{areas[state.areaIndex]?.name}</span>
+        </div>
+      )}
+
       <AnimatePresence mode="wait">
+        {/* Analyzing spinner — shown when analyzing and no diagram nodes yet */}
         {isAnalyzing && !hasNodes && (
           <motion.div
             key="analyzing"
@@ -58,47 +72,74 @@ export function DiagramPanel() {
                 transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
                 className="w-16 h-16 border-2 border-[var(--color-border)] border-t-[var(--color-accent)] rounded-full mx-auto mb-4"
               />
-              <p className="text-sm text-[var(--color-text-muted)]">Building architecture map...</p>
+              <p className="text-sm text-[var(--color-text-muted)]">Analyzing project...</p>
             </div>
           </motion.div>
         )}
 
-        {hasNodes && (
+        {/* Layer 1: Book Jacket */}
+        {!isAnalyzing && visualLayer === 1 && (
           <motion.div
-            key="diagram"
+            key="layer-1"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
             className="h-full"
           >
-            <ArchitectureDiagram
-              nodes={nodes}
-              edges={edges}
-              focusedNodeId={focusedNodeId}
-              highlightedFiles={highlightedFiles}
-            />
+            <BookJacket />
           </motion.div>
         )}
 
-        {!isAnalyzing && !hasNodes && (
+        {/* Layer 2: Conceptual Flow */}
+        {!isAnalyzing && visualLayer === 2 && (
           <motion.div
-            key="empty"
+            key="layer-2"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="absolute inset-0 flex items-center justify-center"
+            exit={{ opacity: 0 }}
+            className="h-full"
           >
-            <p className="text-sm text-[var(--color-text-muted)]">Architecture diagram will appear here</p>
+            <ConceptualFlow />
+          </motion.div>
+        )}
+
+        {/* Layers 3-4: Architecture / Component diagram */}
+        {!isAnalyzing && (visualLayer === 3 || visualLayer === 4) && (
+          <motion.div
+            key={`layer-${visualLayer}`}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="h-full"
+          >
+            {hasNodes ? (
+              <ArchitectureDiagram
+                nodes={nodes}
+                edges={edges}
+                focusedNodeId={focusedNodeId}
+                highlightedFiles={highlightedFiles}
+              />
+            ) : (
+              <div className="h-full flex items-center justify-center">
+                <p className="text-sm text-[var(--color-text-muted)]">Architecture diagram will appear here</p>
+              </div>
+            )}
+          </motion.div>
+        )}
+
+        {/* Layer 5: Code */}
+        {!isAnalyzing && visualLayer === 5 && (
+          <motion.div
+            key="layer-5"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="h-full"
+          >
+            <CodeLayer />
           </motion.div>
         )}
       </AnimatePresence>
-
-      {/* Phase indicator overlay */}
-      {state.phase === 'AREA_WALKTHROUGH' && state.areaIndex !== undefined && (
-        <div className="absolute top-3 left-3 px-3 py-1.5 bg-[var(--color-surface)]/80 backdrop-blur-sm rounded-lg border border-[var(--color-border)] text-xs">
-          <span className="text-[var(--color-text-muted)]">Area {(state.areaIndex ?? 0) + 1} of {areas.length}</span>
-          <span className="mx-2 text-[var(--color-border)]">&middot;</span>
-          <span className="text-[var(--color-accent)]">{areas[state.areaIndex]?.name}</span>
-        </div>
-      )}
     </div>
   );
 }

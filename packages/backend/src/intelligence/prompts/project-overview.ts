@@ -17,6 +17,10 @@ Cover:
 
 Keep it conversational and natural — this is narrated, not written. About 4-6 sentences.
 
+Also generate 3-5 conceptual steps that explain how the project works as a sequential flow.
+Each step should have an emoji icon, a short title, and one sentence description.
+Example: { icon: "📥", title: "User Input", description: "The user provides a difficulty level and requests a new puzzle." }
+
 Project: ${context.repoName}
 Languages: ${context.languages.join(', ')}
 Total files: ${context.totalFiles}
@@ -40,8 +44,21 @@ export const PROJECT_OVERVIEW_TOOL = {
       purpose: { type: 'string', description: 'One sentence: what the project does' },
       techStack: { type: 'array', items: { type: 'string' }, description: 'Key technologies used' },
       keyAreas: { type: 'array', items: { type: 'string' }, description: 'Most important areas to understand' },
+      conceptualSteps: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            icon: { type: 'string', description: 'An emoji representing this step' },
+            title: { type: 'string', description: 'Short title (2-4 words)' },
+            description: { type: 'string', description: 'One sentence explaining this step' },
+          },
+          required: ['icon', 'title', 'description'],
+        },
+        description: '3-5 sequential steps showing how the project works conceptually',
+      },
     },
-    required: ['overview', 'purpose', 'techStack', 'keyAreas'],
+    required: ['overview', 'purpose', 'techStack', 'keyAreas', 'conceptualSteps'],
   },
 };
 
@@ -50,4 +67,5 @@ export interface ProjectOverviewResult {
   purpose: string;
   techStack: string[];
   keyAreas: string[];
+  conceptualSteps: Array<{ icon: string; title: string; description: string }>;
 }
