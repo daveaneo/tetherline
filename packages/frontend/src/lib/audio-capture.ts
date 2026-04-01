@@ -2,12 +2,10 @@
  * Audio capture with echo cancellation, dynamic VAD, instant interrupt,
  * and pre-buffer to capture the start of speech.
  *
- * Key design:
- * - A rolling pre-buffer (800ms) records continuously so we never miss
- *   the first words when the user starts speaking
- * - When VAD confirms speech, the pre-buffer is prepended to the recording
- * - Dynamic threshold calibrates to echo bleed when AI speaks
- * - Instant local mute (~1ms) before any WebSocket round-trip
+ * Architecture: ONE MediaRecorder runs continuously. Chunks are collected
+ * into a rolling buffer. When speech is confirmed, we keep ALL chunks
+ * from the buffer (pre-speech) plus new chunks (during speech) and send
+ * them as a single valid WebM blob to Whisper.
  */
 import { API_PREFIX } from '@interactive-reviewer/shared';
 import { useAudioStore } from '../state/audio-store.js';
@@ -20,21 +18,21 @@ export interface AudioCaptureCallbacks {
   onStateChange: (state: string) => void;
 }
 
-// VAD config
 const VAD_POLL_MS = 20;
 const BASE_THRESHOLD = 12;
 const MIN_SPEAKING_THRESHOLD = 30;
 const ECHO_THRESHOLD_MULTIPLIER = 2.5;
 const ECHO_CALIBRATION_MS = 500;
-const CONFIRM_SPEECH_MS = 100;         // Reduced from 200ms — pre-buffer catches early words
+const CONFIRM_SPEECH_MS = 100;
 const SILENCE_TIMEOUT_MS = 1200;
 const MIN_RECORDING_MS = 300;
-const PRE_BUFFER_MS = 800;             // Rolling buffer captures last 800ms
+const PRE_BUFFER_CHUNKS = 8; // Keep last 8 chunks (~800ms at 100ms each)
 
 export class AudioCapture {
   private stream: MediaStream | null = null;
   private audioContext: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
+  private recorder: MediaRecorder | null = null;
   private isCapturing = false;
   private isSpeaking = false;
   private isMuted = false;
@@ -44,14 +42,10 @@ export class AudioCapture {
   private vadInterval: ReturnType<typeof setInterval> | null = null;
   private callbacks: AudioCaptureCallbacks;
 
-  // Pre-buffer: continuously records, keeps last PRE_BUFFER_MS
-  private preBufferRecorder: MediaRecorder | null = null;
-  private preBufferChunks: Blob[] = [];
-  private preBufferStartTime = 0;
-
-  // Main speech recorder
-  private speechRecorder: MediaRecorder | null = null;
-  private speechChunks: Blob[] = [];
+  // Single chunk buffer — rolling when idle, collecting during speech
+  private allChunks: Blob[] = [];
+  private speechStartChunkIndex = 0;
+  private isRecordingSpeech = false;
 
   // Dynamic threshold
   private dynamicThreshold = BASE_THRESHOLD;
@@ -80,14 +74,9 @@ export class AudioCapture {
       source.connect(this.analyser);
 
       this.isCapturing = true;
-
-      // Start the rolling pre-buffer
-      this.startPreBuffer();
-
-      // Start VAD
+      this.startContinuousRecording();
       this.startVAD();
 
-      // Subscribe to playback state changes for dynamic threshold
       useAudioStore.subscribe((state) => {
         if (state.isPlaying && !this.echoCalibrating) {
           this.startEchoCalibration();
@@ -109,52 +98,37 @@ export class AudioCapture {
     if (this.silenceTimer) { clearTimeout(this.silenceTimer); this.silenceTimer = null; }
     if (this.confirmTimer) { clearTimeout(this.confirmTimer); this.confirmTimer = null; }
     if (this.echoCalibrationTimer) { clearTimeout(this.echoCalibrationTimer); this.echoCalibrationTimer = null; }
-    this.stopPreBuffer();
-    if (this.speechRecorder && this.speechRecorder.state !== 'inactive') { this.speechRecorder.stop(); }
+    if (this.recorder && this.recorder.state !== 'inactive') { this.recorder.stop(); }
     if (this.stream) { this.stream.getTracks().forEach(t => t.stop()); this.stream = null; }
     if (this.audioContext) { this.audioContext.close(); this.audioContext = null; }
   }
 
-  // --- Pre-buffer: continuously records the last 800ms ---
+  // --- Single continuous recorder ---
 
-  private startPreBuffer(): void {
+  private startContinuousRecording(): void {
     if (!this.stream) return;
 
     const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
       ? 'audio/webm;codecs=opus'
       : 'audio/webm';
 
-    this.preBufferRecorder = new MediaRecorder(this.stream, { mimeType });
-    this.preBufferChunks = [];
-    this.preBufferStartTime = Date.now();
+    this.recorder = new MediaRecorder(this.stream, { mimeType });
+    this.allChunks = [];
 
-    this.preBufferRecorder.ondataavailable = (e) => {
+    this.recorder.ondataavailable = (e) => {
       if (e.data.size > 0) {
-        this.preBufferChunks.push(e.data);
-        // Trim to keep only the last PRE_BUFFER_MS worth of chunks
-        // Each chunk is ~100ms, so keep last 8 chunks
-        const maxChunks = Math.ceil(PRE_BUFFER_MS / 100);
-        if (this.preBufferChunks.length > maxChunks) {
-          this.preBufferChunks = this.preBufferChunks.slice(-maxChunks);
+        this.allChunks.push(e.data);
+
+        // When idle (not recording speech), trim the buffer to keep only recent chunks
+        if (!this.isRecordingSpeech) {
+          if (this.allChunks.length > PRE_BUFFER_CHUNKS) {
+            this.allChunks = this.allChunks.slice(-PRE_BUFFER_CHUNKS);
+          }
         }
       }
     };
 
-    this.preBufferRecorder.start(100); // 100ms timeslices
-  }
-
-  private stopPreBuffer(): void {
-    if (this.preBufferRecorder && this.preBufferRecorder.state !== 'inactive') {
-      this.preBufferRecorder.stop();
-    }
-    this.preBufferRecorder = null;
-    this.preBufferChunks = [];
-  }
-
-  private getPreBufferBlob(): Blob {
-    // Return a copy of the current pre-buffer
-    const mimeType = this.preBufferChunks[0]?.type ?? 'audio/webm';
-    return new Blob([...this.preBufferChunks], { type: mimeType });
+    this.recorder.start(100); // 100ms timeslices
   }
 
   // --- Echo calibration ---
@@ -189,7 +163,6 @@ export class AudioCapture {
       if (!this.analyser || !this.isCapturing) return;
 
       this.analyser.getByteTimeDomainData(dataArray);
-
       let sum = 0;
       for (let i = 0; i < dataArray.length; i++) {
         const val = (dataArray[i] - 128) / 128;
@@ -216,24 +189,21 @@ export class AudioCapture {
 
   private onSoundDetected(): void {
     const store = useAudioStore.getState();
-
-    // Instant mute
     if (store.isPlaying && !this.isMuted) {
       store.muteOutput();
       this.isMuted = true;
     }
 
-    // Start confirmation timer
     if (!this.confirmTimer) {
       this.confirmTimer = setTimeout(() => {
         this.confirmTimer = null;
         this.isSpeaking = true;
+        this.isRecordingSpeech = true;
         this.speechStartTime = Date.now();
+        // Mark where speech starts — we keep all chunks from
+        // (current position - PRE_BUFFER_CHUNKS) onward
+        this.speechStartChunkIndex = Math.max(0, this.allChunks.length - PRE_BUFFER_CHUNKS);
         this.callbacks.onSpeechStart();
-
-        // Grab the pre-buffer (captures the first ~800ms of speech we'd otherwise miss)
-        // then start the main recorder
-        this.startSpeechRecording();
       }, CONFIRM_SPEECH_MS);
     }
   }
@@ -250,53 +220,30 @@ export class AudioCapture {
     this.silenceTimer = setTimeout(() => {
       this.silenceTimer = null;
       this.isSpeaking = false;
+      this.isRecordingSpeech = false;
       this.callbacks.onSpeechEnd();
-      if (this.speechRecorder && this.speechRecorder.state !== 'inactive') {
-        this.speechRecorder.stop();
-      }
+      this.processSpeechChunks();
     }, SILENCE_TIMEOUT_MS);
   }
 
-  // --- Recording (with pre-buffer) ---
+  // --- Processing ---
 
-  private startSpeechRecording(): void {
-    if (!this.stream) return;
-
-    // Snapshot the pre-buffer BEFORE starting the new recorder
-    const preBuffer = this.getPreBufferBlob();
-
-    this.speechChunks = [];
-    // Store pre-buffer as the first chunk — it contains the start of speech
-    if (preBuffer.size > 0) {
-      this.speechChunks.push(preBuffer);
-    }
-
-    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-      ? 'audio/webm;codecs=opus'
-      : 'audio/webm';
-
-    this.speechRecorder = new MediaRecorder(this.stream, { mimeType });
-    this.speechRecorder.ondataavailable = (e) => {
-      if (e.data.size > 0) this.speechChunks.push(e.data);
-    };
-    this.speechRecorder.onstop = () => {
-      this.processRecording();
-    };
-    this.speechRecorder.start(100);
-  }
-
-  private async processRecording(): Promise<void> {
+  private async processSpeechChunks(): Promise<void> {
     const duration = Date.now() - this.speechStartTime;
     this.isMuted = false;
 
-    if (duration < MIN_RECORDING_MS || this.speechChunks.length === 0) {
-      return;
-    }
+    if (duration < MIN_RECORDING_MS) return;
 
-    // Combine pre-buffer + speech chunks into one blob
-    const mimeType = this.speechChunks[0]?.type ?? 'audio/webm';
-    const blob = new Blob(this.speechChunks, { type: mimeType });
-    this.speechChunks = [];
+    // Extract speech chunks: from speechStartChunkIndex to current end
+    const speechChunks = this.allChunks.slice(this.speechStartChunkIndex);
+    if (speechChunks.length === 0) return;
+
+    // Reset buffer — keep only the last few chunks for next pre-buffer
+    this.allChunks = this.allChunks.slice(-PRE_BUFFER_CHUNKS);
+
+    // Build a single valid WebM blob from the continuous recorder's chunks
+    const mimeType = speechChunks[0]?.type ?? 'audio/webm';
+    const blob = new Blob(speechChunks, { type: mimeType });
 
     try {
       const wavBlob = await this.webmToWav(blob);
