@@ -70,16 +70,56 @@ export function createAudioRoutes(db: Database, config: AppConfig): Router {
     });
   });
 
-  // Check which TTS providers are available
+  // Transcribe audio via local Whisper
+  router.post('/transcribe', async (req, res) => {
+    const SIDECAR_URL = process.env.AUDIO_SERVER_URL ?? 'http://127.0.0.1:3848';
+
+    try {
+      // Forward the raw audio to the sidecar
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) {
+        chunks.push(Buffer.from(chunk));
+      }
+      const audioBuffer = Buffer.concat(chunks);
+
+      const response = await fetch(`${SIDECAR_URL}/transcribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'audio/wav' },
+        body: audioBuffer,
+      });
+
+      if (!response.ok) {
+        res.status(502).json({ error: 'Transcription service unavailable' });
+        return;
+      }
+
+      const result = await response.json() as any;
+      res.json(result);
+    } catch (err: any) {
+      res.status(503).json({ error: 'Transcription failed: ' + err.message });
+    }
+  });
+
+  // Check which audio providers are available
   router.get('/status', async (_req, res) => {
-    const kokoroAvailable = await KokoroTTSProvider.isAvailable();
+    const SIDECAR_URL = process.env.AUDIO_SERVER_URL ?? 'http://127.0.0.1:3848';
+    let sidecarStatus: any = null;
+    try {
+      const r = await fetch(`${SIDECAR_URL}/health`, { signal: AbortSignal.timeout(2000) });
+      if (r.ok) sidecarStatus = await r.json();
+    } catch {}
+
+    const kokoroAvailable = !!sidecarStatus?.tts;
+    const whisperAvailable = !!sidecarStatus?.stt;
     const openaiAvailable = !!(config.openaiApiKey ?? db.getSettingsRepo().get('openaiApiKey'));
 
     res.json({
       kokoro: kokoroAvailable,
+      whisper: whisperAvailable,
       openai: openaiAvailable,
-      browser: true, // always available as fallback
-      active: kokoroAvailable ? 'kokoro' : openaiAvailable ? 'openai' : 'browser',
+      browser: true,
+      activeTts: kokoroAvailable ? 'kokoro' : openaiAvailable ? 'openai' : 'browser',
+      activeStt: whisperAvailable ? 'whisper' : 'browser',
     });
   });
 
