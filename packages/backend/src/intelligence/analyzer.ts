@@ -8,7 +8,7 @@ import type {
   Concern,
 } from '@interactive-reviewer/shared';
 import { v4 as uuid } from 'uuid';
-import { ClaudeClient } from './claude-client.js';
+import type { IClaudeClient } from './client-interface.js';
 import { buildSystemPrompt } from './prompts/system.js';
 import { buildClusteringPrompt, CLUSTERING_TOOL, type ClusteringResult } from './prompts/clustering.js';
 import { buildNarrativePrompt, NARRATIVE_TOOL, type NarrativeResult } from './prompts/narrative.js';
@@ -16,11 +16,11 @@ import { buildArchitecturePrompt, ARCHITECTURE_TOOL, type ArchitectureResult } f
 import { buildConcernsPrompt, CONCERNS_TOOL, type ConcernsResult } from './prompts/concerns.js';
 
 export class IntelligenceAnalyzer {
-  private claude: ClaudeClient;
+  private claude: IClaudeClient;
   private systemPrompt: string;
 
   constructor(
-    apiKey: string,
+    client: IClaudeClient,
     private context: {
       repoName: string;
       languages: string[];
@@ -30,7 +30,7 @@ export class IntelligenceAnalyzer {
       previousSessionSummary?: string;
     },
   ) {
-    this.claude = new ClaudeClient(apiKey);
+    this.claude = client;
     this.systemPrompt = buildSystemPrompt(context);
   }
 

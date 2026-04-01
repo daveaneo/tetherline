@@ -1,5 +1,5 @@
 import type { SkillName, IntentClassification } from '@interactive-reviewer/shared';
-import type { ClaudeClient } from '../intelligence/claude-client.js';
+import type { IClaudeClient } from '../intelligence/client-interface.js';
 
 // Navigation commands that don't need AI classification
 const NAVIGATION_PHRASES: Record<string, string> = {
@@ -30,7 +30,7 @@ export class IntentClassifier {
   private lastClassification: IntentClassification | null = null;
   private lastUtterance: string = '';
 
-  constructor(private claude: ClaudeClient) {}
+  constructor(private claude: IClaudeClient) {}
 
   async classify(utterance: string, context: string): Promise<IntentClassification> {
     const normalized = utterance.toLowerCase().trim();

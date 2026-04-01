@@ -240,15 +240,34 @@ export class SessionManager {
         : undefined;
 
       // Determine whether to use AI-powered analysis
+      // Resolve AI client based on intelligence mode
       const apiKey = this.config.anthropicApiKey;
-      const useAI = !!apiKey && commits.length > 0;
+      const mode = this.config.intelligenceMode;
+      let aiClient: import('../intelligence/client-interface.js').IClaudeClient | null = null;
+
+      if (mode === 'cloud' && apiKey) {
+        const { ClaudeClient } = await import('../intelligence/claude-client.js');
+        aiClient = new ClaudeClient(apiKey);
+      } else if (mode === 'local' || mode === 'auto') {
+        // Try Claude Code CLI first
+        const { ClaudeCodeClient } = await import('../intelligence/claude-code-client.js');
+        if (await ClaudeCodeClient.isAvailable()) {
+          aiClient = new ClaudeCodeClient();
+        } else if (apiKey) {
+          // Fall back to API if CLI not available
+          const { ClaudeClient } = await import('../intelligence/claude-client.js');
+          aiClient = new ClaudeClient(apiKey);
+        }
+      }
+
+      const useAI = !!aiClient && commits.length > 0;
 
       let areas: Area[];
       let concerns: Concern[] = [];
 
       if (useAI) {
         // ── AI-powered analysis ──────────────────────────────────────────
-        const intelligence = new IntelligenceAnalyzer(apiKey!, {
+        const intelligence = new IntelligenceAnalyzer(aiClient!, {
           repoName,
           languages,
           sinceDate: since.toISOString().split('T')[0],
@@ -258,9 +277,8 @@ export class SessionManager {
         });
         this.activeAnalyzer = intelligence;
 
-        // Initialize the intent classifier for skill-based voice interactions
-        const { ClaudeClient } = await import('../intelligence/claude-client.js');
-        this.intentClassifier = new IntentClassifier(new ClaudeClient(apiKey!));
+        // Initialize the intent classifier
+        this.intentClassifier = new IntentClassifier(aiClient!);
 
         // Step 1: Semantic clustering
         this.emit({
@@ -1257,8 +1275,7 @@ export class SessionManager {
     const fileTreeRaw = await git.raw(['ls-tree', '-r', '--name-only', 'HEAD']).catch(() => '');
     const fileTree = fileTreeRaw.split('\n').filter(Boolean);
 
-    const apiKey = this.config.anthropicApiKey;
-    if (!apiKey) {
+    if (!this.activeAnalyzer) {
       return {
         overview: `This is ${repoName}. Let me walk you through the codebase.`,
         purpose: repoName,
@@ -1267,13 +1284,7 @@ export class SessionManager {
       };
     }
 
-    const intelligence = new IntelligenceAnalyzer(apiKey, {
-      repoName,
-      languages,
-      sinceDate: '',
-      untilDate: '',
-      commitCount: totalCommits,
-    });
+    const intelligence = this.activeAnalyzer;
 
     const prompt = buildProjectOverviewPrompt({
       repoName,
