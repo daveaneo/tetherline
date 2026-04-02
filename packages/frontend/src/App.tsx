@@ -68,7 +68,7 @@ export function App() {
 
   return (
     <AppShell>
-      <Toolbar />
+      {!inSession && <Toolbar />}
       <ErrorBanner />
       <main className="flex-1 overflow-hidden">
         {inSession ? <Room /> : <Lobby />}

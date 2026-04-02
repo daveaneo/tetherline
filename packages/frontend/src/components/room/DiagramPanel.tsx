@@ -42,17 +42,17 @@ export function DiagramPanel() {
 
   return (
     <div className="h-full relative">
-      {/* Layer indicator */}
-      <div className="absolute top-3 right-3 z-10 px-3 py-1.5 bg-[var(--color-surface)]/80 backdrop-blur-sm rounded-lg border border-[var(--color-border)] text-xs text-[var(--color-text-muted)]">
-        Layer {visualLayer}: {LAYER_NAMES[visualLayer as VisualLayer]}
+      {/* Layer indicator — subtle */}
+      <div className="absolute top-12 right-3 z-10 px-2 py-1 bg-[var(--color-surface)]/50 backdrop-blur-sm rounded-md text-[10px] text-[var(--color-text-muted)]/60">
+        {LAYER_NAMES[visualLayer as VisualLayer]}
       </div>
 
-      {/* Area indicator (layers 3+) */}
+      {/* Area indicator (layers 3+) — subtle */}
       {state.phase !== 'IDLE' && state.areaIndex !== undefined && visualLayer >= 3 && (
-        <div className="absolute top-3 left-3 z-10 px-3 py-1.5 bg-[var(--color-surface)]/80 backdrop-blur-sm rounded-lg border border-[var(--color-border)] text-xs">
-          <span className="text-[var(--color-text-muted)]">Area {(state.areaIndex ?? 0) + 1} of {areas.length}</span>
-          <span className="mx-2 text-[var(--color-border)]">&middot;</span>
-          <span className="text-[var(--color-accent)]">{areas[state.areaIndex]?.name}</span>
+        <div className="absolute top-12 left-3 z-10 px-2 py-1 bg-[var(--color-surface)]/50 backdrop-blur-sm rounded-md text-[10px]">
+          <span className="text-[var(--color-text-muted)]/60">{(state.areaIndex ?? 0) + 1}/{areas.length}</span>
+          <span className="mx-1.5 text-[var(--color-border)]">&middot;</span>
+          <span className="text-[var(--color-accent)]/70">{areas[state.areaIndex]?.name}</span>
         </div>
       )}
 

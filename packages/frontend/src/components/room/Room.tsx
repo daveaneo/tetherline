@@ -1,27 +1,44 @@
 import { useSession } from '../../hooks/useSession.js';
+import { useSessionStore } from '../../state/session-store.js';
+import { useSettingsStore } from '../../state/settings-store.js';
 import { DiagramPanel } from './DiagramPanel.js';
-import { ContentPanel } from './ContentPanel.js';
+import { ContentDrawer } from './ContentDrawer.js';
 import { NarrationBar } from './NarrationBar.js';
+import { VERSION } from '../../version.js';
 
 export function Room() {
   useSession();
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Main panels */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left: Architecture Diagram - always visible */}
-        <div className="w-[55%] border-r border-[var(--color-border)] relative">
-          <DiagramPanel />
-        </div>
+    <div className="flex flex-col h-full relative">
+      {/* Full-bleed visual — takes entire screen minus narration bar */}
+      <div className="flex-1 relative overflow-hidden">
+        <DiagramPanel />
+        <ContentDrawer />
 
-        {/* Right: Content Panel - morphs based on context */}
-        <div className="w-[45%] overflow-y-auto">
-          <ContentPanel />
+        {/* Floating mini-toolbar — appears on hover */}
+        <div className="absolute top-0 left-0 right-0 z-30 opacity-0 hover:opacity-100 transition-opacity duration-300">
+          <div className="flex items-center justify-between px-4 py-2 bg-gradient-to-b from-[var(--color-bg)]/80 to-transparent">
+            <button
+              onClick={() => useSessionStore.getState().resetSession()}
+              className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
+            >
+              &larr; Exit
+            </button>
+            <span className="text-[10px] text-[var(--color-text-muted)] opacity-50 font-mono">
+              v{VERSION}
+            </span>
+            <button
+              onClick={() => useSettingsStore.getState().setSettingsOpen(true)}
+              className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
+            >
+              Settings
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Bottom: Narration Bar - always visible */}
+      {/* Narration bar — only persistent UI */}
       <NarrationBar />
     </div>
   );

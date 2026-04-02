@@ -60,52 +60,54 @@ export function BookJacket() {
   }, [heatmap, areas]);
 
   return (
-    <div className="h-full flex items-center justify-center p-8">
+    <div className="h-full flex items-center justify-center p-12 relative overflow-hidden">
+      {/* Subtle radial gradient background */}
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,var(--color-surface)_0%,transparent_70%)] opacity-40" />
+
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.5 }}
-        className="max-w-md w-full"
+        transition={{ duration: 0.6, ease: 'easeOut' }}
+        className="max-w-2xl w-full relative z-10"
       >
-        {/* Project icon */}
-        <div className="text-6xl text-center mb-6 opacity-60">📦</div>
-
-        {/* Project name */}
-        <h1 className="text-3xl font-bold text-center mb-3">
+        {/* Project name — large, cinematic */}
+        <h1 className="text-5xl md:text-6xl font-bold text-center mb-5 tracking-tight">
           {projectName}
         </h1>
 
         {/* Purpose — one sentence */}
-        <p className="text-center text-[var(--color-text-muted)] text-lg mb-8 leading-relaxed">
+        <p className="text-center text-[var(--color-text-muted)] text-xl md:text-2xl mb-12 leading-relaxed max-w-xl mx-auto">
           {purpose}
         </p>
 
-        {/* Stats grid */}
-        <div className="grid grid-cols-3 gap-4">
+        {/* Stats — spread out horizontally */}
+        <div className="flex items-center justify-center gap-12 mb-12">
           <StatCard label="Areas" value={String(areas.length || '—')} />
+          <div className="w-px h-8 bg-[var(--color-border)]/30" />
           <StatCard label="Files" value={fileCount} />
+          <div className="w-px h-8 bg-[var(--color-border)]/30" />
           <StatCard label="Language" value={dominantLanguage} />
         </div>
 
         {/* Area chips */}
         {areas.length > 0 && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.3 }}
-            className="mt-8 flex flex-wrap justify-center gap-2"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3, duration: 0.4 }}
+            className="flex flex-wrap justify-center gap-2.5"
           >
-            {areas.slice(0, 8).map(area => (
+            {areas.slice(0, 10).map(area => (
               <span
                 key={area.id}
-                className="text-xs px-3 py-1.5 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-muted)]"
+                className="text-sm px-4 py-2 rounded-full bg-[var(--color-surface)]/60 border border-[var(--color-border)]/50 text-[var(--color-text-muted)] backdrop-blur-sm"
               >
                 {area.name}
               </span>
             ))}
-            {areas.length > 8 && (
-              <span className="text-xs px-3 py-1.5 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-muted)] opacity-60">
-                +{areas.length - 8} more
+            {areas.length > 10 && (
+              <span className="text-sm px-4 py-2 rounded-full bg-[var(--color-surface)]/40 border border-[var(--color-border)]/30 text-[var(--color-text-muted)] opacity-60">
+                +{areas.length - 10} more
               </span>
             )}
           </motion.div>
@@ -117,9 +119,9 @@ export function BookJacket() {
 
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="text-center p-3 rounded-xl bg-[var(--color-bg)] border border-[var(--color-border)]">
-      <div className="text-lg font-semibold">{value}</div>
-      <div className="text-xs text-[var(--color-text-muted)]">{label}</div>
+    <div className="text-center">
+      <div className="text-2xl font-semibold">{value}</div>
+      <div className="text-xs text-[var(--color-text-muted)] mt-1 uppercase tracking-wider">{label}</div>
     </div>
   );
 }

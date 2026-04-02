@@ -1,5 +1,6 @@
 import { useAudioStore, type VoiceState } from '../../state/audio-store.js';
 import { useSessionStore } from '../../state/session-store.js';
+import { useSession } from '../../hooks/useSession.js';
 import { motion, AnimatePresence } from 'framer-motion';
 import { sendEvent } from '../../lib/ws-client.js';
 import { VoiceHelp } from './VoiceHelp.js';
@@ -14,6 +15,7 @@ const STATE_CONFIG: Record<VoiceState, { color: string; borderColor: string; lab
 export function NarrationBar() {
   const { currentSegment, isPlaying, voiceState } = useAudioStore();
   const state = useSessionStore(s => s.state);
+  const { areas } = useSession();
   const config = STATE_CONFIG[voiceState];
 
   return (
@@ -77,6 +79,24 @@ export function NarrationBar() {
           </motion.span>
         </AnimatePresence>
       </div>
+
+      {/* Progress dots */}
+      {areas.length > 0 && (
+        <div className="flex items-center gap-1.5 mx-2">
+          {areas.map((_, i) => (
+            <div
+              key={i}
+              className={`w-1.5 h-1.5 rounded-full transition-colors ${
+                i === (state.areaIndex ?? -1)
+                  ? 'bg-[var(--color-accent)]'
+                  : i < (state.areaIndex ?? 0)
+                  ? 'bg-[var(--color-text-muted)]/50'
+                  : 'bg-[var(--color-border)]'
+              }`}
+            />
+          ))}
+        </div>
+      )}
 
       {/* Narration text / subtitle */}
       <div className="flex-1 overflow-hidden">
