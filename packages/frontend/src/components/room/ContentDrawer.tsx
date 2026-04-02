@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useSession } from '../../hooks/useSession.js';
 import { useSessionStore } from '../../state/session-store.js';
 import { CodeSnippet } from '../code/CodeSnippet.js';
@@ -9,23 +9,25 @@ export function ContentDrawer() {
   const { state, areas } = useSession();
   const skillResult = useSessionStore(s => s.skillResult);
   const conversationHistory = useSessionStore(s => s.conversationHistory);
+  const [pinned, setPinned] = useState(false);
 
   const currentArea = state.areaIndex !== undefined ? areas[state.areaIndex] : undefined;
   const currentSegment = currentArea?.narrationSegments?.[state.segmentIndex ?? 0];
   const visualCue = currentSegment?.visualCue;
 
-  // Auto-dismiss skill result after 15 seconds or on phase change
+  // Auto-dismiss skill result after 15 seconds or on phase change (unless pinned)
   useEffect(() => {
-    if (!skillResult) return;
+    if (!skillResult || pinned) return;
     const timer = setTimeout(() => {
       useSessionStore.setState({ skillResult: null });
     }, 15000);
     return () => clearTimeout(timer);
-  }, [skillResult]);
+  }, [skillResult, pinned]);
 
   useEffect(() => {
+    if (pinned) return;
     useSessionStore.setState({ skillResult: null, skillClarification: null });
-  }, [state.phase, state.areaIndex, state.segmentIndex]);
+  }, [state.phase, state.areaIndex, state.segmentIndex, pinned]);
 
   // Determine if drawer should be open and what to show
   let drawerContent: 'code' | 'diff' | 'skill' | 'conversation' | null = null;
@@ -61,13 +63,26 @@ export function ContentDrawer() {
           transition={{ type: 'spring', damping: 25, stiffness: 300 }}
           className="absolute right-0 top-0 bottom-0 w-[42%] max-w-xl bg-[var(--color-surface)]/90 backdrop-blur-xl border-l border-[var(--color-border)] shadow-2xl shadow-black/40 z-20 overflow-y-auto"
         >
-          {/* Close button */}
-          <button
-            onClick={handleClose}
-            className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-[var(--color-bg)]/60 text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors text-sm"
-          >
-            &#x2715;
-          </button>
+          {/* Pin toggle + Close button */}
+          <div className="absolute top-3 right-3 z-10 flex gap-1">
+            <button
+              onClick={() => setPinned(!pinned)}
+              className={`w-8 h-8 flex items-center justify-center rounded-full text-sm transition-colors ${
+                pinned
+                  ? 'bg-[var(--color-accent)]/20 text-[var(--color-accent)]'
+                  : 'bg-[var(--color-bg)]/60 text-[var(--color-text-muted)] hover:text-[var(--color-text)]'
+              }`}
+              title={pinned ? 'Unpin drawer' : 'Pin drawer open'}
+            >
+              &#x1F4CC;
+            </button>
+            <button
+              onClick={() => { setPinned(false); useSessionStore.setState({ skillResult: null }); }}
+              className="w-8 h-8 flex items-center justify-center rounded-full bg-[var(--color-bg)]/60 text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors text-sm"
+            >
+              &#x2715;
+            </button>
+          </div>
 
           <div className="p-6 pt-12">
             {drawerContent === 'code' && visualCue && (

@@ -59,6 +59,24 @@ export function BookJacket() {
     return extToLanguage(sorted[0][0]);
   }, [heatmap, areas]);
 
+  const isLoading = !proposal && areas.length === 0;
+
+  if (isLoading) {
+    return (
+      <div className="h-full flex items-center justify-center p-12" style={{ background: 'radial-gradient(ellipse at center, rgba(99,102,241,0.03) 0%, transparent 70%)' }}>
+        <div className="max-w-2xl w-full text-center">
+          <div className="skeleton h-12 w-64 mx-auto mb-6" />
+          <div className="skeleton h-6 w-96 mx-auto mb-10" />
+          <div className="flex justify-center gap-8">
+            <div className="skeleton h-16 w-24" />
+            <div className="skeleton h-16 w-24" />
+            <div className="skeleton h-16 w-24" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-full flex items-center justify-center p-12 relative overflow-hidden">
       {/* Subtle radial gradient background */}

@@ -308,7 +308,16 @@ function EntryModeDialog({ repo, onSelect, onClose }: { repo: Repo; onSelect: (m
           </div>
         </div>
 
-        <p className="text-sm text-[var(--color-text-muted)] mb-5">How would you like to review this repository? You can also say your choice.</p>
+        <div className="flex items-center gap-2 mt-3 mb-2">
+          <motion.div
+            animate={{ scale: [1, 1.2, 1] }}
+            transition={{ duration: 1.5, repeat: Infinity }}
+            className="w-3 h-3 rounded-full bg-[var(--color-green)]"
+          />
+          <span className="text-xs text-[var(--color-green)]">Mic active — say your choice or click</span>
+        </div>
+
+        <p className="text-sm text-[var(--color-text-muted)] mb-5">How would you like to explore? Just say it.</p>
 
         <div className="space-y-3">
           <button

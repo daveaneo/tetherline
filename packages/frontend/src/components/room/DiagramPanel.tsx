@@ -5,6 +5,7 @@ import { ArchitectureDiagram } from '../diagrams/ArchitectureDiagram.js';
 import { BookJacket } from '../layers/BookJacket.js';
 import { ConceptualFlow } from '../layers/ConceptualFlow.js';
 import { CodeLayer } from '../layers/CodeLayer.js';
+import { LayerNav } from './LayerNav.js';
 import { LAYER_NAMES, type VisualLayer } from '@interactive-reviewer/shared';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -42,6 +43,8 @@ export function DiagramPanel() {
 
   return (
     <div className="h-full relative">
+      <LayerNav />
+
       {/* Layer indicator — subtle */}
       <div className="absolute top-12 right-3 z-10 px-2 py-1 bg-[var(--color-surface)]/50 backdrop-blur-sm rounded-md text-[10px] text-[var(--color-text-muted)]/60">
         {LAYER_NAMES[visualLayer as VisualLayer]}

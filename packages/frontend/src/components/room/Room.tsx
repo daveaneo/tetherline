@@ -1,16 +1,20 @@
+import { useState } from 'react';
 import { useSession } from '../../hooks/useSession.js';
 import { useSessionStore } from '../../state/session-store.js';
 import { useSettingsStore } from '../../state/settings-store.js';
 import { DiagramPanel } from './DiagramPanel.js';
 import { ContentDrawer } from './ContentDrawer.js';
 import { NarrationBar } from './NarrationBar.js';
+import { SessionEntrance } from './SessionEntrance.js';
 import { VERSION } from '../../version.js';
 
 export function Room() {
   useSession();
+  const [showEntrance, setShowEntrance] = useState(true);
 
   return (
     <div className="flex flex-col h-full relative">
+      {showEntrance && <SessionEntrance onComplete={() => setShowEntrance(false)} />}
       {/* Full-bleed visual — takes entire screen minus narration bar */}
       <div className="flex-1 relative overflow-hidden">
         <DiagramPanel />

@@ -131,6 +131,13 @@ export function NarrationBar() {
       {/* Compact nav controls */}
       <div className="flex items-center gap-2">
         <button
+          onClick={() => sendEvent({ type: 'command:previous' })}
+          className="px-3 py-1.5 text-xs rounded-md border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors"
+          title='Previous (or say "go back")'
+        >
+          &larr; Back
+        </button>
+        <button
           onClick={() => sendEvent(state.paused ? { type: 'command:resume' } : { type: 'command:pause' })}
           className="px-3 py-1.5 text-xs rounded-md border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors"
           title={state.paused ? 'or say "resume"' : 'or say "pause"'}
