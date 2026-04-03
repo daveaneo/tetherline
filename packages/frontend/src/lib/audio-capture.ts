@@ -1,11 +1,10 @@
 /**
  * Audio capture with echo cancellation, dynamic VAD, instant interrupt,
- * and pre-buffer to capture the start of speech.
+ * and pre-buffer. Uses raw PCM capture (not MediaRecorder) to avoid
+ * WebM encoding issues.
  *
- * Architecture: ONE MediaRecorder runs continuously. Chunks are collected
- * into a rolling buffer. When speech is confirmed, we keep ALL chunks
- * from the buffer (pre-speech) plus new chunks (during speech) and send
- * them as a single valid WebM blob to Whisper.
+ * Records raw Float32 samples via ScriptProcessorNode, keeps a rolling
+ * buffer, and encodes to WAV on speech end for Whisper transcription.
  */
 import { API_PREFIX } from '@interactive-reviewer/shared';
 import { useAudioStore } from '../state/audio-store.js';
@@ -26,13 +25,15 @@ const ECHO_CALIBRATION_MS = 500;
 const CONFIRM_SPEECH_MS = 100;
 const SILENCE_TIMEOUT_MS = 1200;
 const MIN_RECORDING_MS = 300;
-const PRE_BUFFER_CHUNKS = 8; // Keep last 8 chunks (~800ms at 100ms each)
+const SAMPLE_RATE = 16000;
+const PRE_BUFFER_SECONDS = 0.8;
+const PRE_BUFFER_SAMPLES = SAMPLE_RATE * PRE_BUFFER_SECONDS;
 
 export class AudioCapture {
   private stream: MediaStream | null = null;
   private audioContext: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
-  private recorder: MediaRecorder | null = null;
+  private processor: ScriptProcessorNode | null = null;
   private isCapturing = false;
   private isSpeaking = false;
   private isMuted = false;
@@ -42,10 +43,11 @@ export class AudioCapture {
   private vadInterval: ReturnType<typeof setInterval> | null = null;
   private callbacks: AudioCaptureCallbacks;
 
-  // Single chunk buffer — rolling when idle, collecting during speech
-  private allChunks: Blob[] = [];
-  private speechStartChunkIndex = 0;
+  // Raw PCM buffer — rolling when idle, collecting during speech
+  private pcmBuffer: Float32Array[] = [];
+  private pcmSampleCount = 0;
   private isRecordingSpeech = false;
+  private speechStartSampleCount = 0;
 
   // Dynamic threshold
   private dynamicThreshold = BASE_THRESHOLD;
@@ -64,17 +66,40 @@ export class AudioCapture {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
+          sampleRate: SAMPLE_RATE,
         },
       });
 
-      this.audioContext = new AudioContext();
+      this.audioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
       const source = this.audioContext.createMediaStreamSource(this.stream);
+
+      // Analyser for VAD
       this.analyser = this.audioContext.createAnalyser();
       this.analyser.fftSize = 512;
       source.connect(this.analyser);
 
+      // ScriptProcessor to capture raw PCM samples
+      this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
+      this.processor.onaudioprocess = (e) => {
+        if (!this.isCapturing) return;
+        const input = e.inputBuffer.getChannelData(0);
+        const copy = new Float32Array(input.length);
+        copy.set(input);
+        this.pcmBuffer.push(copy);
+        this.pcmSampleCount += copy.length;
+
+        // When idle, trim to keep only the pre-buffer
+        if (!this.isRecordingSpeech) {
+          while (this.pcmSampleCount > PRE_BUFFER_SAMPLES * 2 && this.pcmBuffer.length > 2) {
+            const removed = this.pcmBuffer.shift()!;
+            this.pcmSampleCount -= removed.length;
+          }
+        }
+      };
+      source.connect(this.processor);
+      this.processor.connect(this.audioContext.destination); // required for processing to run
+
       this.isCapturing = true;
-      this.startContinuousRecording();
       this.startVAD();
 
       useAudioStore.subscribe((state) => {
@@ -98,37 +123,9 @@ export class AudioCapture {
     if (this.silenceTimer) { clearTimeout(this.silenceTimer); this.silenceTimer = null; }
     if (this.confirmTimer) { clearTimeout(this.confirmTimer); this.confirmTimer = null; }
     if (this.echoCalibrationTimer) { clearTimeout(this.echoCalibrationTimer); this.echoCalibrationTimer = null; }
-    if (this.recorder && this.recorder.state !== 'inactive') { this.recorder.stop(); }
+    if (this.processor) { this.processor.disconnect(); this.processor = null; }
     if (this.stream) { this.stream.getTracks().forEach(t => t.stop()); this.stream = null; }
     if (this.audioContext) { this.audioContext.close(); this.audioContext = null; }
-  }
-
-  // --- Single continuous recorder ---
-
-  private startContinuousRecording(): void {
-    if (!this.stream) return;
-
-    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-      ? 'audio/webm;codecs=opus'
-      : 'audio/webm';
-
-    this.recorder = new MediaRecorder(this.stream, { mimeType });
-    this.allChunks = [];
-
-    this.recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) {
-        this.allChunks.push(e.data);
-
-        // When idle (not recording speech), trim the buffer to keep only recent chunks
-        if (!this.isRecordingSpeech) {
-          if (this.allChunks.length > PRE_BUFFER_CHUNKS) {
-            this.allChunks = this.allChunks.slice(-PRE_BUFFER_CHUNKS);
-          }
-        }
-      }
-    };
-
-    this.recorder.start(100); // 100ms timeslices
   }
 
   // --- Echo calibration ---
@@ -153,7 +150,7 @@ export class AudioCapture {
     this.echoSamples = [];
   }
 
-  // --- Voice Activity Detection ---
+  // --- VAD ---
 
   private startVAD(): void {
     if (!this.analyser) return;
@@ -161,7 +158,6 @@ export class AudioCapture {
 
     this.vadInterval = setInterval(() => {
       if (!this.analyser || !this.isCapturing) return;
-
       this.analyser.getByteTimeDomainData(dataArray);
       let sum = 0;
       for (let i = 0; i < dataArray.length; i++) {
@@ -170,13 +166,9 @@ export class AudioCapture {
       }
       const rms = Math.sqrt(sum / dataArray.length) * 100;
 
-      if (this.echoCalibrating) {
-        this.echoSamples.push(rms);
-        return;
-      }
+      if (this.echoCalibrating) { this.echoSamples.push(rms); return; }
 
       const threshold = this.dynamicThreshold;
-
       if (!this.isSpeaking && rms > threshold) {
         this.onSoundDetected();
       } else if (this.isSpeaking && rms < threshold * 0.6) {
@@ -200,9 +192,8 @@ export class AudioCapture {
         this.isSpeaking = true;
         this.isRecordingSpeech = true;
         this.speechStartTime = Date.now();
-        // Mark where speech starts — we keep all chunks from
-        // (current position - PRE_BUFFER_CHUNKS) onward
-        this.speechStartChunkIndex = Math.max(0, this.allChunks.length - PRE_BUFFER_CHUNKS);
+        // Mark where speech starts in the PCM buffer (include pre-buffer)
+        this.speechStartSampleCount = Math.max(0, this.pcmSampleCount - PRE_BUFFER_SAMPLES);
         this.callbacks.onSpeechStart();
       }, CONFIRM_SPEECH_MS);
     }
@@ -222,38 +213,45 @@ export class AudioCapture {
       this.isSpeaking = false;
       this.isRecordingSpeech = false;
       this.callbacks.onSpeechEnd();
-      this.processSpeechChunks();
+      this.processSpeech();
     }, SILENCE_TIMEOUT_MS);
   }
 
-  // --- Processing ---
+  // --- Process speech: encode PCM to WAV and send to Whisper ---
 
-  private async processSpeechChunks(): Promise<void> {
+  private async processSpeech(): Promise<void> {
     const duration = Date.now() - this.speechStartTime;
     this.isMuted = false;
 
-    if (duration < MIN_RECORDING_MS) return;
+    if (duration < MIN_RECORDING_MS) {
+      this.pcmBuffer = [];
+      this.pcmSampleCount = 0;
+      return;
+    }
 
-    // We need ALL chunks from the start (chunk 0 has the WebM header).
-    // Slicing from the middle produces headerless data that can't be decoded.
-    // Include everything — Whisper will handle the silence at the beginning.
-    const allCurrentChunks = [...this.allChunks];
-    if (allCurrentChunks.length === 0) return;
+    // Concatenate all PCM chunks into one Float32Array
+    const totalSamples = this.pcmBuffer.reduce((s, c) => s + c.length, 0);
+    const allSamples = new Float32Array(totalSamples);
+    let offset = 0;
+    for (const chunk of this.pcmBuffer) {
+      allSamples.set(chunk, offset);
+      offset += chunk.length;
+    }
 
-    // Reset buffer for next round
-    this.allChunks = [];
+    // Clear buffer for next round
+    this.pcmBuffer = [];
+    this.pcmSampleCount = 0;
 
-    // Build a complete WebM blob (starts from chunk 0 which has the header)
-    const mimeType = allCurrentChunks[0]?.type ?? 'audio/webm';
-    const blob = new Blob(allCurrentChunks, { type: mimeType });
+    if (allSamples.length < SAMPLE_RATE * 0.3) return; // less than 300ms
 
-    // Send WebM directly to Whisper — no client-side conversion needed.
-    // faster-whisper accepts WebM/Opus natively.
+    // Encode to WAV
+    const wavBlob = encodeWavBlob(allSamples, SAMPLE_RATE);
+
     try {
       const response = await fetch(`${API_PREFIX}/audio/transcribe`, {
         method: 'POST',
-        headers: { 'Content-Type': mimeType },
-        body: blob,
+        headers: { 'Content-Type': 'audio/wav' },
+        body: wavBlob,
       });
 
       if (!response.ok) {
@@ -268,12 +266,46 @@ export class AudioCapture {
     } catch (err: any) {
       this.callbacks.onError(`Transcription error: ${err.message}`);
     }
-
-    // Restart the recorder to get a fresh WebM header for the next utterance
-    if (this.recorder && this.recorder.state !== 'inactive') {
-      this.recorder.stop();
-    }
-    this.startContinuousRecording();
   }
 }
 
+// --- WAV encoding ---
+
+function encodeWavBlob(samples: Float32Array, sampleRate: number): Blob {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+
+  // RIFF header
+  writeStr(view, 0, 'RIFF');
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeStr(view, 8, 'WAVE');
+
+  // fmt chunk
+  writeStr(view, 12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+
+  // data chunk
+  writeStr(view, 36, 'data');
+  view.setUint32(40, samples.length * 2, true);
+
+  let off = 44;
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    off += 2;
+  }
+
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
+function writeStr(view: DataView, offset: number, str: string): void {
+  for (let i = 0; i < str.length; i++) {
+    view.setUint8(offset + i, str.charCodeAt(i));
+  }
+}
