@@ -32,6 +32,8 @@ import { buildProjectOverviewPrompt, PROJECT_OVERVIEW_TOOL, type ProjectOverview
 import { createSkillRegistry, IntentClassifier } from '../skills/index.js';
 import type { SkillRegistry } from '../skills/index.js';
 import { TourPlan } from './tour-plan.js';
+import { ContextCacheWarmer } from '../cache/warmer.js';
+import { ContextComposer } from '../cache/context-composer.js';
 
 export class SessionManager {
   private state: SessionState = { phase: 'IDLE' };
@@ -57,6 +59,7 @@ export class SessionManager {
   private detectedLanguages: string[] = [];
   private proposalSuggestedOrder: string[] = [];
   private visualLayer: VisualLayer = 1;
+  private contextComposer: ContextComposer | null = null;
 
   constructor(
     private db: Database,
@@ -364,6 +367,20 @@ export class SessionManager {
 
       const useAI = !!aiClient && commits.length > 0;
 
+      // Warm the context cache
+      try {
+        const cacheWarmer = new ContextCacheWarmer(
+          this.db.getContextCacheRepo(),
+          aiClient,
+          (msg) => this.emit({ type: 'analysis:progress', payload: { phase: 'warming_cache', progress: 0.1, message: msg } }),
+        );
+        await cacheWarmer.warm(effectivePath);
+        this.contextComposer = new ContextComposer(this.db.getContextCacheRepo(), effectivePath);
+      } catch {
+        // Cache warming is best-effort; don't block session start
+        this.contextComposer = null;
+      }
+
       let areas: Area[];
       let concerns: Concern[] = [];
 
@@ -377,6 +394,7 @@ export class SessionManager {
           untilDate: now.toISOString().split('T')[0],
           commitCount: commits.length,
           previousSessionSummary: previousSummary,
+          contextComposer: this.contextComposer ?? undefined,
         });
         this.activeAnalyzer = intelligence;
 
@@ -1320,6 +1338,7 @@ export class SessionManager {
           fileTree: this.fileTree,
           areas: this.areas,
           analyzer: this.activeAnalyzer!,
+          contextComposer: this.contextComposer ?? undefined,
         },
         params,
       );

@@ -16,6 +16,7 @@ import { buildArchitecturePrompt, ARCHITECTURE_TOOL, type ArchitectureResult } f
 import { buildConcernsPrompt, CONCERNS_TOOL, type ConcernsResult } from './prompts/concerns.js';
 import { buildImpactRankingPrompt, IMPACT_RANKING_TOOL, type ImpactRanking } from './prompts/impact-ranking.js';
 import { buildQuietWeekPrompt, QUIET_WEEK_TOOL, type QuietWeekResult } from './prompts/quiet-week.js';
+import type { ContextComposer } from '../cache/context-composer.js';
 
 export class IntelligenceAnalyzer {
   private claude: IClaudeClient;
@@ -31,10 +32,12 @@ export class IntelligenceAnalyzer {
       untilDate: string;
       commitCount: number;
       previousSessionSummary?: string;
+      contextComposer?: ContextComposer;
     },
   ) {
     this.claude = client;
-    this.systemPrompt = buildSystemPrompt(context);
+    const projectContext = context.contextComposer?.getProjectContext();
+    this.systemPrompt = buildSystemPrompt({ ...context, projectContext });
   }
 
   async clusterCommits(diffs: CommitDiff[], sessionId: string): Promise<Area[]> {
@@ -196,9 +199,14 @@ export class IntelligenceAnalyzer {
   }
 
   async answerQuestion(question: string, context: string): Promise<string> {
+    let enrichedContext = context;
+    if (this.context.contextComposer) {
+      const cached = this.context.contextComposer.compose({ type: 'question', question, tokenBudget: 1000 });
+      enrichedContext = cached + '\n\n' + context;
+    }
     return this.claude.streamText({
       system: this.systemPrompt,
-      messages: [{ role: 'user', content: `${context}\n\nQuestion: ${question}` }],
+      messages: [{ role: 'user', content: `${enrichedContext}\n\nQuestion: ${question}` }],
     });
   }
 

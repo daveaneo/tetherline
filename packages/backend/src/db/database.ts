@@ -8,6 +8,7 @@ import { AreaRepository } from './repositories/area-repo.js';
 import { RepoRepository } from './repositories/repo-repo.js';
 import { UnderstandingRepository } from './repositories/understanding-repo.js';
 import { OnboardingRepository } from './repositories/onboarding-repo.js';
+import { ContextCacheRepository } from './repositories/context-cache-repo.js';
 
 export class Database {
   private db: BetterSqlite3.Database;
@@ -18,6 +19,7 @@ export class Database {
   private repoRepo: RepoRepository;
   private understandingRepo: UnderstandingRepository;
   private onboardingRepo: OnboardingRepository;
+  private contextCacheRepo: ContextCacheRepository;
 
   constructor(dbPath: string) {
     // Ensure directory exists
@@ -36,6 +38,7 @@ export class Database {
     this.repoRepo = new RepoRepository(this.db);
     this.understandingRepo = new UnderstandingRepository(this.db);
     this.onboardingRepo = new OnboardingRepository(this.db);
+    this.contextCacheRepo = new ContextCacheRepository(this.db);
   }
 
   private runMigrations() {
@@ -193,6 +196,62 @@ export class Database {
         delivered_at TEXT,
         error TEXT
       );
+
+      CREATE TABLE IF NOT EXISTS context_cache_project (
+        id TEXT PRIMARY KEY,
+        repo_path TEXT NOT NULL UNIQUE,
+        summary TEXT NOT NULL DEFAULT '',
+        purpose TEXT DEFAULT '',
+        tech_stack TEXT DEFAULT '[]',
+        module_map TEXT DEFAULT '{}',
+        trigger_hashes TEXT DEFAULT '{}',
+        confidence REAL DEFAULT 0,
+        generated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        model_version TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS context_cache_module (
+        id TEXT PRIMARY KEY,
+        repo_path TEXT NOT NULL,
+        module_path TEXT NOT NULL,
+        summary TEXT NOT NULL DEFAULT '',
+        source TEXT DEFAULT 'heuristic',
+        key_files TEXT DEFAULT '[]',
+        dependencies TEXT DEFAULT '[]',
+        file_hash_snapshot TEXT DEFAULT '{}',
+        confidence REAL DEFAULT 0,
+        generated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        model_version TEXT,
+        UNIQUE(repo_path, module_path)
+      );
+
+      CREATE TABLE IF NOT EXISTS context_cache_file (
+        id TEXT PRIMARY KEY,
+        repo_path TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        summary TEXT NOT NULL DEFAULT '',
+        content_hash TEXT NOT NULL DEFAULT '',
+        connectivity INTEGER DEFAULT 0,
+        role TEXT DEFAULT 'other',
+        confidence REAL DEFAULT 0,
+        generated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        model_version TEXT,
+        UNIQUE(repo_path, file_path)
+      );
+
+      CREATE TABLE IF NOT EXISTS context_cache_qa (
+        id TEXT PRIMARY KEY,
+        repo_path TEXT NOT NULL,
+        question TEXT NOT NULL,
+        answer TEXT NOT NULL,
+        context_key TEXT NOT NULL,
+        session_id TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_ccm_repo ON context_cache_module(repo_path);
+      CREATE INDEX IF NOT EXISTS idx_ccf_repo ON context_cache_file(repo_path);
+      CREATE INDEX IF NOT EXISTS idx_ccqa_repo ON context_cache_qa(repo_path, context_key);
     `);
 
     // Migration: add impact/theme columns to areas table for existing databases
@@ -219,6 +278,7 @@ export class Database {
   getRepoRepo(): RepoRepository { return this.repoRepo; }
   getUnderstandingRepo(): UnderstandingRepository { return this.understandingRepo; }
   getOnboardingRepo(): OnboardingRepository { return this.onboardingRepo; }
+  getContextCacheRepo(): ContextCacheRepository { return this.contextCacheRepo; }
   getRawDb(): BetterSqlite3.Database { return this.db; }
 
   close() {

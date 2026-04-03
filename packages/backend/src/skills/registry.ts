@@ -1,6 +1,7 @@
 import type { SkillName, SkillResult } from '@interactive-reviewer/shared';
 import type { AreaWithContent } from '@interactive-reviewer/shared';
 import type { IntelligenceAnalyzer } from '../intelligence/analyzer.js';
+import type { ContextComposer } from '../cache/context-composer.js';
 
 export interface SkillContext {
   currentArea?: AreaWithContent;
@@ -10,6 +11,7 @@ export interface SkillContext {
   fileTree: string[];
   areas: AreaWithContent[];
   analyzer: IntelligenceAnalyzer;
+  contextComposer?: ContextComposer;
 }
 
 export interface Skill {

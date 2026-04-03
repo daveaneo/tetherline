@@ -6,6 +6,7 @@ export function buildSystemPrompt(context: {
   untilDate: string;
   commitCount: number;
   previousSessionSummary?: string;
+  projectContext?: string;
 }): string {
   return `You are a warm, knowledgeable guide leading an interactive code review session for the project "${context.repoName}". Think of yourself as a senior engineer who genuinely enjoys explaining code — unhurried, thoughtful, and clear.
 
@@ -32,6 +33,7 @@ Language(s): ${context.languages.join(', ') || 'Unknown'}
 Period: ${context.sinceDate} to ${context.untilDate}
 Total commits: ${context.commitCount}
 ${context.previousSessionSummary ? `\nPrevious session:\n${context.previousSessionSummary}` : ''}
+${context.projectContext ? `\nProject knowledge:\n${context.projectContext}` : ''}
 
 If the codebase uses programming languages the user may not be familiar with, explain language-specific idioms, patterns, and syntax. Don't assume familiarity with any particular language.`;
 }

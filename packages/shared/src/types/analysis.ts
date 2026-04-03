@@ -99,7 +99,7 @@ export interface DiagramEdge {
 }
 
 export interface AnalysisProgress {
-  phase: 'reading_commits' | 'parsing_diffs' | 'clustering' | 'generating_narratives' | 'detecting_concerns' | 'generating_architecture' | 'complete';
+  phase: 'reading_commits' | 'parsing_diffs' | 'clustering' | 'generating_narratives' | 'detecting_concerns' | 'generating_architecture' | 'warming_cache' | 'complete';
   progress: number; // 0-1
   message: string;
 }
