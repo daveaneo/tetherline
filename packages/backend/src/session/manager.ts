@@ -354,7 +354,7 @@ export class SessionManager {
         // Try Claude Code CLI first
         const { ClaudeCodeClient } = await import('../intelligence/claude-code-client.js');
         if (await ClaudeCodeClient.isAvailable()) {
-          aiClient = new ClaudeCodeClient();
+          aiClient = new ClaudeCodeClient('sonnet', effectivePath);
         } else if (apiKey) {
           // Fall back to API if CLI not available
           const { ClaudeClient } = await import('../intelligence/claude-client.js');
@@ -371,6 +371,7 @@ export class SessionManager {
         // ── AI-powered analysis ──────────────────────────────────────────
         const intelligence = new IntelligenceAnalyzer(aiClient!, {
           repoName,
+          repoPath: effectivePath,
           languages,
           sinceDate: since.toISOString().split('T')[0],
           untilDate: now.toISOString().split('T')[0],
@@ -1086,9 +1087,9 @@ export class SessionManager {
       if (mode === 'local' || mode === 'auto') {
         const { ClaudeCodeClient } = await import('../intelligence/claude-code-client.js');
         if (await ClaudeCodeClient.isAvailable()) {
-          const client = new ClaudeCodeClient();
+          const client = new ClaudeCodeClient('sonnet', this.activeRepoPath ?? this.config.repoPath);
           const answer = await client.streamText({
-            system: 'You are helping a developer understand their codebase during an interactive review session. Answer concisely and conversationally — this will be spoken aloud.',
+            system: `You are helping a developer understand the codebase "${path.basename(this.activeRepoPath ?? this.config.repoPath)}" at ${this.activeRepoPath ?? this.config.repoPath}. When they say "the project" they mean this repo. Answer concisely and conversationally — this will be spoken aloud.`,
             messages: [{ role: 'user' as const, content: question }],
           });
           await answerAndNarrate(answer);

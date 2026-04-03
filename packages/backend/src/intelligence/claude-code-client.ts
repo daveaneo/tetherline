@@ -11,9 +11,11 @@ const execFileAsync = promisify(execFile);
 
 export class ClaudeCodeClient {
   private model: string;
+  private cwd: string | undefined;
 
-  constructor(model: string = 'sonnet') {
+  constructor(model: string = 'sonnet', cwd?: string) {
     this.model = model;
+    this.cwd = cwd; // Scope CLI to the target repo directory
   }
 
   /** Check if the `claude` CLI is available */
@@ -45,8 +47,9 @@ export class ClaudeCodeClient {
       '--model', this.model,
       '--output-format', 'text',
     ], {
-      timeout: 120_000, // 2 min max
-      maxBuffer: 1024 * 1024, // 1MB
+      timeout: 120_000,
+      maxBuffer: 1024 * 1024,
+      cwd: this.cwd, // Scope to target repo
       env: { ...process.env },
     });
 
@@ -85,6 +88,7 @@ ${schemaStr}`;
     ], {
       timeout: 120_000,
       maxBuffer: 1024 * 1024,
+      cwd: this.cwd, // Scope to target repo
       env: { ...process.env },
     });
 

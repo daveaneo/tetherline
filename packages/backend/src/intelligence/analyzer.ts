@@ -25,6 +25,7 @@ export class IntelligenceAnalyzer {
     client: IClaudeClient,
     private context: {
       repoName: string;
+      repoPath?: string;
       languages: string[];
       sinceDate: string;
       untilDate: string;
