@@ -64,8 +64,16 @@ export async function createServer(overrides: { port?: number; repoPath?: string
   const __dirname = dirname(fileURLToPath(import.meta.url));
   const frontendDist = path.join(__dirname, '../../frontend/dist');
   if (fs.existsSync(frontendDist)) {
-    app.use(express.static(frontendDist));
+    app.use(express.static(frontendDist, {
+      // Hashed assets get long cache, index.html always revalidates
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.html')) {
+          res.setHeader('Cache-Control', 'no-cache');
+        }
+      },
+    }));
     app.get('*', (_req, res) => {
+      res.setHeader('Cache-Control', 'no-cache');
       res.sendFile(path.join(frontendDist, 'index.html'));
     });
   }
