@@ -1,95 +1,201 @@
-# Context Cache Plan
+# Context Cache Plan (v2)
 
-## What it is
+## Core Insight
 
-A three-level cache of AI-generated summaries (project, module, file) that updates incrementally and provides rich context to every LLM call. The AI never loses track of what project it's reviewing.
+Don't start with LLM calls. Start with what's free: READMEs, manifests, import graphs, file structure. The LLM refines and fills gaps — it doesn't discover from scratch. And on warm start, zero LLM calls. Summaries update lazily when visited, not eagerly on session start.
 
-## Three levels
+## Three Phases of Knowledge
 
-**Project** — one paragraph. What the project does, who it's for, key tech. Regenerated when README/manifest changes or >30% of modules are stale.
+### Phase 1: Free Intelligence (no LLM, instant)
 
-**Module** — one paragraph per top-level directory. What it does, key files, dependencies. Regenerated when any file in the module changes.
+**README parsing** — scan for README.md at root and in every directory. Parse structurally: H2 headings map to tagged chunks. "## Database" with two paragraphs below it IS the database module summary. Extract:
+- Project purpose (first paragraph or "## About")
+- Architecture descriptions ("## Architecture", "## Structure")
+- Module descriptions (any H2 that matches a directory name)
+- Setup/usage info ("## Getting Started", "## Usage")
 
-**File** — one sentence per file. What it does. Regenerated when the file's content hash changes.
+**Manifest parsing** — extract structured data directly:
+- `package.json`: name, description, dependencies (= tech stack), scripts (= workflows)
+- `pyproject.toml`, `Cargo.toml`, `go.mod`, `requirements.txt`: same pattern
+- `docker-compose.yml`: services = architectural components
+- `.env.example`: configuration surface area
 
-## Cache keys
+**Import graph** — parse import/require/use statements from entry point files and high-connectivity files. This gives the actual dependency tree between modules. Factual, not guessed. Store as edges: `file A imports file B`.
 
-- File: SHA-256 of content. Mismatch = stale.
-- Module: snapshot of all file hashes within it. Any change = stale.
-- Project: hashes of README + manifest + module count. Change = stale.
-- Optimization: store last HEAD commit hash. Use `git diff --name-only` to narrow the diff scan.
+**File metadata** — for every tracked file: path, size, language (from extension), last modified date. No content reading needed for most files.
 
-## Warming flow
+**Connectivity ranking** — count how many other files import each file. The most-imported files are the most architecturally important. This determines which files get LLM budget.
 
-**Cold start (first run):**
-1. List tracked files via `git ls-files`
-2. Identify modules (top-level directories)
-3. Batch-summarize files (10 per LLM call) → ~20 calls for 200 files
-4. Summarize each module from its file summaries → ~8 calls
-5. Summarize project from module summaries + README → 1 call
-6. Total: ~29 calls, ~60 seconds. Runs during greeting narration.
+### Phase 2: LLM Fills Gaps (targeted, minimal)
 
-**Warm start (subsequent runs):**
-1. Diff against cached hashes → find changed files
-2. Re-summarize only changed files → ~1 call
-3. Re-summarize stale modules → ~2 calls
-4. Optionally re-summarize project → 0-1 calls
-5. Total: ~3-4 calls, <10 seconds.
+Only call the LLM for:
+1. **Module detection** — send the file tree + README structure + manifest to Claude and ask: "What are the logical modules in this project?" One call. Cache the result.
+2. **Modules without READMEs** — if a directory has no README and no parent README that describes it, ask Claude to summarize it from its file list + import graph.
+3. **High-connectivity files without obvious purpose** — files imported by many others that aren't self-descriptive. Skip config files, type definitions, tests, small utilities.
+4. **Project synthesis** — one call to synthesize the overall context from README chunks + manifest data + module summaries. This is the master summary.
 
-**No changes:** Return immediately. Zero LLM calls.
+**What we DON'T call the LLM for:**
+- Files with fewer than 50 lines (the code itself is the summary)
+- Test files (purpose is obvious from naming)
+- Config/type/declaration files (parseable without AI)
+- Any file where a README already describes its purpose
+- Any module where a README section covers it
 
-## Context composition
+Cold start estimate for a 200-file project: module detection (1 call) + ~3 uncovered modules (3 calls) + ~10 important ungapped files (1 batch call) + project synthesis (1 call) = **~6 LLM calls, ~15 seconds**. Down from 29 calls / 60 seconds in v1.
 
-Every LLM call gets a context document assembled from the cache. Sized to fit the token budget, composed per query type:
+### Phase 3: Lazy Refinement (during session, on demand)
 
-| Query type | Content included |
+Summaries don't need to be perfect at session start. They refine as the user explores:
+- When the user visits a module, if its summary is low-confidence, re-summarize it then (with the actual code now loaded)
+- When the user asks about a file, generate a detailed file summary and cache it
+- When the AI narrates an area, the narration itself becomes a cached summary for that area
+- When the user asks a Q&A question, cache the Q&A pair keyed to the relevant file/module
+
+This means the cache gets richer the more you use it. First session: mostly README-derived. Fifth session: deeply detailed from accumulated AI analysis and user interactions.
+
+## Cache Levels
+
+### Project Cache
+- `summary`: one paragraph (from README + LLM synthesis)
+- `purpose`: one sentence
+- `tech_stack`: parsed from manifests
+- `module_map`: the LLM-detected module grouping
+- `trigger_hashes`: README hash, manifest hash, module count
+- `confidence`: high (from README) / medium (LLM-generated) / low (heuristic)
+
+### Module Cache
+- `summary`: one paragraph (from README section or LLM)
+- `source`: 'readme' | 'llm' | 'heuristic' — where the summary came from
+- `key_files`: top 5 by connectivity ranking
+- `internal_imports`: which other modules this depends on
+- `file_hash_snapshot`: for staleness detection
+- `confidence`: 0.0-1.0
+
+### File Cache
+- `summary`: one sentence (from LLM, README, or heuristic)
+- `content_hash`: SHA-256 for staleness
+- `connectivity`: how many files import this one
+- `role`: 'entry' | 'utility' | 'config' | 'test' | 'type' | 'model' | 'other'
+- `exports`: key exported names (parsed, not LLM)
+
+### Q&A Cache (new — not in v1)
+- `question`: what was asked
+- `answer`: what the AI said
+- `context_key`: file path or module path this relates to
+- `session_id`: which session produced this
+- Similar questions can reuse answers (fuzzy match on question text)
+
+## Staleness Model
+
+Not binary. Confidence decays:
+
+| Scenario | Confidence |
 |---|---|
-| File focus | Project + module + file summary + actual code |
-| Module focus | Project + module + all file summaries |
-| Architecture | Project + all module summaries |
-| Question | Project + relevant module/file if mentioned |
+| Summary from unchanged code | 1.0 (fresh) |
+| Summary from last week, minor formatting change in one file | 0.8 (probably still valid) |
+| Summary from last month, several files changed | 0.4 (likely stale) |
+| Code was completely rewritten | 0.0 (invalid) |
 
-## Integration points
+Calculation:
+```
+confidence = base_confidence * decay_factor * change_factor
 
-1. **System prompt** — project context appended to every call
-2. **Q&A** — relevant module/file context prepended to questions
-3. **Skills** — context composer available in SkillContext
-4. **Clustering + narrative prompts** — project context prepended
-5. **Session manager** — warms cache before analysis, creates composer
+decay_factor = max(0.5, 1.0 - (days_since_generated / 90))
+change_factor = 1.0 - (changed_lines / total_lines)
+```
 
-## New files
+When composing context, include summaries with confidence > 0.3. Below that, treat as unknown and let the LLM work from raw code if needed.
+
+Re-summarize when confidence < 0.3 AND the user is actively viewing that module (lazy, not eager).
+
+## Warm Start Flow (Zero LLM Calls)
+
+1. `git diff --name-only HEAD <cached_head>` → list of changed files
+2. Update file hashes for changed files
+3. Update confidence scores for affected modules (decay based on changes)
+4. Compose context from existing summaries + raw diffs of changed files
+5. The LLM sees: "Here's what this project does [cached, high confidence] and here's what changed [raw diff]"
+6. Done. Session starts instantly.
+
+Re-summarization happens lazily: when the user explores a stale module, the system says "let me take a fresh look at this..." and re-summarizes in the background.
+
+## Context Composition
+
+### Token Budget Strategy
+
+Not just "fill until budget runs out." Prioritize by relevance:
+
+1. **Always include:** Project summary (~200 tokens)
+2. **If discussing a module:** That module's summary + its key file summaries (~400 tokens)
+3. **If discussing a file:** The file's actual code (truncated to budget)
+4. **Relevant Q&A:** Past Q&A pairs for this area (~200 tokens)
+5. **Fill remaining budget:** Adjacent module summaries by import graph proximity
+
+### Relevance Matching
+
+When the user asks a question, don't just match by file path. Extract keywords and match against cached summaries:
+- "How does authentication work?" → match "auth" against module names, file names, and summary text
+- Include the top 3 matching modules/files by keyword overlap
+- This means the AI gets relevant context even when the user doesn't name specific files
+
+## Import Graph Details
+
+Parse these patterns (no LLM needed):
+- JS/TS: `import ... from '...'`, `require('...')`
+- Python: `import ...`, `from ... import ...`
+- Rust: `use ...`, `mod ...`
+- Go: `import "..."`
+
+Only parse entry points + top-20 files by connectivity on first pass. Parse remaining files lazily. The import graph doesn't need to be complete to be useful — the top-connected files give you 80% of the architecture.
+
+Store as adjacency list in the module cache: `{ "src/auth/middleware.ts": ["src/db/session.ts", "src/config.ts"] }`.
+
+## New Files
 
 ```
 packages/backend/src/cache/
-  hash-utils.ts         — SHA-256 hashing
-  diff-detector.ts      — finds what changed vs cache
-  warmer.ts             — orchestrates incremental re-summarization
-  context-composer.ts   — assembles context documents for LLM calls
+  hash-utils.ts           — SHA-256 hashing for files and strings
+  readme-parser.ts        — structural README parsing (headings → tagged chunks)
+  manifest-parser.ts      — extract structured data from package.json, etc.
+  import-parser.ts        — parse import statements for dependency graph
+  diff-detector.ts        — find changed files, compute confidence decay
+  warmer.ts               — orchestrate cold start (free intel → LLM gaps → cache)
+  context-composer.ts     — assemble context documents with relevance matching
 
 packages/backend/src/db/repositories/
-  context-cache-repo.ts — SQLite CRUD for 3 cache tables
+  context-cache-repo.ts   — CRUD for all cache tables
 
 packages/backend/src/intelligence/prompts/
-  context-cache.ts      — summarization prompts per level
+  context-cache.ts        — prompts for module detection, gap filling, synthesis
 ```
 
-## DB tables
+## DB Tables
 
-- `context_cache_project` — repo_path (unique), summary, trigger_hashes
-- `context_cache_module` — repo_path + module_path (unique), summary, file_hash_snapshot
-- `context_cache_file` — repo_path + file_path (unique), summary, content_hash
+```sql
+context_cache_project    — summary, purpose, tech_stack, module_map, trigger_hashes, confidence
+context_cache_module     — summary, source, key_files, imports, file_hash_snapshot, confidence
+context_cache_file       — summary, content_hash, connectivity, role, exports, confidence
+context_cache_qa         — question, answer, context_key, session_id, created_at
+```
 
-## Build order
+## Build Order
 
-1. Hash utils + DB tables + repository (foundation, no LLM)
-2. Diff detector (depends on 1)
-3. Summarization prompts (standalone)
-4. Warmer (depends on 1, 2, 3)
-5. Context composer (depends on 1)
-6. Wire into system prompt, analyzer, skills, manager (depends on 4, 5)
+1. **Foundation (no LLM):** hash-utils, readme-parser, manifest-parser, import-parser, DB tables + repo
+2. **Diff detection:** diff-detector with confidence scoring
+3. **Free intelligence pass:** warm from READMEs + manifests + imports (zero LLM calls)
+4. **LLM gap filling:** context-cache prompts, warmer (targeted calls only)
+5. **Context composer:** assembly + relevance matching + token budgeting
+6. **Integration:** wire into system prompt, analyzer, skills, manager
 
-## Risks
+## Efficiency Summary
 
-- Cold start on large repos (500+ files): cap at 300 files, warm rest lazily
-- Token budget overflow: composer enforces hard cap, trims from bottom
-- Stale cache: content hash comparison is byte-level accurate
+| Metric | v1 Plan | v2 Plan |
+|---|---|---|
+| Cold start LLM calls | ~29 | ~6 |
+| Cold start time | ~60s | ~15s |
+| Warm start LLM calls | ~3-4 | 0 |
+| Warm start time | <10s | <1s |
+| Cache miss handling | Eager re-summarize | Lazy on visit |
+| README usage | Not used | Primary source |
+| Import graph | Not used | Free architecture |
+| Q&A caching | Not used | Reusable answers |
