@@ -17,8 +17,10 @@ import { createAudioRoutes } from './routes/audio.js';
 import { createRepoRoutes } from './routes/repos.js';
 import { createOnboardingRoutes } from './routes/onboarding.js';
 import { createDigestRoutes } from './routes/digest.js';
+import { createDevRoutes } from './routes/dev.js';
 import { DigestScheduler } from './digest/scheduler.js';
 import { handleWebSocket } from './ws/handler.js';
+import { TraceRecorder, setTraceRecorder } from './dev/trace.js';
 
 export async function createServer(overrides: { port?: number; repoPath?: string } = {}): Promise<{ app: express.Express; wss: WebSocketServer; server: http.Server; db: Database; config: AppConfig; digestScheduler: DigestScheduler }> {
   const config = loadConfig(overrides);
@@ -29,6 +31,11 @@ export async function createServer(overrides: { port?: number; repoPath?: string
 
   // Initialize database
   const db = new Database(config.dbPath);
+
+  // Trace recorder (gated on NODE_ENV !== 'production')
+  if (process.env.NODE_ENV !== 'production' || process.env.TETHERLINE_ALLOW_DEV === '1') {
+    setTraceRecorder(new TraceRecorder(config.dataDir));
+  }
 
   // Express app
   const app = express();
@@ -47,6 +54,11 @@ export async function createServer(overrides: { port?: number; repoPath?: string
   router.use('/onboarding', createOnboardingRoutes(db, config));
   const digestScheduler = new DigestScheduler(db, config);
   router.use('/digest', createDigestRoutes(db, config, digestScheduler));
+
+  // Dev-only routes (gated on NODE_ENV + loopback)
+  if (process.env.NODE_ENV !== 'production' || process.env.TETHERLINE_ALLOW_DEV === '1') {
+    router.use('/dev', createDevRoutes(db, config));
+  }
 
   // Annotations endpoint
   router.get('/annotations', (req, res) => {

@@ -18,3 +18,8 @@ review-*.png
 lobby-*.png
 desktop-*.png
 begin-*.png
+
+# Test artifacts
+test/fixtures/repos/
+coverage/
+.vitest-cache/

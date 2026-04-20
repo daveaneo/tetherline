@@ -1,55 +1,43 @@
-import Anthropic from '@anthropic-ai/sdk';
+import type Anthropic from '@anthropic-ai/sdk';
+import type { LLMAdapter, LLMRequest } from './llm/index.js';
+import { AnthropicLLMAdapter, getDefaultLLMAdapter } from './llm/index.js';
 
+/**
+ * Thin wrapper over an LLMAdapter that preserves the call shape the rest of
+ * the codebase expects (`streamText` + `structuredCall`). The adapter is
+ * pluggable so tests can install a cassette or mock without touching callers.
+ */
 export class ClaudeClient {
-  private client: Anthropic;
+  private adapter: LLMAdapter;
   private model: string;
 
   constructor(apiKey: string, model: string = 'claude-sonnet-4-20250514') {
-    this.client = new Anthropic({ apiKey });
     this.model = model;
+    // Honor the globally installed test adapter if one is set; otherwise use the real API.
+    const fromDefault = getDefaultLLMAdapter();
+    this.adapter = fromDefault ?? new AnthropicLLMAdapter(apiKey);
   }
 
-  /** Retry with exponential backoff. Skips retry on auth/bad-request errors. */
-  private async withRetry<T>(fn: () => Promise<T>, maxRetries: number = 3): Promise<T> {
-    let lastError: Error | undefined;
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      try {
-        return await fn();
-      } catch (err: any) {
-        lastError = err;
-        // Don't retry on auth errors or invalid requests
-        if (err.status === 401 || err.status === 400) throw err;
-        // Exponential backoff: 1s, 2s, 4s
-        if (attempt < maxRetries - 1) {
-          await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)));
-        }
-      }
-    }
-    throw lastError;
+  /** Escape hatch for tests: replace the adapter after construction. */
+  setAdapter(adapter: LLMAdapter) {
+    this.adapter = adapter;
   }
 
-  /** Get a full text response (non-streaming, returns concatenated text). */
   async streamText(params: {
     system: string;
     messages: Anthropic.MessageParam[];
     maxTokens?: number;
   }): Promise<string> {
-    return this.withRetry(async () => {
-      const response = await this.client.messages.create({
-        model: this.model,
-        max_tokens: params.maxTokens ?? 4096,
-        system: params.system,
-        messages: params.messages,
-      });
-
-      return response.content
-        .filter((block): block is Anthropic.TextBlock => block.type === 'text')
-        .map(block => block.text)
-        .join('');
-    });
+    const req: LLMRequest = {
+      model: this.model,
+      system: params.system,
+      messages: params.messages,
+      maxTokens: params.maxTokens ?? 4096,
+    };
+    const resp = await this.adapter.complete(req);
+    return resp.text;
   }
 
-  /** Get structured JSON output via tool_use (forces the model to call a tool). */
   async structuredCall<T>(params: {
     system: string;
     messages: Anthropic.MessageParam[];
@@ -58,25 +46,21 @@ export class ClaudeClient {
     inputSchema: Record<string, unknown>;
     maxTokens?: number;
   }): Promise<T> {
-    return this.withRetry(async () => {
-      const response = await this.client.messages.create({
-        model: this.model,
-        max_tokens: params.maxTokens ?? 8192,
-        system: params.system,
-        messages: params.messages,
-        tools: [{
-          name: params.toolName,
-          description: params.toolDescription,
-          input_schema: params.inputSchema as Anthropic.Tool['input_schema'],
-        }],
-        tool_choice: { type: 'tool' as const, name: params.toolName },
-      });
-
-      const toolBlock = response.content.find(
-        (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use'
-      );
-      if (!toolBlock) throw new Error('No tool use block in response');
-      return toolBlock.input as T;
-    });
+    const req: LLMRequest = {
+      model: this.model,
+      system: params.system,
+      messages: params.messages,
+      maxTokens: params.maxTokens ?? 8192,
+      tool: {
+        name: params.toolName,
+        description: params.toolDescription,
+        inputSchema: params.inputSchema,
+      },
+    };
+    const resp = await this.adapter.complete(req);
+    if (resp.toolInput === undefined) {
+      throw new Error(`LLM adapter returned no toolInput for tool "${params.toolName}"`);
+    }
+    return resp.toolInput as T;
   }
 }
