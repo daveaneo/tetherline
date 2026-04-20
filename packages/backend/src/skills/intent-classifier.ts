@@ -1,4 +1,4 @@
-import type { SkillName, IntentClassification } from '@interactive-reviewer/shared';
+import type { SkillName, IntentClassification } from '@tetherline/shared';
 import type { IClaudeClient } from '../intelligence/client-interface.js';
 
 // Navigation commands that don't need AI classification

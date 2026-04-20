@@ -1,4 +1,4 @@
-import type { CommitDiff, Area, FileDiff, DiffHunk } from '@interactive-reviewer/shared';
+import type { CommitDiff, Area, FileDiff, DiffHunk } from '@tetherline/shared';
 import { v4 as uuid } from 'uuid';
 import path from 'path';
 

@@ -11,3 +11,10 @@ audio-cache/
 *.db-journal
 *.db-wal
 pnpm-lock.yaml
+
+# Local artifacts from design-review agents (playwright screenshots, traces)
+.playwright-mcp/
+review-*.png
+lobby-*.png
+desktop-*.png
+begin-*.png

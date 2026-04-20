@@ -2,7 +2,7 @@
 
 ## Team Understanding Dashboard (PM Mode)
 
-A project manager runs Interactive Reviewer to track how their entire team understands the codebase.
+A project manager runs Tetherline to track how their entire team understands the codebase.
 
 ### Core concept
 - Each developer has their own understanding heatmap, built from their review sessions

@@ -1,4 +1,4 @@
-import type { ClientEvent } from '@interactive-reviewer/shared';
+import type { ClientEvent } from '@tetherline/shared';
 
 let wsInstance: WebSocket | null = null;
 

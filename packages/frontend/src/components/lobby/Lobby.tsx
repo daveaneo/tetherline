@@ -4,7 +4,7 @@ import { api } from '../../lib/api-client.js';
 import { sendEvent } from '../../lib/ws-client.js';
 import { useAudioStore } from '../../state/audio-store.js';
 import { useSessionStore } from '../../state/session-store.js';
-import type { EntryMode } from '@interactive-reviewer/shared';
+import type { EntryMode } from '@tetherline/shared';
 
 interface Repo {
   id: string;
@@ -149,7 +149,7 @@ export function Lobby() {
         className="lobby-kicker"
       >
         <span className="dot" />
-        <span>Interactive Reviewer · Weekly briefing</span>
+        <span>Tetherline · Weekly briefing</span>
       </motion.div>
       <motion.h1
         initial={{ opacity: 0, y: 14 }}
@@ -165,7 +165,7 @@ export function Lobby() {
         transition={{ duration: 0.6, delay: 0.35 }}
         className="lobby-sub"
       >
-        Sit down, hit Begin, and the AI will walk you through your repository like a weekly briefing — voice-led, interruptible, with a heatmap of what you&apos;ve actually absorbed.
+        Stay tethered to your codebase. Each week, the AI walks you through what changed — voice-led, interruptible, with a heatmap of what you&apos;ve actually absorbed.
       </motion.p>
 
       {repos.length === 0 ? (

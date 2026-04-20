@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import type { Settings, SessionModes, ModeKey } from '@interactive-reviewer/shared';
-import { DEFAULT_SETTINGS, DEFAULT_MODES } from '@interactive-reviewer/shared';
+import type { Settings, SessionModes, ModeKey } from '@tetherline/shared';
+import { DEFAULT_SETTINGS, DEFAULT_MODES } from '@tetherline/shared';
 
 interface SettingsStore {
   settings: Settings;

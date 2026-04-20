@@ -13,7 +13,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import ELK from 'elkjs/lib/elk.bundled.js';
-import type { DiagramNode, DiagramEdge } from '@interactive-reviewer/shared';
+import type { DiagramNode, DiagramEdge } from '@tetherline/shared';
 import { ModuleNode } from './nodes/ModuleNode.js';
 
 const elk = new ELK();

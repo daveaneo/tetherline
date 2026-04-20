@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import fs from 'fs';
 import path from 'path';
-import type { Concern } from '@interactive-reviewer/shared';
+import type { Concern } from '@tetherline/shared';
 import type { Database } from '../db/database.js';
 import type { AppConfig } from '../config.js';
 import { generateRevealSlides } from '../export/reveal-generator.js';

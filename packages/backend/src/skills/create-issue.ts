@@ -1,5 +1,5 @@
 import type { Skill, SkillContext } from './registry.js';
-import type { SkillResult } from '@interactive-reviewer/shared';
+import type { SkillResult } from '@tetherline/shared';
 import { buildIssuePrompt, ISSUE_TOOL, type IssueDraft } from '../intelligence/prompts/issue.js';
 
 export const createIssueSkill: Skill = {

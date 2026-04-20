@@ -5,7 +5,7 @@ import { resolve } from 'path';
 config({ path: resolve(process.cwd(), '.env') });
 config({ path: resolve(process.cwd(), '../../.env') });
 import { createServer } from './server.js';
-import { DEFAULT_PORT } from '@interactive-reviewer/shared';
+import { DEFAULT_PORT } from '@tetherline/shared';
 
 export { createServer } from './server.js';
 
@@ -16,7 +16,7 @@ async function main() {
   const { app, wss, server, db, digestScheduler } = await createServer({ port, repoPath });
 
   server.listen(port, () => {
-    console.log(`Interactive Reviewer running at http://localhost:${port}`);
+    console.log(`Tetherline running at http://localhost:${port}`);
     console.log(`Analyzing repo: ${repoPath}`);
     digestScheduler.start();
   });

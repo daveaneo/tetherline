@@ -1,5 +1,5 @@
 import type { SimpleGit } from 'simple-git';
-import type { CommitInfo, FileChange } from '@interactive-reviewer/shared';
+import type { CommitInfo, FileChange } from '@tetherline/shared';
 
 export async function readCommits(git: SimpleGit, since: Date, until: Date, maxCount: number = 200): Promise<CommitInfo[]> {
   const log = await git.log({

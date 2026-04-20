@@ -1,4 +1,4 @@
-# Interactive Reviewer: Product Vision
+# Tetherline: Product Vision
 
 ## The Problem
 
@@ -6,11 +6,11 @@ Code review is broken. Not the mechanical part -- we have GitHub PRs and CI chec
 
 We read code in flat lists of diffs. But codebases are spatial, layered, interconnected. Understanding them requires a guided tour from someone who knows the system cold -- someone who can zoom out to the big picture, zoom in to the implementation, and narrate the *why* the whole time.
 
-Interactive Reviewer is that someone.
+Tetherline is that someone.
 
 ## What It Is
 
-Interactive Reviewer is an AI-powered guided tour of your codebase. You select a repository, choose "Full Walkthrough" or "Updates since last time," and the AI leads you through the code -- narrating what it finds, highlighting architecture diagrams, zooming into relevant files, and responding to your voice in real time.
+Tetherline is an AI-powered guided tour of your codebase. You select a repository, choose "Full Walkthrough" or "Updates since last time," and the AI leads you through the code -- narrating what it finds, highlighting architecture diagrams, zooming into relevant files, and responding to your voice in real time.
 
 It is not a tool you operate. It is a guide you converse with.
 
@@ -76,7 +76,7 @@ Both modes share the same room, the same voice interaction, and the same deviati
 
 ## The Understanding Model
 
-Interactive Reviewer tracks your understanding across five layers:
+Tetherline tracks your understanding across five layers:
 
 1. **Project** -- Do you know what this project does and why?
 2. **Architecture** -- Do you know how the major pieces connect?

@@ -1,6 +1,6 @@
 import type BetterSqlite3 from 'better-sqlite3';
 import { v4 as uuid } from 'uuid';
-import type { OnboardingProgram, OnboardingProgress, OnboardingDay } from '@interactive-reviewer/shared';
+import type { OnboardingProgram, OnboardingProgress, OnboardingDay } from '@tetherline/shared';
 
 export class OnboardingRepository {
   constructor(private db: BetterSqlite3.Database) {}

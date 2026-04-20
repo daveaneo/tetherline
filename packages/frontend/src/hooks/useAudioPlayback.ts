@@ -1,8 +1,8 @@
 import { useCallback, useRef, useEffect } from 'react';
 import { useAudioStore } from '../state/audio-store.js';
 import { useSettingsStore } from '../state/settings-store.js';
-import type { NarrationSegment } from '@interactive-reviewer/shared';
-import { API_PREFIX } from '@interactive-reviewer/shared';
+import type { NarrationSegment } from '@tetherline/shared';
+import { API_PREFIX } from '@tetherline/shared';
 
 export function useAudioPlayback() {
   const audioRef = useRef<HTMLAudioElement | null>(null);

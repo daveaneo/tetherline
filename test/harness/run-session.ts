@@ -1,5 +1,5 @@
 /**
- * Integration test harness for Interactive Reviewer.
+ * Integration test harness for Tetherline.
  * Starts the server, connects via WebSocket, runs a full session,
  * and reports what works and what doesn't.
  *
@@ -113,7 +113,7 @@ function say(ws: WebSocket, text: string) {
 
 // ── Main ────────────────────────────────────────────────
 async function main() {
-  console.log(`\n\x1b[1mInteractive Reviewer Integration Test\x1b[0m`);
+  console.log(`\n\x1b[1mTetherline Integration Test\x1b[0m`);
   console.log(`  Repo: ${repoPath}`);
   console.log(`  Mode: ${entryMode}`);
   console.log(`  Port: ${PORT}\n`);

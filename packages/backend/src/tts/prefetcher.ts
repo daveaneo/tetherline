@@ -1,5 +1,5 @@
-import type { NarrationSegment } from '@interactive-reviewer/shared';
-import { TTS_PREFETCH_WINDOW } from '@interactive-reviewer/shared';
+import type { NarrationSegment } from '@tetherline/shared';
+import { TTS_PREFETCH_WINDOW } from '@tetherline/shared';
 import type { TTSProvider } from './provider.js';
 import { AudioCache } from './audio-cache.js';
 

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSettingsStore } from '../../state/settings-store.js';
 import { api } from '../../lib/api-client.js';
-import type { DigestConfig } from '@interactive-reviewer/shared';
+import type { DigestConfig } from '@tetherline/shared';
 
 const fieldStyle: React.CSSProperties = {
   width: '100%',

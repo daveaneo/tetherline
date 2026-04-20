@@ -1,5 +1,5 @@
 import type { Skill, SkillContext } from './registry.js';
-import type { SkillResult } from '@interactive-reviewer/shared';
+import type { SkillResult } from '@tetherline/shared';
 
 export const explainSkill: Skill = {
   name: 'explain',

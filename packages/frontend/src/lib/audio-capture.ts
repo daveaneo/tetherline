@@ -6,7 +6,7 @@
  * Records raw Float32 samples via ScriptProcessorNode, keeps a rolling
  * buffer, and encodes to WAV on speech end for Whisper transcription.
  */
-import { API_PREFIX } from '@interactive-reviewer/shared';
+import { API_PREFIX } from '@tetherline/shared';
 import { useAudioStore } from '../state/audio-store.js';
 
 export interface AudioCaptureCallbacks {

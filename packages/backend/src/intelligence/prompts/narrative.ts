@@ -1,4 +1,4 @@
-import type { AreaWithContent, CommitDiff } from '@interactive-reviewer/shared';
+import type { AreaWithContent, CommitDiff } from '@tetherline/shared';
 
 export function buildNarrativePrompt(area: AreaWithContent, diffs: CommitDiff[]): string {
   const relevantDiffs = diffs

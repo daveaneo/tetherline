@@ -1,6 +1,7 @@
 import path from 'path';
 import os from 'os';
-import { DEFAULT_PORT, DB_FILENAME, AUDIO_CACHE_DIR } from '@interactive-reviewer/shared';
+import fs from 'fs';
+import { DEFAULT_PORT, DB_FILENAME, AUDIO_CACHE_DIR } from '@tetherline/shared';
 
 export type IntelligenceMode = 'local' | 'cloud' | 'auto';
 
@@ -16,9 +17,9 @@ export interface AppConfig {
 }
 
 export function loadConfig(overrides: { port?: number; repoPath?: string } = {}): AppConfig {
-  const dataDir = path.join(os.homedir(), '.interactive-reviewer');
+  const dataDir = path.join(os.homedir(), '.tetherline');
+  migrateLegacyDataDir(dataDir);
 
-  // 'local' = use claude CLI (subscription), 'cloud' = use API key, 'auto' = try local first
   const intelligenceMode = (process.env.INTELLIGENCE_MODE as IntelligenceMode) ?? 'auto';
 
   return {
@@ -31,4 +32,22 @@ export function loadConfig(overrides: { port?: number; repoPath?: string } = {})
     openaiApiKey: process.env.OPENAI_API_KEY,
     intelligenceMode,
   };
+}
+
+// One-time rename: ~/.interactive-reviewer → ~/.tetherline, and the legacy
+// db file inside it → tetherline.db. Preserves sessions, annotations, etc.
+function migrateLegacyDataDir(targetDir: string) {
+  const legacyDir = path.join(os.homedir(), '.interactive-reviewer');
+  if (!fs.existsSync(legacyDir) || fs.existsSync(targetDir)) return;
+  try {
+    fs.renameSync(legacyDir, targetDir);
+    const legacyDb = path.join(targetDir, 'interactive-reviewer.db');
+    const newDb = path.join(targetDir, DB_FILENAME);
+    if (fs.existsSync(legacyDb) && !fs.existsSync(newDb)) {
+      fs.renameSync(legacyDb, newDb);
+    }
+    console.log('[tetherline] migrated data dir from ~/.interactive-reviewer');
+  } catch (err) {
+    console.warn('[tetherline] legacy data dir migration failed:', err);
+  }
 }

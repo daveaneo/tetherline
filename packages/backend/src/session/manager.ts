@@ -15,8 +15,8 @@ import type {
   SkillResult,
   SkillName,
   VisualLayer,
-} from '@interactive-reviewer/shared';
-import { DEFAULT_MODES } from '@interactive-reviewer/shared';
+} from '@tetherline/shared';
+import { DEFAULT_MODES } from '@tetherline/shared';
 import { v4 as uuid } from 'uuid';
 import path from 'path';
 import fs from 'fs';

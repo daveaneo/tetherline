@@ -7,7 +7,7 @@ import { CodeMorphing } from '../code/CodeMorphing.js';
 import { DiffView } from '../code/DiffView.js';
 import { UnderstandingMap } from '../heatmap/UnderstandingMap.js';
 import { AnimatePresence, motion } from 'framer-motion';
-import type { AreaWithContent, Concern, UnderstandingState, SkillResult } from '@interactive-reviewer/shared';
+import type { AreaWithContent, Concern, UnderstandingState, SkillResult } from '@tetherline/shared';
 import { sendEvent } from '../../lib/ws-client.js';
 import { IssueDraftPreview } from '../actions/IssueDraftPreview.js';
 import { SharePanel } from '../actions/SharePanel.js';

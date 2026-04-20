@@ -13,7 +13,7 @@ import { useSessionOrchestrator } from './hooks/useSessionOrchestrator.js';
 import { useVoiceInput } from './hooks/useVoiceInput.js';
 import { useSessionStore } from './state/session-store.js';
 import { sendEvent } from './lib/ws-client.js';
-import type { EntryMode } from '@interactive-reviewer/shared';
+import type { EntryMode } from '@tetherline/shared';
 
 export function App() {
   const { connected, reconnecting } = useWebSocket();

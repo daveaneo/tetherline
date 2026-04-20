@@ -1,5 +1,5 @@
 import type { SimpleGit } from 'simple-git';
-import type { HeatmapData, HeatmapEntry } from '@interactive-reviewer/shared';
+import type { HeatmapData, HeatmapEntry } from '@tetherline/shared';
 import type { FileFamiliarityRow } from '../db/repositories/heatmap-repo.js';
 
 export async function computeHeatmap(

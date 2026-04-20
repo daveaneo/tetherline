@@ -6,7 +6,7 @@ import { BookJacket } from '../layers/BookJacket.js';
 import { ConceptualFlow } from '../layers/ConceptualFlow.js';
 import { CodeLayer } from '../layers/CodeLayer.js';
 import { LayerNav } from './LayerNav.js';
-import { LAYER_NAMES, type VisualLayer } from '@interactive-reviewer/shared';
+import { LAYER_NAMES, type VisualLayer } from '@tetherline/shared';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export function DiagramPanel() {

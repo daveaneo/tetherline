@@ -1,4 +1,4 @@
-import type { CommitDiff } from '@interactive-reviewer/shared';
+import type { CommitDiff } from '@tetherline/shared';
 
 export function buildConcernsPrompt(diffs: CommitDiff[]): string {
   const diffSummaries = diffs.map(d => ({

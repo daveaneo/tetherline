@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { API_PREFIX } from '@interactive-reviewer/shared';
+import { API_PREFIX } from '@tetherline/shared';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface Annotation {

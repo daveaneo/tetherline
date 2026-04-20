@@ -1,4 +1,4 @@
-import type { AreaWithContent } from '@interactive-reviewer/shared';
+import type { AreaWithContent } from '@tetherline/shared';
 
 export function buildQuestionPrompt(
   question: string,

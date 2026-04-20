@@ -3,8 +3,8 @@ import { useSessionStore } from '../state/session-store.js';
 import { useAudioStore } from '../state/audio-store.js';
 import { useSettingsStore } from '../state/settings-store.js';
 import { sendEvent } from '../lib/ws-client.js';
-import type { NarrationSegment } from '@interactive-reviewer/shared';
-import { API_PREFIX } from '@interactive-reviewer/shared';
+import type { NarrationSegment } from '@tetherline/shared';
+import { API_PREFIX } from '@tetherline/shared';
 
 export function useSessionOrchestrator() {
   const state = useSessionStore(s => s.state);

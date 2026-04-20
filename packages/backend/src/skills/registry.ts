@@ -1,5 +1,5 @@
-import type { SkillName, SkillResult } from '@interactive-reviewer/shared';
-import type { AreaWithContent } from '@interactive-reviewer/shared';
+import type { SkillName, SkillResult } from '@tetherline/shared';
+import type { AreaWithContent } from '@tetherline/shared';
 import type { IntelligenceAnalyzer } from '../intelligence/analyzer.js';
 import type { ContextComposer } from '../cache/context-composer.js';
 

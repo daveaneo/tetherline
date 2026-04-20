@@ -1,8 +1,8 @@
 {
-  "name": "interactive-reviewer-monorepo",
+  "name": "tetherline-monorepo",
   "private": true,
   "scripts": {
-    "dev": "pnpm run --filter @interactive-reviewer/backend dev & pnpm run --filter @interactive-reviewer/frontend dev",
+    "dev": "pnpm run --filter @tetherline/backend dev & pnpm run --filter @tetherline/frontend dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck"
   },

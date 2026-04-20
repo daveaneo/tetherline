@@ -3,7 +3,7 @@ import path from 'path';
 import simpleGit from 'simple-git';
 import type { Database } from '../db/database.js';
 import type { AppConfig } from '../config.js';
-import type { VisualLayer } from '@interactive-reviewer/shared';
+import type { VisualLayer } from '@tetherline/shared';
 
 export function createOnboardingRoutes(db: Database, config: AppConfig): Router {
   const router = Router();

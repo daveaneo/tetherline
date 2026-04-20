@@ -1,6 +1,6 @@
 import { useSettingsStore } from '../../state/settings-store.js';
 import { sendEvent } from '../../lib/ws-client.js';
-import type { ModeKey } from '@interactive-reviewer/shared';
+import type { ModeKey } from '@tetherline/shared';
 
 const MODES: { key: ModeKey; label: string; glyph: string; hint: string }[] = [
   { key: 'narration',      label: 'Narration',       glyph: '◉', hint: 'AI voice on/off' },

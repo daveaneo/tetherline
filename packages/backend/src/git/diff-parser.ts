@@ -1,6 +1,6 @@
 import type { SimpleGit } from 'simple-git';
-import type { CommitInfo, CommitDiff, FileDiff, DiffHunk } from '@interactive-reviewer/shared';
-import { MAX_DIFF_SIZE, MAX_LINES_PER_FILE_DIFF } from '@interactive-reviewer/shared';
+import type { CommitInfo, CommitDiff, FileDiff, DiffHunk } from '@tetherline/shared';
+import { MAX_DIFF_SIZE, MAX_LINES_PER_FILE_DIFF } from '@tetherline/shared';
 import path from 'path';
 
 export async function extractDiffs(git: SimpleGit, commits: CommitInfo[]): Promise<CommitDiff[]> {

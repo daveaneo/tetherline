@@ -1,5 +1,5 @@
 import type BetterSqlite3 from 'better-sqlite3';
-import type { Session, SessionSummary } from '@interactive-reviewer/shared';
+import type { Session, SessionSummary } from '@tetherline/shared';
 
 export class SessionRepository {
   constructor(private db: BetterSqlite3.Database) {}

@@ -1,6 +1,6 @@
-# Interactive Reviewer
+# Tetherline
 
-AI-powered weekly code review tool with voice narration, visual architecture diagrams, and exportable presentations.
+Stay tethered to your codebase. AI-narrated weekly code reviews with voice, visual architecture diagrams, and exportable presentations. Built to close the gap between you and code that's being written faster than you can absorb it.
 
 ## Quick Start
 
@@ -16,7 +16,7 @@ cp .env.example .env
 pnpm dev
 
 # Or run the CLI against a repo
-pnpm --filter interactive-reviewer dev -- /path/to/git/repo
+pnpm --filter tetherline dev -- /path/to/git/repo
 ```
 
 ## Architecture
@@ -32,4 +32,4 @@ Monorepo with 4 packages:
 - `pnpm dev` — Start both backend and frontend
 - `pnpm typecheck` — Type-check all packages
 - `pnpm build` — Build all packages
-- `pnpm --filter @interactive-reviewer/frontend build` — Build frontend only
+- `pnpm --filter @tetherline/frontend build` — Build frontend only

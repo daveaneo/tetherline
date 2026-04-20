@@ -8,7 +8,7 @@ import { ArchitectureDiagram } from '../diagrams/ArchitectureDiagram.js';
 import { CodeSnippet } from '../code/CodeSnippet.js';
 import { DiffView } from '../code/DiffView.js';
 import { UnderstandingMap } from '../heatmap/UnderstandingMap.js';
-import type { AreaWithContent, NarrationSegment, Concern, ConcernSeverity } from '@interactive-reviewer/shared';
+import type { AreaWithContent, NarrationSegment, Concern, ConcernSeverity } from '@tetherline/shared';
 
 export function SessionView() {
   const { state, context, areas, analysisProgress } = useSession();

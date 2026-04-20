@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { NarrationSegment } from '@interactive-reviewer/shared';
+import type { NarrationSegment } from '@tetherline/shared';
 
 export type VoiceState = 'speaking' | 'listening' | 'hearing' | 'processing';
 

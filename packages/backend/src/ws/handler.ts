@@ -1,5 +1,5 @@
 import type { WebSocket } from 'ws';
-import type { ClientEvent, ServerEvent } from '@interactive-reviewer/shared';
+import type { ClientEvent, ServerEvent } from '@tetherline/shared';
 import type { Database } from '../db/database.js';
 import type { AppConfig } from '../config.js';
 import { SessionManager } from '../session/manager.js';

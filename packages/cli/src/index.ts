@@ -6,8 +6,8 @@ import { launch } from './launcher.js';
 const program = new Command();
 
 program
-  .name('interactive-reviewer')
-  .description('AI-powered interactive code review sessions')
+  .name('tetherline')
+  .description('Stay tethered to your codebase — AI-narrated weekly code reviews')
   .version('0.1.0');
 
 program

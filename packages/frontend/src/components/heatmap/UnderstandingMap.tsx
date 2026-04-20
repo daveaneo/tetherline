@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { motion } from 'framer-motion';
-import type { HeatmapData, HeatmapEntry } from '@interactive-reviewer/shared';
+import type { HeatmapData, HeatmapEntry } from '@tetherline/shared';
 
 interface Props {
   data: HeatmapData | null;

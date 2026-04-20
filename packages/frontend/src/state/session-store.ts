@@ -3,8 +3,8 @@ import type {
   SessionState, StateContext, ServerEvent, AreaWithContent,
   AnalysisProgress, Concern, HeatmapData, SessionSummary, UnderstandingState,
   SkillResult, VisualLayer, ConceptualStep,
-} from '@interactive-reviewer/shared';
-import { DEFAULT_MODES } from '@interactive-reviewer/shared';
+} from '@tetherline/shared';
+import { DEFAULT_MODES } from '@tetherline/shared';
 
 interface ProposalData {
   message: string;

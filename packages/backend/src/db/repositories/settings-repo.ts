@@ -1,5 +1,5 @@
 import type BetterSqlite3 from 'better-sqlite3';
-import { DEFAULT_SETTINGS, type Settings } from '@interactive-reviewer/shared';
+import { DEFAULT_SETTINGS, type Settings } from '@tetherline/shared';
 
 export class SettingsRepository {
   constructor(private db: BetterSqlite3.Database) {}

@@ -1,5 +1,5 @@
 import simpleGit, { type SimpleGit } from 'simple-git';
-import type { CommitInfo, CommitDiff, Area, AnalysisProgress } from '@interactive-reviewer/shared';
+import type { CommitInfo, CommitDiff, Area, AnalysisProgress } from '@tetherline/shared';
 import { readCommits } from './commit-reader.js';
 import { extractDiffs } from './diff-parser.js';
 import { clusterCommits } from './clusterer.js';

@@ -1,5 +1,5 @@
 import type BetterSqlite3 from 'better-sqlite3';
-import type { Area, AreaWithContent } from '@interactive-reviewer/shared';
+import type { Area, AreaWithContent } from '@tetherline/shared';
 
 export class AreaRepository {
   constructor(private db: BetterSqlite3.Database) {}

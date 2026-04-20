@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
-import type { ClientEvent, ServerEvent } from '@interactive-reviewer/shared';
-import { WS_PATH } from '@interactive-reviewer/shared';
+import type { ClientEvent, ServerEvent } from '@tetherline/shared';
+import { WS_PATH } from '@tetherline/shared';
 import { useSessionStore } from '../state/session-store.js';
 import { setWsInstance } from '../lib/ws-client.js';
 

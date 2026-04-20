@@ -4,7 +4,7 @@ import { AudioCapture } from '../lib/audio-capture.js';
 import { sendEvent } from '../lib/ws-client.js';
 import { useSessionStore } from '../state/session-store.js';
 import { useAudioStore } from '../state/audio-store.js';
-import { API_PREFIX } from '@interactive-reviewer/shared';
+import { API_PREFIX } from '@tetherline/shared';
 
 const COMMAND_PHRASES: Record<string, VoiceCommand> = {
   'next': 'next', 'move on': 'next', 'continue': 'next',

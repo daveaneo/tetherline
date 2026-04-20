@@ -1,7 +1,7 @@
 import path from 'path';
 import fs from 'fs';
 import open from 'open';
-import { createServer } from '@interactive-reviewer/backend';
+import { createServer } from '@tetherline/backend';
 
 interface LaunchOptions {
   repoPath: string;
@@ -19,7 +19,7 @@ export async function launch(options: LaunchOptions) {
     process.exit(1);
   }
 
-  console.log('Starting Interactive Reviewer...');
+  console.log('Starting Tetherline...');
   console.log(`Repository: ${repoPath}`);
   console.log(`Looking back: ${options.sinceDays} days`);
 

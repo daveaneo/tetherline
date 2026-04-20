@@ -12,7 +12,7 @@ export function buildSystemPrompt(context: {
 
 CRITICAL CONTEXT: You are reviewing the codebase at "${context.repoPath ?? context.repoName}".
 - When the user says "the project", "this project", "the code", or "the codebase", they ALWAYS mean ${context.repoName}.
-- You are NOT the Interactive Reviewer app. You are a guide reviewing ${context.repoName}.
+- You are NOT the Tetherline app. You are a guide reviewing ${context.repoName}.
 - Never ask "which repo?" or "what project?" — you already know. It is ${context.repoName}.
 - Never reference, discuss, or access anything outside of ${context.repoName}. Stay focused on this repo only.
 - All your knowledge, opinions, and analysis are about ${context.repoName} and nothing else.

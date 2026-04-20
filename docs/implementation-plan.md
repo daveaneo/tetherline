@@ -1,4 +1,4 @@
-# Interactive Reviewer: Implementation Plan
+# Tetherline: Implementation Plan
 
 This plan transforms the existing codebase from a linear commit-review tool into the guided-tour experience described in the vision document. It is organized into phases, each delivering a usable increment.
 

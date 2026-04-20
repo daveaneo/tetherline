@@ -1,10 +1,14 @@
-# Interactive Reviewer
+# Tetherline
 
-An AI-powered guided tour of your codebase. Point it at any git repo and an AI guide walks you through it — narrating what the project does, how it's built, and what changed recently. Everything is voice-driven: the AI speaks, you speak back.
+**Stay tethered to your codebase.**
+
+AI is writing code faster than any human can absorb it. Tetherline closes the gap — a weekly, voice-narrated guided tour of your repo, paced like a briefing, that leaves you actually understanding what was written.
+
+Point it at any git repo and an AI guide walks you through it — narrating what the project does, how it's built, and what changed recently. Everything is voice-driven: the AI speaks, you speak back, interrupt, question, and steer.
 
 ## What It Does
 
-You select a repository, choose **Full Walkthrough** (learn the whole project) or **Updates** (what changed this week), and the AI leads you through an interactive narrated review. It shows architecture diagrams, code snippets, and visual overviews — all synchronized with voice narration that you can interrupt, question, and steer at any time.
+You select a repository, choose **Full Walkthrough** (learn the whole project) or **Updates** (what changed this week), and Tetherline leads you through an interactive narrated review. It shows architecture diagrams, code snippets, and visual overviews — all synchronized with voice narration that you can interrupt, question, and steer at any time.
 
 Think of it as having a senior engineer walk you through the codebase, pointing at a whiteboard, answering your questions, and never losing their place.
 
@@ -82,8 +86,8 @@ Everything runs on your machine. Git analysis, architecture diagrams, voice inpu
 
 ```bash
 # Clone and install
-git clone <repo-url>
-cd interactive-reviewer
+git clone https://github.com/daveaneo/tetherline
+cd tetherline
 pnpm install
 
 # Configure
@@ -92,7 +96,7 @@ cp .env.example .env
 
 # Install local voice (optional but recommended)
 python3 -m venv .venv
-source .venv/bin/activate  # or: .venv/bin/activate
+source .venv/bin/activate
 pip install kokoro faster-whisper soundfile
 ```
 
@@ -151,10 +155,6 @@ test/
   fixtures/   Script-generated test repos (small + medium)
   harness/    Integration test harness (27 tests)
 ```
-
-## Project Status
-
-132 source files, ~12,400 lines of TypeScript. All features implemented, 27 integration tests passing. See `docs/vision.md` for the product vision and `docs/feature-plans.md` for the feature roadmap.
 
 ## License
 

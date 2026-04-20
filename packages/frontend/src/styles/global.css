@@ -2,7 +2,7 @@
 @import './primitives.css';
 @import './screens.css';
 
-/* ——— Interactive Reviewer ——— design tokens (from Claude Design handoff)
+/* ——— Tetherline ——— design tokens (from Claude Design handoff)
    Ember-in-espresso. Fraunces (serif) / Geist (UI) / JetBrains Mono (code). */
 :root {
   /* Surfaces — warm espresso, not black-on-black */

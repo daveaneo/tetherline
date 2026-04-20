@@ -5,7 +5,7 @@ import { WebSocketServer } from 'ws';
 import path, { dirname } from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { WS_PATH, API_PREFIX } from '@interactive-reviewer/shared';
+import { WS_PATH, API_PREFIX } from '@tetherline/shared';
 import { loadConfig, type AppConfig } from './config.js';
 import { Database } from './db/database.js';
 import { createSessionRoutes } from './routes/session.js';

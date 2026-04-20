@@ -45,7 +45,7 @@ export function SessionEntrance({ onComplete }: { onComplete: () => void }) {
             transition={{ delay: 0.2, duration: 0.4 }}
             className="kicker"
           >
-            Interactive Reviewer
+            Tetherline
           </motion.div>
 
           <motion.h1

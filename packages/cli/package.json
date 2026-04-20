@@ -1,9 +1,9 @@
 {
-  "name": "interactive-reviewer",
+  "name": "tetherline",
   "version": "0.1.0",
   "type": "module",
   "bin": {
-    "interactive-reviewer": "./dist/index.js"
+    "tetherline": "./dist/index.js"
   },
   "files": [
     "dist"
@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@interactive-reviewer/backend": "workspace:*",
+    "@tetherline/backend": "workspace:*",
     "commander": "^12.1.0",
     "dotenv": "^17.3.1",
     "open": "^10.1.0"

@@ -37,7 +37,7 @@ export function Toolbar() {
         )}
         <div className="chrome-brand">
           <span className="dot" />
-          <span>Interactive Reviewer</span>
+          <span>Tetherline</span>
         </div>
       </div>
 

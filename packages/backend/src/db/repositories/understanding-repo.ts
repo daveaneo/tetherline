@@ -1,6 +1,6 @@
 import type BetterSqlite3 from 'better-sqlite3';
 import { v4 as uuid } from 'uuid';
-import type { UnderstandingItem, UnderstandingLevel, UnderstandingStatus, UnderstandingLayer, UnderstandingState } from '@interactive-reviewer/shared';
+import type { UnderstandingItem, UnderstandingLevel, UnderstandingStatus, UnderstandingLayer, UnderstandingState } from '@tetherline/shared';
 
 export class UnderstandingRepository {
   constructor(private db: BetterSqlite3.Database) {}

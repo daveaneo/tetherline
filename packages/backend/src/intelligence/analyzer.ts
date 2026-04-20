@@ -6,7 +6,7 @@ import type {
   DiagramNode,
   DiagramEdge,
   Concern,
-} from '@interactive-reviewer/shared';
+} from '@tetherline/shared';
 import { v4 as uuid } from 'uuid';
 import type { IClaudeClient } from './client-interface.js';
 import { buildSystemPrompt } from './prompts/system.js';

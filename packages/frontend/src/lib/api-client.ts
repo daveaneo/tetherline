@@ -1,4 +1,4 @@
-import { API_PREFIX } from '@interactive-reviewer/shared';
+import { API_PREFIX } from '@tetherline/shared';
 
 async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_PREFIX}${path}`, {
