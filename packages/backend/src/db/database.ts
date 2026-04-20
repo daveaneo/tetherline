@@ -301,6 +301,34 @@ export class Database {
       CREATE INDEX IF NOT EXISTS idx_comprehension_level ON comprehension(repo_path, level);
     `);
 
+    // Rename migration: rows stored under ~/.interactive-reviewer/ need
+    // their path columns rewritten to ~/.tetherline/ after the 2026-04-20
+    // project rename moved the data dir. Idempotent — each UPDATE is a
+    // no-op if no rows match the legacy prefix.
+    const homedir = process.env.HOME ?? '';
+    if (homedir) {
+      const legacyPrefix = `${homedir}/.interactive-reviewer`;
+      const newPrefix = `${homedir}/.tetherline`;
+      const rewrite = (table: string, col: string) => {
+        try {
+          this.db.prepare(
+            `UPDATE ${table} SET ${col} = REPLACE(${col}, ?, ?) WHERE ${col} LIKE ? || '%'`,
+          ).run(legacyPrefix, newPrefix, legacyPrefix);
+        } catch { /* table or column may not exist yet */ }
+      };
+      rewrite('repositories', 'path');
+      rewrite('sessions', 'repo_path');
+      rewrite('file_familiarity', 'repo_path');
+      rewrite('understanding', 'repo_path');
+      rewrite('annotations', 'repo_path');
+      rewrite('context_cache_project', 'repo_path');
+      rewrite('context_cache_module', 'repo_path');
+      rewrite('context_cache_file', 'repo_path');
+      rewrite('context_cache_qa', 'repo_path');
+      rewrite('briefings', 'repo_path');
+      rewrite('comprehension', 'repo_path');
+    }
+
     // Migration: add impact/theme columns to areas table for existing databases
     const areaColumns = this.db.pragma('table_info(areas)') as Array<{ name: string }>;
     const areaColumnNames = new Set(areaColumns.map(c => c.name));
