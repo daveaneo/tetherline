@@ -112,7 +112,26 @@ export class IntelligenceAnalyzer {
     fileTree: string[],
     areas: Area[],
   ): Promise<{ nodes: DiagramNode[]; edges: DiagramEdge[] }> {
-    const prompt = buildArchitecturePrompt(fileTree, areas);
+    // Guard against massive repos blowing the 200K token context. Prefer files
+    // that are relevant to the areas being discussed, plus a sampling of the
+    // rest of the tree. Cap at ~2500 paths which is well under the token cap.
+    const MAX_PATHS = 2500;
+    const relevantFiles = new Set<string>();
+    for (const area of areas) {
+      for (const f of area.affectedFiles) relevantFiles.add(f);
+    }
+    let trimmedTree: string[];
+    if (fileTree.length <= MAX_PATHS) {
+      trimmedTree = fileTree;
+    } else {
+      // Always include affected files; top up with a stride sample of the rest.
+      const remaining = fileTree.filter(f => !relevantFiles.has(f));
+      const budget = MAX_PATHS - relevantFiles.size;
+      const stride = Math.max(1, Math.ceil(remaining.length / Math.max(1, budget)));
+      const sampled = remaining.filter((_, i) => i % stride === 0).slice(0, budget);
+      trimmedTree = [...relevantFiles, ...sampled];
+    }
+    const prompt = buildArchitecturePrompt(trimmedTree, areas);
     const result = await this.claude.structuredCall<ArchitectureResult>({
       system: this.systemPrompt,
       messages: [{ role: 'user', content: prompt }],

@@ -1,5 +1,12 @@
 import type { AreaWithContent, CommitDiff } from '@tetherline/shared';
 
+// Hard cap per diff hunk so narrative prompts don't blow the 200K token ceiling
+// on large refactors. ~8KB per file diff ≈ 2K tokens. Covers the overwhelming
+// majority of real-world cases and truncation is clearly signposted to the LLM.
+const PER_FILE_DIFF_CHAR_CAP = 8_000;
+const PER_COMMIT_FILES_CAP = 12;
+const TOTAL_PROMPT_CHAR_CAP = 120_000; // ~30K tokens — leaves generous headroom.
+
 export function buildNarrativePrompt(area: AreaWithContent, diffs: CommitDiff[]): string {
   const relevantDiffs = diffs
     .filter(d =>
@@ -8,10 +15,14 @@ export function buildNarrativePrompt(area: AreaWithContent, diffs: CommitDiff[])
     )
     .map(d => ({
       commit: d.commit.shortHash + ': ' + d.commit.message,
-      files: d.fileDiffs.map(fd => ({
-        path: fd.path,
-        diff: fd.hunks.map(h => h.content).join('\n'),
-      })),
+      files: d.fileDiffs.slice(0, PER_COMMIT_FILES_CAP).map(fd => {
+        const full = fd.hunks.map(h => h.content).join('\n');
+        const truncated = full.length > PER_FILE_DIFF_CHAR_CAP
+          ? full.slice(0, PER_FILE_DIFF_CHAR_CAP) + `\n… (+${full.length - PER_FILE_DIFF_CHAR_CAP} chars truncated)`
+          : full;
+        return { path: fd.path, diff: truncated };
+      }),
+      truncatedFiles: Math.max(0, d.fileDiffs.length - PER_COMMIT_FILES_CAP),
     }));
 
   return `Generate a narration script for this area of changes. You are a warm, knowledgeable guide — think of yourself as a senior engineer walking a colleague through the code at a whiteboard. Your words will be spoken aloud via text-to-speech.
@@ -38,7 +49,12 @@ Description: ${area.description}
 Significance: ${area.significance}
 
 Changes:
-${JSON.stringify(relevantDiffs, null, 2)}`;
+${capJson(JSON.stringify(relevantDiffs, null, 2), TOTAL_PROMPT_CHAR_CAP)}`;
+}
+
+function capJson(text: string, max: number): string {
+  if (text.length <= max) return text;
+  return text.slice(0, max) + `\n\n… (changes payload truncated — ${text.length - max} chars omitted to fit model context)`;
 }
 
 export const NARRATIVE_TOOL = {
