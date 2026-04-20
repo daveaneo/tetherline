@@ -3,6 +3,7 @@ import type {
   SessionState, StateContext, ServerEvent, AreaWithContent,
   AnalysisProgress, Concern, HeatmapData, SessionSummary, UnderstandingState,
   SkillResult, VisualLayer, ConceptualStep,
+  ComprehensionLevel, NarrationSegment,
 } from '@tetherline/shared';
 import { DEFAULT_MODES } from '@tetherline/shared';
 
@@ -44,6 +45,36 @@ interface SessionStore {
   connected: boolean;
   conversationHistory: ConversationEntry[];
 
+  // ─── Vision mechanics ────────────────────────────────────
+  currentBriefing: {
+    briefingId: string;
+    layer: string;
+    title: string;
+    text: string;
+    estimatedSeconds: number;
+    talkingPoints: string[];
+    children: string[];
+    parent: string | null;
+    resumePrefix?: string;
+    receivedAt: number;
+  } | null;
+  breadcrumb: {
+    text: string;
+    depth: number;
+    frames: Array<{ briefingId: string; title: string; layer: string }>;
+  };
+  comprehensionMap: Map<string, { level: ComprehensionLevel; label: string; layer: string }>;
+  quickPreview: {
+    repoName: string;
+    commitCount: number;
+    contributors: Array<{ name: string; commits: number }>;
+    topFolders: Array<{ path: string; fileCount: number }>;
+    topFiles: Array<{ path: string; touches: number }>;
+  } | null;
+  streamedNarratives: Map<string, { areaId: string; narrativeText: string; segments: NarrationSegment[] }>;
+  showComprehensionOverlay: boolean;
+  toggleComprehensionOverlay: () => void;
+
   handleServerEvent: (event: ServerEvent) => void;
   addConversation: (speaker: 'ai' | 'you', text: string) => void;
   clearError: () => void;
@@ -76,6 +107,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   error: null,
   connected: false,
   conversationHistory: [],
+  currentBriefing: null,
+  breadcrumb: { text: '', depth: 0, frames: [] },
+  comprehensionMap: new Map(),
+  quickPreview: null,
+  streamedNarratives: new Map(),
+  showComprehensionOverlay: false,
+
+  toggleComprehensionOverlay: () => set(s => ({ showComprehensionOverlay: !s.showComprehensionOverlay })),
 
   addConversation: (speaker, text) => set(s => ({
     conversationHistory: [...s.conversationHistory.slice(-49), { speaker, text, timestamp: Date.now() }],
@@ -108,6 +147,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     lastIssueResult: null,
     error: null,
     conversationHistory: [],
+    currentBriefing: null,
+    breadcrumb: { text: '', depth: 0, frames: [] },
+    comprehensionMap: new Map(),
+    quickPreview: null,
+    streamedNarratives: new Map(),
+    showComprehensionOverlay: false,
   }),
 
   handleServerEvent: (event: ServerEvent) => {
@@ -223,6 +268,82 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       case 'error':
         console.error('Server error:', event.payload);
         set({ error: event.payload });
+        break;
+
+      case 'narration:briefing':
+        set({
+          currentBriefing: {
+            briefingId: event.payload.briefingId,
+            layer: event.payload.layer,
+            title: event.payload.title,
+            text: event.payload.text,
+            estimatedSeconds: event.payload.estimatedSeconds,
+            talkingPoints: event.payload.talkingPoints,
+            children: event.payload.children,
+            parent: event.payload.parent,
+            resumePrefix: event.payload.resumePrefix,
+            receivedAt: Date.now(),
+          },
+        });
+        get().addConversation('ai', event.payload.text);
+        break;
+
+      case 'navigator:push':
+        set(s => ({
+          breadcrumb: {
+            text: event.payload.breadcrumb,
+            depth: event.payload.depth,
+            frames: [...s.breadcrumb.frames, {
+              briefingId: event.payload.briefingId,
+              title: s.currentBriefing?.title ?? event.payload.briefingId,
+              layer: s.currentBriefing?.layer ?? 'unknown',
+            }],
+          },
+        }));
+        break;
+
+      case 'navigator:pop':
+        set(s => ({
+          breadcrumb: {
+            text: event.payload.breadcrumb,
+            depth: event.payload.depth,
+            frames: s.breadcrumb.frames.slice(0, event.payload.depth),
+          },
+        }));
+        break;
+
+      case 'navigator:breadcrumb':
+        set({
+          breadcrumb: {
+            text: event.payload.breadcrumb,
+            depth: event.payload.depth,
+            frames: event.payload.frames,
+          },
+        });
+        break;
+
+      case 'comprehension:updated':
+        set(s => {
+          const next = new Map(s.comprehensionMap);
+          next.set(event.payload.itemId, {
+            level: event.payload.level,
+            label: event.payload.label,
+            layer: event.payload.layer,
+          });
+          return { comprehensionMap: next };
+        });
+        break;
+
+      case 'session:quick_preview':
+        set({ quickPreview: event.payload });
+        break;
+
+      case 'analysis:area_narrative_ready':
+        set(s => {
+          const next = new Map(s.streamedNarratives);
+          next.set(event.payload.areaId, event.payload);
+          return { streamedNarratives: next };
+        });
         break;
 
       default:
