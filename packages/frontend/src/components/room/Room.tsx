@@ -3,6 +3,7 @@ import { useSession } from '../../hooks/useSession.js';
 import { useSessionStore } from '../../state/session-store.js';
 import { useSettingsStore } from '../../state/settings-store.js';
 import { DiagramPanel } from './DiagramPanel.js';
+import { ContentPanel } from './ContentPanel.js';
 import { ContentDrawer } from './ContentDrawer.js';
 import { NarrationBar } from './NarrationBar.js';
 import { SessionEntrance } from './SessionEntrance.js';
@@ -11,30 +12,53 @@ import { BreadcrumbStrip } from '../vision/BreadcrumbStrip.js';
 import { ComprehensionOverlay, ComprehensionToggle } from '../vision/ComprehensionOverlay.js';
 import { VERSION } from '../../version.js';
 
+/** Room layers, back-to-front:
+ *   1. DiagramPanel — visual backdrop (5 progressive-zoom layers)
+ *   2. ContentPanel — phase-aware primary content (analyzing / proposal /
+ *      overview / advisory / wrap-up / error / etc.). Guarantees *something*
+ *      renders for every non-IDLE phase, so no blank-screen regressions on
+ *      any entry mode.
+ *   3. ContentDrawer — side drawer for code snippets, skill results
+ *   4. BriefingCard — briefing overlay when active
+ *   5. Floating chrome toolbar
+ */
 export function Room() {
   useSession();
   const [showEntrance, setShowEntrance] = useState(true);
   const hasBriefing = useSessionStore(s => !!s.currentBriefing);
+  const phase = useSessionStore(s => s.state.phase);
+  const showContentPanel = phase !== 'IDLE';
 
   return (
-    <div className="flex flex-col h-full relative">
+    <div className="flex flex-col h-full relative" data-testid="session-room" data-phase={phase}>
       {showEntrance && <SessionEntrance onComplete={() => setShowEntrance(false)} />}
 
       <BreadcrumbStrip />
 
       <div className="flex-1 relative overflow-hidden">
-        {/* If a briefing is currently active, it takes centre stage over the
-            diagram. The diagram stays mounted behind for context + smooth
-            transitions back. */}
         <DiagramPanel />
         <ContentDrawer />
+
+        {showContentPanel && (
+          <div
+            className="absolute inset-0 z-10 overflow-auto"
+            data-testid="content-panel-wrap"
+            style={{
+              background: 'color-mix(in oklch, var(--ink-050) 75%, transparent)',
+              backdropFilter: 'blur(2px)',
+            }}
+          >
+            <ContentPanel />
+          </div>
+        )}
 
         {hasBriefing && (
           <div
             className="absolute inset-0 z-20 overflow-auto"
+            data-testid="briefing-overlay"
             style={{
               background: 'color-mix(in oklch, var(--ink-050) 88%, transparent)',
-              backdropFilter: 'blur(2px)',
+              backdropFilter: 'blur(4px)',
               padding: '48px 32px',
             }}
           >
