@@ -11,31 +11,43 @@ import { test, expect, type Page } from '@playwright/test';
  *   4. pick Explore in the entry-mode dialog
  *   5. assert the Room has visible content (not blank)
  *
- * Skips if no repo exists in the user's ~/.tetherline DB.
+ * Runs unconditionally — if servers are unreachable, skips with a LOUD
+ * message so "skipped" doesn't masquerade as "passed."
  */
 
 async function hasRepos(page: Page): Promise<boolean> {
   return (await page.locator('.repo-row').count()) > 0;
 }
 
-// This E2E requires a warm dev-server stack with valid API keys + a repo
-// containing commits the analyzer can actually handle. It's kept as a
-// manual-smoke spec (`E2E_FULL=1 pnpm test:e2e` to enable) rather than
-// part of the default run — the jsdom phase tests already guard against
-// the regression it reproduces.
-const SHOULD_RUN = process.env.E2E_FULL === '1';
+async function backendReachable(baseUrl: string): Promise<boolean> {
+  try {
+    const res = await fetch(new URL('/api/dev/ping', baseUrl).toString(), { signal: AbortSignal.timeout(2_000) });
+    return res.ok;
+  } catch { return false; }
+}
 
 test.describe('Explore entry mode — no blank screen', () => {
-  test.skip(!SHOULD_RUN, 'set E2E_FULL=1 to enable — requires live ANTHROPIC_API_KEY + repo in DB');
+  test('clicking Begin → Explore shows visible session content', async ({ page, baseURL }) => {
+    test.setTimeout(90_000);
 
-  test('clicking Begin → Explore shows visible session content', async ({ page }) => {
-    test.setTimeout(60_000);
+    // Precondition: backend reachable. If not, FAIL LOUDLY so nobody mistakes
+    // "skipped" for "passing." The whole point of this test is to run.
+    const backendUp = await backendReachable('http://127.0.0.1:3847');
+    if (!backendUp) {
+      throw new Error(
+        'Backend at http://127.0.0.1:3847 is not reachable. Start it with ' +
+        '`pnpm dev` before running E2E tests. This is a precondition failure, ' +
+        'not a test pass.',
+      );
+    }
 
     await page.goto('/');
     await expect(page.locator('.lobby-hero')).toBeVisible({ timeout: 10_000 });
 
     if (!(await hasRepos(page))) {
-      test.skip(true, 'No repos in user DB — add one manually before running.');
+      // Skipping is fine here — the user just has no repos yet; the flow
+      // isn't reachable. A note is emitted so it's not silent.
+      test.skip(true, 'No repos in the user DB — add one via the Lobby UI first.');
       return;
     }
 
@@ -45,15 +57,15 @@ test.describe('Explore entry mode — no blank screen', () => {
     await expect(page.getByText(/How should we open/i)).toBeVisible();
     await page.getByText(/^Explore$/).first().click();
 
-    // Room must mount (carries data-testid unconditionally)
+    // Room must mount
     await expect(page.locator('[data-testid="session-room"]')).toBeVisible({ timeout: 20_000 });
 
-    // Visible content: NarrationBar is always mounted in session, and its
-    // text ("Reading your repository…", state labels) is the most reliable
-    // proof of "not blank". Accept any non-trivial text anywhere in Room.
+    // Any non-trivial text content — the pass condition is "not a blank
+    // screen," so we accept anything visible: greeting, error banner,
+    // briefing, narration bar label, content panel kicker.
     await expect(async () => {
       const roomText = await page.locator('[data-testid="session-room"]').textContent();
       expect((roomText ?? '').trim().length).toBeGreaterThan(20);
-    }).toPass({ timeout: 15_000 });
+    }).toPass({ timeout: 20_000 });
   });
 });

@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSessionStore } from '../../state/session-store.js';
 
@@ -24,8 +25,14 @@ const LEVEL_LABEL: Record<string, string> = {
  *  Room chrome toggle. */
 export function ComprehensionOverlay() {
   const show = useSessionStore(s => s.showComprehensionOverlay);
-  const mapEntries = useSessionStore(s => Array.from(s.comprehensionMap.entries()));
+  // Select the Map reference itself — Zustand compares by reference, so this
+  // only re-fires when the Map is replaced (done immutably on updates).
+  const comprehensionMap = useSessionStore(s => s.comprehensionMap);
   const toggle = useSessionStore(s => s.toggleComprehensionOverlay);
+  // Derive the array inside the component so the selector returns a stable
+  // reference. Otherwise `Array.from(...entries())` returned a fresh array
+  // every render → React loop → "Maximum update depth exceeded".
+  const mapEntries = useMemo(() => Array.from(comprehensionMap.entries()), [comprehensionMap]);
 
   return (
     <AnimatePresence>
