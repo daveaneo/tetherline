@@ -37,6 +37,7 @@ import { ContextComposer } from '../cache/context-composer.js';
 import { Navigator, frameFromBriefing } from './navigator.js';
 import { resolveNavOp, type NavOp } from './navigator-vocab.js';
 import { isConfirmationPhrase } from './confirmation-phrases.js';
+import { getTraceRecorder } from '../dev/trace.js';
 import type { ComprehensionItemLayer, ComprehensionLevel } from '@tetherline/shared';
 
 export class SessionManager {
@@ -69,6 +70,13 @@ export class SessionManager {
    *  resume position when the user interrupts mid-speech. */
   private lastBriefingEmittedAt: number | null = null;
   private lastBriefingId: string | null = null;
+  /** Whether the user currently holds the conversational floor. When true, the
+   *  server suppresses outbound narration — prevents AI-on-user overlap. */
+  private userSpeaking = false;
+  /** After the user stops speaking, the AI waits this many ms before its next
+   *  audio output. Blocks the "AI jumped in too fast" pattern. Tunable. */
+  private readonly POST_USER_SILENCE_MS = 600;
+  private userStoppedAt: number | null = null;
   /** Confirmation phrases are only treated as `confirmed` within this many ms
    *  of the last briefing being delivered. Prevents idle "got it, I need
    *  coffee" from false-positive-confirming. */
@@ -78,11 +86,44 @@ export class SessionManager {
   private readonly COMPREHENSION_COOLDOWN_MS = 30_000;
   private lastComprehensionTouchAt = new Map<string, number>();
 
+  private rawEmit: (event: ServerEvent) => void;
+  /** Event types that carry AI speech. When the user holds the floor, these
+   *  are suppressed; everything else (state changes, progress, errors, etc.)
+   *  flows through untouched. */
+  private readonly NARRATION_EVENT_TYPES = new Set<ServerEvent['type']>([
+    'narration:greeting',
+    'narration:segment_ready',
+    'narration:text',
+    'narration:quick_answer',
+    'narration:briefing',
+    'qa:answer_chunk',
+  ]);
+
   constructor(
     private db: Database,
     private config: AppConfig,
-    private emit: (event: ServerEvent) => void,
-  ) {}
+    emit: (event: ServerEvent) => void,
+  ) {
+    this.rawEmit = emit;
+  }
+
+  /** Gated emit — drops AI speech events while the user holds the floor.
+   *  All other events (state changes, errors, progress) flow through.
+   *
+   *  Gate is disabled when `TETHERLINE_DISABLE_FLOOR_SUPPRESSION=1` so we can
+   *  measure the pre-fix baseline reproducibly. */
+  private emit(event: ServerEvent): void {
+    const gateDisabled = process.env.TETHERLINE_DISABLE_FLOOR_SUPPRESSION === '1';
+    if (!gateDisabled && this.NARRATION_EVENT_TYPES.has(event.type) && this.shouldSuppressNarration()) {
+      getTraceRecorder()?.emit({
+        kind: 'tts.drop',
+        sessionId: this.context.sessionId || null,
+        payload: { eventType: event.type, reason: this.userSpeaking ? 'user_speaking' : 'post_user_silence' },
+      });
+      return;
+    }
+    this.rawEmit(event);
+  }
 
   handleEvent(event: ClientEvent): void {
     switch (event.type) {
@@ -1504,6 +1545,50 @@ export class SessionManager {
       depth: this.navigator.depth,
       frames: this.navigator.snapshot(),
       breadcrumb: this.navigator.breadcrumb(),
+    };
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Voice floor control — interruption handling.
+  //
+  // Proven-product pattern (ChatGPT Realtime, Gemini Live, Pi):
+  //   - When user starts speaking, flush TTS queue + halt server-side
+  //     narration generation.
+  //   - While user holds the floor, suppress all outbound narration.
+  //   - After user stops, wait a small silence window before resuming.
+  //   - Emit trace events so the measurement layer can score every exchange.
+  // ─────────────────────────────────────────────────────────────
+  markUserSpeakingStarted(): void {
+    this.userSpeaking = true;
+    this.userStoppedAt = null;
+    // Note: we emit a tts.queue_flush trace event immediately. The real queue
+    // flush is frontend-side (audio element clear) — the backend signals via
+    // narration:text with empty text, or by simply dropping any pending
+    // segments. For now, the trace records the semantic "flush point" so
+    // measurements are accurate.
+    const tr = getTraceRecorder();
+    tr?.emit({ kind: 'tts.queue_flush', sessionId: this.context.sessionId || null, payload: {} });
+  }
+
+  markUserSpeakingStopped(): void {
+    this.userSpeaking = false;
+    this.userStoppedAt = Date.now();
+  }
+
+  /** True if the server should currently SUPPRESS outbound narration. */
+  private shouldSuppressNarration(): boolean {
+    if (this.userSpeaking) return true;
+    if (this.userStoppedAt !== null && Date.now() - this.userStoppedAt < this.POST_USER_SILENCE_MS) {
+      return true;
+    }
+    return false;
+  }
+
+  getVoiceFloorState() {
+    return {
+      userSpeaking: this.userSpeaking,
+      suppressed: this.shouldSuppressNarration(),
+      msSinceUserStopped: this.userStoppedAt !== null ? Date.now() - this.userStoppedAt : null,
     };
   }
 

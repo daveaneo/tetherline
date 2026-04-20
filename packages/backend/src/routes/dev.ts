@@ -306,6 +306,35 @@ export function createDevRoutes(db: Database, config: AppConfig): Router {
     res.json({ maps: db.getComprehensionRepo().buildMapAcrossRepos(repoPaths) });
   });
 
+  /** GET /api/dev/voice/metrics?devSessionId= — compute voice metrics from the trace */
+  router.get('/voice/metrics', async (req, res) => {
+    try {
+      const devId = String(req.query.devSessionId ?? '');
+      if (!devId) { res.status(400).json({ error: 'devSessionId required' }); return; }
+      const session = registry.resolve(devId);
+      if (!session) { res.status(404).json({ error: 'session not found' }); return; }
+
+      const { getTraceRecorder } = await import('../dev/trace.js');
+      const tr = getTraceRecorder();
+      if (!tr) { res.status(503).json({ error: 'trace recorder not running' }); return; }
+      const events = tr.getEvents({ sessionId: session.backendId, limit: 2000 });
+
+      const { computeVoiceMetrics, scoreMetrics } = await import('../voice/metrics.js');
+      const metrics = computeVoiceMetrics(events);
+      const scores = scoreMetrics(metrics);
+      res.json({
+        metrics,
+        scores,
+        floor: session.manager.getVoiceFloorState(),
+        voiceEventCount: events.filter(e =>
+          e.kind.startsWith('user.') || e.kind.startsWith('tts.') || e.kind.startsWith('audio.'),
+        ).length,
+      });
+    } catch (err) {
+      sendErr(res, err);
+    }
+  });
+
   /** GET /api/dev/challenge/pick?repoPath= — pick a recently-explained item to challenge */
   router.get('/challenge/pick', (req, res) => {
     const repoPath = String(req.query.repoPath ?? '');
@@ -354,12 +383,14 @@ export function createDevRoutes(db: Database, config: AppConfig): Router {
   });
 
   /** POST /api/dev/voice/simulate { sessionId, kind, payload } — inject audio-layer state */
-  router.post('/voice/simulate', (req, res) => {
+  router.post('/voice/simulate', async (req, res) => {
     try {
       const { devSessionId, kind, payload } = req.body ?? {};
       if (!devSessionId || !kind) { res.status(400).json({ error: 'devSessionId + kind required' }); return; }
       const session = registry.resolve(devSessionId);
       if (!session) { res.status(404).json({ error: 'session not found' }); return; }
+      const { getTraceRecorder } = await import('../dev/trace.js');
+      const tr = getTraceRecorder();
 
       // Route simulated audio events through the SAME backend handlers as the
       // real WS path so we test the actual state machine.
@@ -379,6 +410,22 @@ export function createDevRoutes(db: Database, config: AppConfig): Router {
             type: 'audio:segment_finished',
             payload: { segmentId },
           });
+          tr?.emit({ kind: 'audio.segment_ended', sessionId: session.backendId, payload: { segmentId } });
+          break;
+        }
+        case 'segment_started': {
+          const segmentId = String((payload as any)?.segmentId ?? '');
+          tr?.emit({ kind: 'audio.segment_started', sessionId: session.backendId, payload: { segmentId } });
+          break;
+        }
+        case 'speaking_started': {
+          session.manager.markUserSpeakingStarted();
+          tr?.emit({ kind: 'user.speaking_started', sessionId: session.backendId, payload: {} });
+          break;
+        }
+        case 'speaking_stopped': {
+          session.manager.markUserSpeakingStopped();
+          tr?.emit({ kind: 'user.speaking_stopped', sessionId: session.backendId, payload: {} });
           break;
         }
         case 'interrupt': {

@@ -12,6 +12,13 @@ export type TraceKind =
   | 'tts.requested'
   | 'tts.first_audio'
   | 'tts.completed'
+  | 'tts.emit'              // server emitted a narration event (any kind)
+  | 'tts.queue_flush'       // queue cleared in response to user speech
+  | 'tts.drop'              // narration suppressed because user holds the floor
+  | 'user.speaking_started' // mic voice activity began
+  | 'user.speaking_stopped' // mic voice activity ended
+  | 'audio.segment_started' // client started playing a segment
+  | 'audio.segment_ended'   // client finished playing a segment
   | 'narration.emitted'
   | 'phase.changed'
   | 'visual.update'

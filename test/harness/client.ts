@@ -126,6 +126,27 @@ export class DevClient {
     const p = new URLSearchParams({ repoPaths: repoPaths.join(',') });
     return this.req<{ maps: any[] }>('GET', `/comprehension/multi?${p}`);
   }
+
+  async voiceSimulate(devSessionId: string, kind: string, payload: Record<string, unknown> = {}) {
+    await this.req('POST', '/voice/simulate', { devSessionId, kind, payload });
+  }
+
+  async voiceMetrics(devSessionId: string): Promise<{
+    metrics: {
+      timeToFlushMs: number | null;
+      emitsDuringUserSpeech: number;
+      emitsBeforeFlush: number;
+      timeToRespondMs: number | null;
+      selfInterrupts: number;
+      overlapMs: number;
+      flushed: boolean;
+    };
+    scores: Record<string, 'pass' | 'warn' | 'fail' | 'n/a'>;
+    floor: { userSpeaking: boolean; suppressed: boolean; msSinceUserStopped: number | null };
+    voiceEventCount: number;
+  }> {
+    return this.req('GET', `/voice/metrics?devSessionId=${encodeURIComponent(devSessionId)}`);
+  }
 }
 
 export class DevApiError extends Error {

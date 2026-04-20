@@ -73,6 +73,31 @@ export class DevSessionRegistry {
         payload: { segmentId: event.payload.segment.id, text: event.payload.segment.text },
       });
     }
+
+    // Voice-timing instrumentation: record every server-side "AI wants to
+    // speak" moment as a `tts.emit` trace event, so the measurement layer can
+    // compute interruption/self-interrupt metrics over any exchange.
+    if (
+      event.type === 'narration:greeting' ||
+      event.type === 'narration:segment_ready' ||
+      event.type === 'narration:quick_answer' ||
+      event.type === 'narration:briefing' ||
+      event.type === 'narration:text' ||
+      event.type === 'qa:answer_chunk'
+    ) {
+      const payload = event.payload as Record<string, unknown>;
+      getTraceRecorder()?.emit({
+        kind: 'tts.emit',
+        sessionId: session.backendId,
+        payload: {
+          eventType: event.type,
+          textPreview:
+            (typeof payload.text === 'string' ? payload.text :
+             typeof payload.answer === 'string' ? payload.answer :
+             '').slice(0, 120),
+        },
+      });
+    }
     if (event.type.startsWith('visual:')) {
       getTraceRecorder()?.emit({
         kind: 'visual.update',
