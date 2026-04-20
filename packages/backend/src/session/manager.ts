@@ -239,6 +239,49 @@ export class SessionManager {
         this.emit({ type: 'analysis:progress', payload: progress });
       });
 
+      // Quick preview: emit everything we can derive from git alone so the
+      // frontend has something to render in <1s instead of staring at a spinner
+      // while LLM analysis runs for 30-90s.
+      try {
+        const contribCounts = new Map<string, number>();
+        const fileTouches = new Map<string, number>();
+        const folderFileCounts = new Map<string, Set<string>>();
+        for (const cd of commits) {
+          const author = cd.commit.author;
+          contribCounts.set(author, (contribCounts.get(author) ?? 0) + 1);
+          for (const fc of (cd.commit.filesChanged ?? [])) {
+            const f = fc.path;
+            fileTouches.set(f, (fileTouches.get(f) ?? 0) + 1);
+            const top = f.split('/')[0] || '.';
+            if (!folderFileCounts.has(top)) folderFileCounts.set(top, new Set());
+            folderFileCounts.get(top)!.add(f);
+          }
+        }
+        this.emit({
+          type: 'session:quick_preview',
+          payload: {
+            repoName,
+            commitCount: commits.length,
+            contributors: [...contribCounts.entries()]
+              .map(([name, count]) => ({ name, commits: count }))
+              .sort((a, b) => b.commits - a.commits)
+              .slice(0, 8),
+            topFolders: [...folderFileCounts.entries()]
+              .map(([path, files]) => ({ path, fileCount: files.size }))
+              .sort((a, b) => b.fileCount - a.fileCount)
+              .slice(0, 8),
+            topFiles: [...fileTouches.entries()]
+              .map(([path, touches]) => ({ path, touches }))
+              .sort((a, b) => b.touches - a.touches)
+              .slice(0, 10),
+            sinceDate: since.toISOString(),
+            untilDate: now.toISOString(),
+          },
+        });
+      } catch {
+        // Best-effort — don't block analysis if preview fails
+      }
+
       // Handle zero commits
       if (commits.length === 0) {
         if (this.entryMode === 'updates') {
@@ -444,6 +487,13 @@ export class SessionManager {
           areaRepo.updateArea(area.id, {
             narrativeText: overview,
             narrationSegments: JSON.stringify(segments),
+          });
+          // Stream each area's narrative the moment it's ready so the frontend
+          // can render content progressively instead of waiting for Promise.all
+          // across all areas + concerns + architecture.
+          this.emit({
+            type: 'analysis:area_narrative_ready',
+            payload: { areaId: area.id, narrativeText: overview, segments },
           });
           this.emit({
             type: 'analysis:progress',
@@ -1203,6 +1253,40 @@ export class SessionManager {
     }
   }
 
+  /** Answer "what is this about"-style questions from the context cache
+   *  without an LLM round-trip. Returns true if handled. */
+  private handleProjectLevelQuestionFromCache(text: string): boolean {
+    const t = text.trim().toLowerCase();
+    const projectQuestionPatterns = [
+      /\bwhat (is|does) (this|the) (project|app|repo|codebase)/,
+      /\bwhat(?:'s| is) (it|this|the project) about\b/,
+      /\bwhat does this (do|do\?)\b/,
+      /\btell me about (this|the project|the codebase|the repo)\b/,
+      /\bgive me (an |a |the )?(overview|summary)\b/,
+      /\bwhat am i looking at\b/,
+    ];
+    if (!projectQuestionPatterns.some(p => p.test(t))) return false;
+
+    const repoPath = this.activeRepoPath;
+    if (!repoPath || !this.contextComposer) return false;
+
+    const cached = this.db.getContextCacheRepo().getProject(repoPath);
+    if (!cached?.summary) return false;
+
+    // Compose a short spoken answer — prefer purpose line, fall back to summary.
+    const answer = cached.purpose
+      ? `${cached.purpose}. ${cached.summary.split(/[.\n]/).slice(0, 2).join('.').trim()}.`
+      : cached.summary.split(/[.\n]/).slice(0, 3).join('.').trim() + '.';
+
+    this.emit({
+      type: 'narration:quick_answer',
+      payload: { question: text, answer, source: 'context-cache/project' },
+    });
+    // Also surface as regular narration so the existing UI picks it up.
+    this.emit({ type: 'narration:greeting', payload: { text: answer } });
+    return true;
+  }
+
   private async handleUtterance(text: string): Promise<void> {
     // During PROPOSAL phase, handle utterances with proposal-specific logic
     if (this.state.phase === 'PROPOSAL') {
@@ -1215,6 +1299,12 @@ export class SessionManager {
     // Fast-path: check for well-known navigation/action phrases before AI classification
     const handled = this.handleQuickCommand(text);
     if (handled) return;
+
+    // Fast-path #2: project-level questions answered from context cache ( <100ms )
+    // instead of going through the intent classifier + LLM round-trip. Only fires
+    // when the question is clearly about the project as a whole and we have a
+    // warmed cache to draw from.
+    if (this.handleProjectLevelQuestionFromCache(text)) return;
 
     // If no intent classifier available, fall back to treating it as a question
     if (!this.intentClassifier) {

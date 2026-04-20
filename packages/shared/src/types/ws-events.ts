@@ -31,7 +31,18 @@ export type ServerEvent =
   | { type: 'analysis:started'; payload: { sessionId: string } }
   | { type: 'analysis:progress'; payload: AnalysisProgress }
   | { type: 'analysis:area_ready'; payload: { area: Area } }
+  | { type: 'analysis:area_narrative_ready'; payload: { areaId: string; narrativeText: string; segments: NarrationSegment[] } }
   | { type: 'analysis:complete'; payload: { summary: SessionSummary; areas: AreaWithContent[] } }
+  | { type: 'session:quick_preview'; payload: {
+      repoName: string;
+      commitCount: number;
+      contributors: Array<{ name: string; commits: number }>;
+      topFolders: Array<{ path: string; fileCount: number }>;
+      topFiles: Array<{ path: string; touches: number }>;
+      sinceDate: string;
+      untilDate: string;
+    } }
+  | { type: 'narration:quick_answer'; payload: { question: string; answer: string; source: string } }
   | { type: 'session:state_changed'; payload: { state: SessionState; context: StateContext } }
   | { type: 'session:recap'; payload: { previousSession: SessionSummary; narrative: string } }
   | { type: 'session:heatmap'; payload: { heatmap: HeatmapData } }
