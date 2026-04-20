@@ -97,6 +97,35 @@ export class DevClient {
     if (opts.limit) params.set('limit', String(opts.limit));
     return this.req('GET', `/trace?${params}`);
   }
+
+  async navigator(devSessionId: string): Promise<{
+    depth: number;
+    breadcrumb: string;
+    frames: Array<{ briefingId: string; layer: string; title: string; reason: string; enteredAt: string }>;
+  }> {
+    return this.req('GET', `/navigator?devSessionId=${encodeURIComponent(devSessionId)}`);
+  }
+
+  async briefing(repoPath: string, id: string) {
+    const p = new URLSearchParams({ repoPath, id });
+    return this.req<{ briefing: any }>('GET', `/briefing?${p}`);
+  }
+
+  async briefings(repoPath: string, layer?: string) {
+    const p = new URLSearchParams({ repoPath });
+    if (layer) p.set('layer', layer);
+    return this.req<{ briefings: any[] }>('GET', `/briefings?${p}`);
+  }
+
+  async comprehension(repoPath: string) {
+    const p = new URLSearchParams({ repoPath });
+    return this.req<{ repoPath: string; items: any[]; totals: Record<string, number> }>('GET', `/comprehension?${p}`);
+  }
+
+  async comprehensionMulti(repoPaths: string[]) {
+    const p = new URLSearchParams({ repoPaths: repoPaths.join(',') });
+    return this.req<{ maps: any[] }>('GET', `/comprehension/multi?${p}`);
+  }
 }
 
 export class DevApiError extends Error {

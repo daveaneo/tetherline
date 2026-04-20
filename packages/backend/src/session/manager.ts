@@ -34,6 +34,10 @@ import type { SkillRegistry } from '../skills/index.js';
 import { TourPlan } from './tour-plan.js';
 import { ContextCacheWarmer } from '../cache/warmer.js';
 import { ContextComposer } from '../cache/context-composer.js';
+import { Navigator, frameFromBriefing } from './navigator.js';
+import { resolveNavOp, type NavOp } from './navigator-vocab.js';
+import { isConfirmationPhrase } from './confirmation-phrases.js';
+import type { ComprehensionItemLayer, ComprehensionLevel } from '@tetherline/shared';
 
 export class SessionManager {
   private state: SessionState = { phase: 'IDLE' };
@@ -60,6 +64,19 @@ export class SessionManager {
   private proposalSuggestedOrder: string[] = [];
   private visualLayer: VisualLayer = 1;
   private contextComposer: ContextComposer | null = null;
+  private navigator = new Navigator();
+  /** Timestamp of the last narration:briefing emit — lets us derive a rough
+   *  resume position when the user interrupts mid-speech. */
+  private lastBriefingEmittedAt: number | null = null;
+  private lastBriefingId: string | null = null;
+  /** Confirmation phrases are only treated as `confirmed` within this many ms
+   *  of the last briefing being delivered. Prevents idle "got it, I need
+   *  coffee" from false-positive-confirming. */
+  private readonly CONFIRMATION_WINDOW_MS = 60_000;
+  /** Cooldown per comprehension item — same item can only transition once every
+   *  30s, protects against chatty transcripts double-counting. */
+  private readonly COMPREHENSION_COOLDOWN_MS = 30_000;
+  private lastComprehensionTouchAt = new Map<string, number>();
 
   constructor(
     private db: Database,
@@ -225,6 +242,15 @@ export class SessionManager {
         type: 'narration:greeting',
         payload: { text: greetingText },
       });
+
+      // Instant opener: if we have a cached project briefing from a prior
+      // session, deliver it NOW (before the long ANALYZING block). User hears
+      // a coherent 15s pitch within 500ms. Analysis continues in background.
+      this.navigator.reset();
+      const cachedProjectBriefing = this.db.getBriefingRepo().get(effectivePath, 'project');
+      if (cachedProjectBriefing) {
+        this.deliverBriefing(cachedProjectBriefing, 'session_start');
+      }
 
       // Transition to ANALYZING
       this.setState({ phase: 'ANALYZING' });
@@ -410,7 +436,7 @@ export class SessionManager {
 
       const useAI = !!aiClient && commits.length > 0;
 
-      // Warm the context cache
+      // Warm the context cache, then rebuild briefings from it.
       try {
         const cacheWarmer = new ContextCacheWarmer(
           this.db.getContextCacheRepo(),
@@ -419,6 +445,35 @@ export class SessionManager {
         );
         await cacheWarmer.warm(effectivePath);
         this.contextComposer = new ContextComposer(this.db.getContextCacheRepo(), effectivePath);
+
+        // Briefings are deterministic derivations of the cache — rebuilding them
+        // on every session start is cheap and keeps them in sync with any edits.
+        // Passing the comprehension repo lets the warmer degrade confirmed
+        // items when their underlying briefing has drifted (staleness).
+        const { warmBriefings } = await import('../briefing/warmer.js');
+        const warmResult = await warmBriefings(
+          effectivePath,
+          this.db.getContextCacheRepo(),
+          this.db.getBriefingRepo(),
+          aiClient,
+          this.db.getComprehensionRepo(),
+        );
+        for (const staledId of warmResult.staled) {
+          const item = this.db.getComprehensionRepo().get(effectivePath, staledId);
+          if (item) {
+            this.emit({
+              type: 'comprehension:updated',
+              payload: {
+                itemId: item.itemId,
+                label: item.label,
+                layer: item.layer,
+                level: item.level,
+                previousLevel: 'confirmed', // degraded from a higher level
+                reason: 'stale',
+              },
+            });
+          }
+        }
       } catch {
         // Cache warming is best-effort; don't block session start
         this.contextComposer = null;
@@ -1253,11 +1308,285 @@ export class SessionManager {
     }
   }
 
-  /** Answer "what is this about"-style questions from the context cache
-   *  without an LLM round-trip. Returns true if handled. */
-  private handleProjectLevelQuestionFromCache(text: string): boolean {
+  /** Route a user utterance to a cached briefing when possible. Briefings serve
+   *  in <100ms and skip the entire intent-classifier → LLM → TTS roundtrip. */
+  private handleBriefingQuery(text: string): boolean {
+    const repoPath = this.activeRepoPath;
+    if (!repoPath) return false;
+
+    const briefingId = this.resolveBriefingQuery(text, repoPath);
+    if (!briefingId) return false;
+
+    const briefing = this.db.getBriefingRepo().get(repoPath, briefingId);
+    if (!briefing) return false;
+
+    this.deliverBriefing(briefing, 'user_asked');
+    return true;
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Navigator — stack-based conversational drill-down
+  // ─────────────────────────────────────────────────────────────
+
+  /** Emit a briefing AND push it on the navigator stack (if not already top). */
+  private deliverBriefing(
+    briefing: import('@tetherline/shared').Briefing,
+    reason: 'user_asked' | 'dive_deeper' | 'tour_next' | 'resume_pop' | 'session_start',
+    resumePrefix?: string,
+  ): void {
+    const top = this.navigator.peek();
+    if (top?.briefingId !== briefing.id) {
+      const check = this.navigator.checkPush(briefing.id);
+      if (check.allowed) {
+        this.navigator.push(frameFromBriefing(briefing, reason));
+        this.emit({
+          type: 'navigator:push',
+          payload: {
+            briefingId: briefing.id,
+            depth: this.navigator.depth,
+            breadcrumb: this.navigator.breadcrumb(),
+            hint: check.hint,
+          },
+        });
+      }
+    }
+    this.emit({
+      type: 'narration:briefing',
+      payload: {
+        briefingId: briefing.id,
+        layer: briefing.layer,
+        title: briefing.title,
+        text: briefing.opener,
+        estimatedSeconds: briefing.estimatedSeconds,
+        talkingPoints: briefing.talkingPoints,
+        children: briefing.children,
+        parent: briefing.parent,
+        cacheHit: true,
+        resumePrefix,
+      },
+    });
+    this.emit({ type: 'narration:greeting', payload: { text: briefing.opener } });
+    this.lastBriefingEmittedAt = Date.now();
+    this.lastBriefingId = briefing.id;
+    // The act of delivering a briefing counts as explaining that item.
+    this.observeComprehension(briefing.id, briefing.title, 'explained', 'briefing_delivered', {
+      secondsHeard: briefing.estimatedSeconds,
+    });
+  }
+
+  private reemitBriefing(repoPath: string, briefingId: string, resumePrefix: string): void {
+    const briefing = this.db.getBriefingRepo().get(repoPath, briefingId);
+    if (!briefing) return;
+    this.emit({
+      type: 'narration:briefing',
+      payload: {
+        briefingId: briefing.id,
+        layer: briefing.layer,
+        title: briefing.title,
+        text: briefing.opener,
+        estimatedSeconds: briefing.estimatedSeconds,
+        talkingPoints: briefing.talkingPoints,
+        children: briefing.children,
+        parent: briefing.parent,
+        cacheHit: true,
+        resumePrefix: resumePrefix + '…',
+      },
+    });
+    this.lastBriefingEmittedAt = Date.now();
+  }
+
+  /** Handle a navigator operation parsed from the utterance. Returns true if
+   *  the utterance was consumed (and nothing else should process it). */
+  private handleNavigatorOp(text: string): boolean {
+    const op = resolveNavOp(text);
+    if (op.kind === 'none') return false;
+    const repoPath = this.activeRepoPath;
+    if (!repoPath) return false;
+
+    switch (op.kind) {
+      case 'pop': {
+        const popped = this.navigator.pop();
+        if (!popped) return false;
+        const current = this.navigator.peek();
+        this.emit({
+          type: 'navigator:pop',
+          payload: {
+            poppedBriefingId: popped.briefingId,
+            currentBriefingId: current?.briefingId ?? null,
+            depth: this.navigator.depth,
+            breadcrumb: this.navigator.breadcrumb(),
+          },
+        });
+        if (current) this.reemitBriefing(repoPath, current.briefingId, 'As I was saying');
+        return true;
+      }
+
+      case 'pop_to_project': {
+        const removed = this.navigator.popToProject();
+        if (removed.length === 0) {
+          // already at project — just restate the breadcrumb
+          this.emit({
+            type: 'navigator:breadcrumb',
+            payload: {
+              breadcrumb: this.navigator.breadcrumb(),
+              depth: this.navigator.depth,
+              frames: this.navigator.snapshot().map(f => ({ briefingId: f.briefingId, title: f.title, layer: f.layer })),
+            },
+          });
+          return true;
+        }
+        this.emit({
+          type: 'navigator:pop',
+          payload: {
+            poppedBriefingId: removed[0].briefingId,
+            currentBriefingId: this.navigator.peek()?.briefingId ?? null,
+            depth: this.navigator.depth,
+            breadcrumb: this.navigator.breadcrumb(),
+          },
+        });
+        const current = this.navigator.peek();
+        if (current) this.reemitBriefing(repoPath, current.briefingId, 'Back to the top');
+        return true;
+      }
+
+      case 'push_named': {
+        const target = op.target;
+        const moduleId = `module/${target}`;
+        const conceptId = `concept/${target}`;
+        const briefing =
+          this.db.getBriefingRepo().get(repoPath, moduleId) ||
+          this.db.getBriefingRepo().get(repoPath, conceptId);
+        if (!briefing) return false; // fall through — other handlers may match
+        this.deliverBriefing(briefing, 'user_asked');
+        return true;
+      }
+
+      case 'dive_deeper': {
+        const current = this.navigator.peek();
+        if (!current) return false;
+        const currentBriefing = this.db.getBriefingRepo().get(repoPath, current.briefingId);
+        if (!currentBriefing || currentBriefing.children.length === 0) return false;
+        for (const childId of currentBriefing.children) {
+          const child = this.db.getBriefingRepo().get(repoPath, childId);
+          if (child) {
+            this.deliverBriefing(child, 'dive_deeper');
+            return true;
+          }
+        }
+        return false;
+      }
+
+      case 'breadcrumb': {
+        this.emit({
+          type: 'navigator:breadcrumb',
+          payload: {
+            breadcrumb: this.navigator.breadcrumb(),
+            depth: this.navigator.depth,
+            frames: this.navigator.snapshot().map(f => ({ briefingId: f.briefingId, title: f.title, layer: f.layer })),
+          },
+        });
+        return true;
+      }
+
+      case 'resume': {
+        const current = this.navigator.peek();
+        if (!current) return false;
+        this.reemitBriefing(repoPath, current.briefingId, 'Picking up where we left off');
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Public getter for tests + dev API. */
+  getNavigatorSnapshot() {
+    return {
+      depth: this.navigator.depth,
+      frames: this.navigator.snapshot(),
+      breadcrumb: this.navigator.breadcrumb(),
+    };
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Comprehension — passive confidence tracking
+  // ─────────────────────────────────────────────────────────────
+
+  /** Derive a comprehension layer from a briefing id. */
+  private layerFromBriefingId(briefingId: string): ComprehensionItemLayer {
+    if (briefingId === 'project') return 'project';
+    if (briefingId === 'arch/root' || briefingId.startsWith('arch/')) return 'architecture';
+    if (briefingId.startsWith('module/')) return 'module';
+    if (briefingId.startsWith('file/')) return 'file';
+    if (briefingId.startsWith('concept/')) return 'concept';
+    return 'project';
+  }
+
+  /** Observe a transition for a comprehension item, guarded by per-item
+   *  cooldown. Emits `comprehension:updated` when the level actually moves. */
+  private observeComprehension(
+    itemId: string,
+    label: string,
+    proposedLevel: ComprehensionLevel,
+    reason: 'briefing_delivered' | 'question_asked' | 'listened_through' | 'confirmed_phrase' | 'stale',
+    opts: { secondsHeard?: number; questionsAsked?: number } = {},
+  ) {
+    const repoPath = this.activeRepoPath;
+    if (!repoPath) return;
+
+    const now = Date.now();
+    const lastTouch = this.lastComprehensionTouchAt.get(itemId) ?? 0;
+    if (now - lastTouch < this.COMPREHENSION_COOLDOWN_MS && reason !== 'confirmed_phrase' && reason !== 'stale') {
+      return; // cooldown — skip
+    }
+    this.lastComprehensionTouchAt.set(itemId, now);
+
+    const repo = this.db.getComprehensionRepo();
+    const before = repo.get(repoPath, itemId);
+    const layer = this.layerFromBriefingId(itemId);
+    const item = repo.observe(repoPath, itemId, layer, label, proposedLevel, {
+      sessionId: this.context.sessionId,
+      narrationSecondsHeard: opts.secondsHeard,
+      questionsAsked: opts.questionsAsked,
+    });
+
+    if (!before || before.level !== item.level) {
+      this.emit({
+        type: 'comprehension:updated',
+        payload: {
+          itemId: item.itemId,
+          label: item.label,
+          layer: item.layer,
+          level: item.level,
+          previousLevel: (before?.level ?? 'unknown') as ComprehensionLevel,
+          reason,
+        },
+      });
+    }
+  }
+
+  /** Attempt to match a confirmation phrase against the last briefing. Only
+   *  fires within CONFIRMATION_WINDOW_MS of the briefing being delivered. */
+  private tryConfirmLastBriefing(text: string): boolean {
+    if (!this.lastBriefingId || !this.lastBriefingEmittedAt) return false;
+    const elapsed = Date.now() - this.lastBriefingEmittedAt;
+    if (elapsed > this.CONFIRMATION_WINDOW_MS) return false;
+    if (!isConfirmationPhrase(text)) return false;
+
+    const repoPath = this.activeRepoPath;
+    if (!repoPath) return false;
+
+    const briefing = this.db.getBriefingRepo().get(repoPath, this.lastBriefingId);
+    const label = briefing?.title ?? this.lastBriefingId;
+    this.observeComprehension(this.lastBriefingId, label, 'confirmed', 'confirmed_phrase');
+    return true;
+  }
+
+  /** Map a user utterance to a briefing id. Returns null if none matches. */
+  private resolveBriefingQuery(text: string, repoPath: string): string | null {
     const t = text.trim().toLowerCase();
-    const projectQuestionPatterns = [
+
+    // Project-level asks
+    const projectPatterns = [
       /\bwhat (is|does) (this|the) (project|app|repo|codebase)/,
       /\bwhat(?:'s| is) (it|this|the project) about\b/,
       /\bwhat does this (do|do\?)\b/,
@@ -1265,26 +1594,33 @@ export class SessionManager {
       /\bgive me (an |a |the )?(overview|summary)\b/,
       /\bwhat am i looking at\b/,
     ];
-    if (!projectQuestionPatterns.some(p => p.test(t))) return false;
+    if (projectPatterns.some(p => p.test(t))) return 'project';
 
-    const repoPath = this.activeRepoPath;
-    if (!repoPath || !this.contextComposer) return false;
+    // Architecture asks
+    const architecturePatterns = [
+      /\b(walk me through|show me|tell me about) the (architecture|structure|layout)\b/,
+      /\bwhat does the (architecture|structure) look like\b/,
+      /\b(high[\s-]?level )?(architecture|structure)\b.*(overview|tour)/,
+      /^architecture\b/,
+    ];
+    if (architecturePatterns.some(p => p.test(t))) return 'arch/root';
 
-    const cached = this.db.getContextCacheRepo().getProject(repoPath);
-    if (!cached?.summary) return false;
+    // Module / topic asks: "tell me about X" / "what's the X module" / "how does X work"
+    const moduleAsk =
+      /^(?:tell me about|show me|what(?:'s| is) the|how does|what does) ([\w-]+)(?:\s+(?:module|work|do))?[\s?.!]*$/.exec(t)
+      || /^(?:let's )?(?:look|talk) about ([\w-]+)/.exec(t);
+    if (moduleAsk) {
+      const target = moduleAsk[1];
+      if (target && target !== 'this' && target !== 'it') {
+        // Prefer an exact module briefing; fall back to concept if available.
+        const moduleId = `module/${target}`;
+        if (this.db.getBriefingRepo().get(repoPath, moduleId)) return moduleId;
+        const conceptId = `concept/${target}`;
+        if (this.db.getBriefingRepo().get(repoPath, conceptId)) return conceptId;
+      }
+    }
 
-    // Compose a short spoken answer — prefer purpose line, fall back to summary.
-    const answer = cached.purpose
-      ? `${cached.purpose}. ${cached.summary.split(/[.\n]/).slice(0, 2).join('.').trim()}.`
-      : cached.summary.split(/[.\n]/).slice(0, 3).join('.').trim() + '.';
-
-    this.emit({
-      type: 'narration:quick_answer',
-      payload: { question: text, answer, source: 'context-cache/project' },
-    });
-    // Also surface as regular narration so the existing UI picks it up.
-    this.emit({ type: 'narration:greeting', payload: { text: answer } });
-    return true;
+    return null;
   }
 
   private async handleUtterance(text: string): Promise<void> {
@@ -1296,15 +1632,31 @@ export class SessionManager {
       return;
     }
 
-    // Fast-path: check for well-known navigation/action phrases before AI classification
+    // Fast-path #0: confirmation phrases ("got it", "makes sense") — tracked
+    // against the most recent briefing for comprehension. Guarded: only fires
+    // within CONFIRMATION_WINDOW_MS of the briefing being emitted.
+    if (this.tryConfirmLastBriefing(text)) {
+      // Confirmation phrases are not a navigation; let them also pass through
+      // to quickCommand / intent classifier in case they meant "resume" or
+      // similar. But for now, we consume them so the AI doesn't double-respond.
+      return;
+    }
+
+    // Fast-path #1: Navigator stack operations. "go back", "back to the overview",
+    // "tell me about X", "deeper", "where are we" — all resolved without an LLM
+    // call. Runs FIRST so nav phrases take precedence over the legacy
+    // quickCommand matcher (which would route "go back" to the linear previous
+    // command that predated the stack).
+    if (this.handleNavigatorOp(text)) return;
+
+    // Fast-path #2: well-known navigation/action phrases (skip, pause, resume)
+    // that aren't part of the Navigator vocabulary.
     const handled = this.handleQuickCommand(text);
     if (handled) return;
 
-    // Fast-path #2: project-level questions answered from context cache ( <100ms )
-    // instead of going through the intent classifier + LLM round-trip. Only fires
-    // when the question is clearly about the project as a whole and we have a
-    // warmed cache to draw from.
-    if (this.handleProjectLevelQuestionFromCache(text)) return;
+    // Fast-path #3: briefing queries answered from cache ( <100ms ) — handles
+    // project/architecture asks and any named target the nav vocab didn't catch.
+    if (this.handleBriefingQuery(text)) return;
 
     // If no intent classifier available, fall back to treating it as a question
     if (!this.intentClassifier) {

@@ -9,6 +9,8 @@ import { RepoRepository } from './repositories/repo-repo.js';
 import { UnderstandingRepository } from './repositories/understanding-repo.js';
 import { OnboardingRepository } from './repositories/onboarding-repo.js';
 import { ContextCacheRepository } from './repositories/context-cache-repo.js';
+import { BriefingRepository } from './repositories/briefing-repo.js';
+import { ComprehensionRepository } from './repositories/comprehension-repo.js';
 
 export class Database {
   private db: BetterSqlite3.Database;
@@ -20,6 +22,8 @@ export class Database {
   private understandingRepo: UnderstandingRepository;
   private onboardingRepo: OnboardingRepository;
   private contextCacheRepo: ContextCacheRepository;
+  private briefingRepo: BriefingRepository;
+  private comprehensionRepo: ComprehensionRepository;
 
   constructor(dbPath: string) {
     // Ensure directory exists
@@ -39,6 +43,8 @@ export class Database {
     this.understandingRepo = new UnderstandingRepository(this.db);
     this.onboardingRepo = new OnboardingRepository(this.db);
     this.contextCacheRepo = new ContextCacheRepository(this.db);
+    this.briefingRepo = new BriefingRepository(this.db);
+    this.comprehensionRepo = new ComprehensionRepository(this.db);
   }
 
   private runMigrations() {
@@ -252,6 +258,47 @@ export class Database {
       CREATE INDEX IF NOT EXISTS idx_ccm_repo ON context_cache_module(repo_path);
       CREATE INDEX IF NOT EXISTS idx_ccf_repo ON context_cache_file(repo_path);
       CREATE INDEX IF NOT EXISTS idx_ccqa_repo ON context_cache_qa(repo_path, context_key);
+
+      -- Briefings: pre-rendered, TTS-safe spoken answers per depth level.
+      -- Served at <500ms to make the app feel like a human guide who always
+      -- has the right presentation ready.
+      CREATE TABLE IF NOT EXISTS briefings (
+        id TEXT NOT NULL,
+        repo_path TEXT NOT NULL,
+        layer TEXT NOT NULL CHECK (layer IN ('project', 'architecture', 'module', 'file', 'concept')),
+        title TEXT NOT NULL,
+        opener TEXT NOT NULL,
+        detail TEXT,
+        talking_points TEXT NOT NULL DEFAULT '[]',  -- JSON array
+        children TEXT NOT NULL DEFAULT '[]',        -- JSON array of briefing ids
+        parent TEXT,
+        visual_cue TEXT,                             -- JSON {kind, ref}
+        estimated_seconds INTEGER NOT NULL DEFAULT 15,
+        source_hash TEXT NOT NULL,
+        cached_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (repo_path, id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_briefings_repo ON briefings(repo_path);
+      CREATE INDEX IF NOT EXISTS idx_briefings_layer ON briefings(repo_path, layer);
+      CREATE INDEX IF NOT EXISTS idx_briefings_parent ON briefings(repo_path, parent);
+
+      -- Comprehension: per-briefing (or per-concept) confidence model, 6
+      -- levels. Passively updated as user talks / listens. Independent of
+      -- the legacy understanding table which tracks per-area binary coverage.
+      CREATE TABLE IF NOT EXISTS comprehension (
+        repo_path TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        layer TEXT NOT NULL,
+        label TEXT NOT NULL,
+        level TEXT NOT NULL DEFAULT 'unknown' CHECK (level IN ('unknown','mentioned','heard','engaged','explained','confirmed')),
+        narration_seconds_heard REAL NOT NULL DEFAULT 0,
+        questions_asked INTEGER NOT NULL DEFAULT 0,
+        last_touched_at TEXT NOT NULL DEFAULT (datetime('now')),
+        last_session_id TEXT,
+        PRIMARY KEY (repo_path, item_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_comprehension_repo ON comprehension(repo_path);
+      CREATE INDEX IF NOT EXISTS idx_comprehension_level ON comprehension(repo_path, level);
     `);
 
     // Migration: add impact/theme columns to areas table for existing databases
@@ -279,6 +326,8 @@ export class Database {
   getUnderstandingRepo(): UnderstandingRepository { return this.understandingRepo; }
   getOnboardingRepo(): OnboardingRepository { return this.onboardingRepo; }
   getContextCacheRepo(): ContextCacheRepository { return this.contextCacheRepo; }
+  getBriefingRepo(): BriefingRepository { return this.briefingRepo; }
+  getComprehensionRepo(): ComprehensionRepository { return this.comprehensionRepo; }
   getRawDb(): BetterSqlite3.Database { return this.db; }
 
   close() {

@@ -1,0 +1,210 @@
+import { createHash } from 'crypto';
+import path from 'path';
+import type { Briefing, BriefingLayer } from '@tetherline/shared';
+import type { ContextCacheRepository } from '../db/repositories/context-cache-repo.js';
+import type { IClaudeClient } from '../intelligence/client-interface.js';
+import { stripMarkdownForSpeech, validateTTSText } from './tts-safety.js';
+
+/**
+ * Turns raw context-cache entries (project summary, module summaries, file
+ * summaries) into briefings — TTS-safe spoken pitches per depth level.
+ *
+ * Pipeline per briefing:
+ *   1. Pull the raw cache entry.
+ *   2. Draft an opener: either deterministic template or LLM-refined.
+ *   3. Strip markdown.
+ *   4. Validate TTS safety; reject if severe.
+ *   5. Wrap with metadata (parent, children, talking points, visual cue).
+ */
+export class BriefingComposer {
+  constructor(
+    private cacheRepo: ContextCacheRepository,
+    private repoPath: string,
+    private aiClient: IClaudeClient | null = null,
+  ) {}
+
+  private hash(inputs: string[]): string {
+    return createHash('sha256').update(inputs.join('\u0001')).digest('hex').slice(0, 16);
+  }
+
+  /** Compose the project-layer briefing. Deterministic if possible (no LLM). */
+  composeProject(): Briefing | null {
+    const project = this.cacheRepo.getProject(this.repoPath);
+    if (!project?.summary) return null;
+
+    const title = path.basename(this.repoPath);
+    const source = [project.summary, project.purpose ?? ''].join('\n');
+    const sourceHash = this.hash([source, ...(project.triggerHashes?.head ? [project.triggerHashes.head] : [])]);
+    const opener = this.buildProjectOpener(title, project.purpose, project.summary);
+
+    const modules = this.cacheRepo.getModulesForRepo(this.repoPath);
+    const children = modules
+      .filter(m => m.confidence >= 0.3)
+      .slice(0, 8)
+      .map(m => `module/${m.modulePath}`);
+    children.unshift('arch/root');
+
+    return {
+      id: 'project',
+      repoPath: this.repoPath,
+      layer: 'project',
+      title,
+      opener,
+      talkingPoints: this.pickTalkingPoints(project.summary, 4),
+      children,
+      parent: null,
+      visualCue: { kind: 'none' },
+      estimatedSeconds: Math.ceil(opener.split(/\s+/).length / 2.5),
+      sourceHash,
+      cachedAt: new Date().toISOString(),
+    };
+  }
+
+  /** Compose the architecture briefing: one voiced tour of the top-level modules. */
+  composeArchitecture(): Briefing | null {
+    const modules = this.cacheRepo.getModulesForRepo(this.repoPath).filter(m => m.confidence >= 0.3);
+    if (modules.length === 0) return null;
+
+    const opener = this.buildArchitectureOpener(modules);
+    const sourceHash = this.hash(modules.map(m => `${m.modulePath}:${m.summary.slice(0, 80)}`));
+    const children = modules.slice(0, 8).map(m => `module/${m.modulePath}`);
+
+    return {
+      id: 'arch/root',
+      repoPath: this.repoPath,
+      layer: 'architecture',
+      title: 'Architecture overview',
+      opener,
+      talkingPoints: modules.slice(0, 5).map(m => m.modulePath),
+      children,
+      parent: 'project',
+      visualCue: { kind: 'diagram_focus' },
+      estimatedSeconds: Math.ceil(opener.split(/\s+/).length / 2.5),
+      sourceHash,
+      cachedAt: new Date().toISOString(),
+    };
+  }
+
+  /** Compose a module briefing. */
+  composeModule(modulePath: string): Briefing | null {
+    const mod = this.cacheRepo.getModule(this.repoPath, modulePath);
+    if (!mod?.summary) return null;
+
+    const opener = this.buildModuleOpener(modulePath, mod.summary, mod.keyFiles);
+    const sourceHash = this.hash([mod.summary, ...(mod.keyFiles ?? [])]);
+    const children = (mod.keyFiles ?? []).slice(0, 6).map(f => `file/${f}`);
+
+    return {
+      id: `module/${modulePath}`,
+      repoPath: this.repoPath,
+      layer: 'module',
+      title: modulePath,
+      opener,
+      talkingPoints: (mod.keyFiles ?? []).slice(0, 4),
+      children,
+      parent: 'arch/root',
+      visualCue: { kind: 'diagram_focus', ref: modulePath },
+      estimatedSeconds: Math.ceil(opener.split(/\s+/).length / 2.5),
+      sourceHash,
+      cachedAt: new Date().toISOString(),
+    };
+  }
+
+  /** Compose all briefings we can produce from current cache state. */
+  composeAll(): Briefing[] {
+    const out: Briefing[] = [];
+    const project = this.composeProject();
+    if (project) out.push(project);
+    const arch = this.composeArchitecture();
+    if (arch) out.push(arch);
+    const modules = this.cacheRepo.getModulesForRepo(this.repoPath).filter(m => m.confidence >= 0.3);
+    for (const m of modules) {
+      const briefing = this.composeModule(m.modulePath);
+      if (briefing) out.push(briefing);
+    }
+    return out;
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Opener builders — deterministic templates tuned for natural TTS delivery.
+  // No bullets, no markdown, natural transitions. Each keeps under 45s spoken.
+  // ─────────────────────────────────────────────────────────────
+
+  private buildProjectOpener(name: string, purpose: string | undefined, summary: string): string {
+    const cleaned = stripMarkdownForSpeech(summary);
+    const firstTwoSentences = splitSentences(cleaned).slice(0, 3).join(' ').trim();
+    const lead = purpose && purpose.length > 0
+      ? `${name} is ${lowerFirst(stripMarkdownForSpeech(purpose))}`
+      : `${name} — `;
+    const body = firstTwoSentences || 'Let me walk you through it from the top.';
+    const opener = lead.endsWith('.') ? `${lead} ${body}` : `${lead}. ${body}`;
+    return ensureSuffixPrompt(opener, "Say \"walk me through the architecture\" whenever you're ready.");
+  }
+
+  private buildArchitectureOpener(modules: Array<{ modulePath: string; summary: string }>): string {
+    const top = modules.slice(0, 5).map(m => m.modulePath);
+    const names = listJoin(top);
+    const count = modules.length;
+    const overview = count > 5
+      ? `At the top level there are ${count} modules — the ones worth knowing first are ${names}.`
+      : `At the top level there are ${count} modules: ${names}.`;
+    const lead = modules[0]
+      ? `Start at ${modules[0].modulePath}. ${stripMarkdownForSpeech(modules[0].summary).split(/[.\n]/)[0]}.`
+      : '';
+    return ensureSuffixPrompt(
+      `${overview} ${lead}`.trim(),
+      'Pick any module and I\'ll go deeper.',
+    );
+  }
+
+  private buildModuleOpener(modulePath: string, summary: string, keyFiles: string[]): string {
+    const cleaned = stripMarkdownForSpeech(summary);
+    const body = splitSentences(cleaned).slice(0, 2).join(' ').trim();
+    const keyMention = keyFiles.length > 0
+      ? `The files doing the heavy lifting are ${listJoin(keyFiles.slice(0, 3))}.`
+      : '';
+    return ensureSuffixPrompt(
+      `${modulePath}. ${body} ${keyMention}`.trim().replace(/\s+/g, ' '),
+      'Want to go deeper on a specific file, or step back up?',
+    );
+  }
+
+  private pickTalkingPoints(summary: string, limit: number): string[] {
+    const sentences = splitSentences(stripMarkdownForSpeech(summary));
+    return sentences
+      .filter(s => s.length > 20 && s.length < 160)
+      .slice(0, limit);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Utilities
+// ─────────────────────────────────────────────────────────────
+
+function splitSentences(text: string): string[] {
+  return text
+    .split(/(?<=[.!?])\s+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+function lowerFirst(s: string): string {
+  return s.length > 0 ? s[0].toLowerCase() + s.slice(1) : s;
+}
+
+function listJoin(items: string[]): string {
+  if (items.length === 0) return '';
+  if (items.length === 1) return items[0];
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
+}
+
+function ensureSuffixPrompt(opener: string, suffix: string): string {
+  const trimmed = opener.replace(/\s+$/, '');
+  const joiner = /[.!?]$/.test(trimmed) ? ' ' : '. ';
+  const combined = `${trimmed}${joiner}${suffix}`;
+  // If validation fails for being too long, keep just the opener without suffix.
+  const result = validateTTSText(combined);
+  if (!result.ok && result.estimatedSeconds > 30) return trimmed;
+  return combined;
+}

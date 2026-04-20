@@ -43,6 +43,43 @@ export type ServerEvent =
       untilDate: string;
     } }
   | { type: 'narration:quick_answer'; payload: { question: string; answer: string; source: string } }
+  | { type: 'narration:briefing'; payload: {
+      briefingId: string;
+      layer: 'project' | 'architecture' | 'module' | 'file' | 'concept';
+      title: string;
+      text: string;                      // the opener (TTS-ready)
+      estimatedSeconds: number;
+      talkingPoints: string[];
+      children: string[];
+      parent: string | null;
+      cacheHit: boolean;                 // true = served from briefings table; false = LLM fallback
+      resumePrefix?: string;             // if set, prepend "As I was saying..." when TTS plays
+    } }
+  | { type: 'navigator:push'; payload: {
+      briefingId: string;
+      depth: number;
+      breadcrumb: string;
+      hint?: string;
+    } }
+  | { type: 'navigator:pop'; payload: {
+      poppedBriefingId: string;
+      currentBriefingId: string | null;
+      depth: number;
+      breadcrumb: string;
+    } }
+  | { type: 'navigator:breadcrumb'; payload: {
+      breadcrumb: string;
+      depth: number;
+      frames: Array<{ briefingId: string; title: string; layer: string }>;
+    } }
+  | { type: 'comprehension:updated'; payload: {
+      itemId: string;
+      label: string;
+      layer: string;
+      level: 'unknown'|'mentioned'|'heard'|'engaged'|'explained'|'confirmed';
+      previousLevel: 'unknown'|'mentioned'|'heard'|'engaged'|'explained'|'confirmed';
+      reason: 'briefing_delivered'|'question_asked'|'listened_through'|'confirmed_phrase'|'stale';
+    } }
   | { type: 'session:state_changed'; payload: { state: SessionState; context: StateContext } }
   | { type: 'session:recap'; payload: { previousSession: SessionSummary; narrative: string } }
   | { type: 'session:heatmap'; payload: { heatmap: HeatmapData } }

@@ -254,6 +254,178 @@ export function createDevRoutes(db: Database, config: AppConfig): Router {
     res.json({ ok: true, ts: new Date().toISOString() });
   });
 
+  // ──────────────────────────────────────────────
+  // Briefings
+  // ──────────────────────────────────────────────
+
+  /** GET /api/dev/briefings?repoPath=&layer= */
+  router.get('/briefings', (req, res) => {
+    const repoPath = String(req.query.repoPath ?? '');
+    if (!repoPath) { res.status(400).json({ error: 'repoPath required' }); return; }
+    const layer = req.query.layer ? String(req.query.layer) : undefined;
+    if (layer && !['project','architecture','module','file','concept'].includes(layer)) {
+      res.status(400).json({ error: `invalid layer: ${layer}` }); return;
+    }
+    const briefings = layer
+      ? db.getBriefingRepo().getByLayer(repoPath, layer as any)
+      : db.getBriefingRepo().listAll(repoPath);
+    res.json({ briefings });
+  });
+
+  /** GET /api/dev/briefing?repoPath=&id=  (id as query so slashes-in-id work) */
+  router.get('/briefing', (req, res) => {
+    const repoPath = String(req.query.repoPath ?? '');
+    const id = String(req.query.id ?? '');
+    if (!repoPath || !id) { res.status(400).json({ error: 'repoPath + id required' }); return; }
+    const briefing = db.getBriefingRepo().get(repoPath, id);
+    if (!briefing) { res.status(404).json({ error: 'briefing not found', code: 'BRIEFING_NOT_FOUND' }); return; }
+    res.json({ briefing });
+  });
+
+  /** GET /api/dev/navigator?devSessionId= — current nav stack snapshot */
+  router.get('/navigator', (req, res) => {
+    const devId = String(req.query.devSessionId ?? '');
+    if (!devId) { res.status(400).json({ error: 'devSessionId required' }); return; }
+    const session = registry.resolve(devId);
+    if (!session) { res.status(404).json({ error: 'session not found' }); return; }
+    res.json(session.manager.getNavigatorSnapshot());
+  });
+
+  /** GET /api/dev/comprehension?repoPath= — comprehension map for a repo */
+  router.get('/comprehension', (req, res) => {
+    const repoPath = String(req.query.repoPath ?? '');
+    if (!repoPath) { res.status(400).json({ error: 'repoPath required' }); return; }
+    res.json(db.getComprehensionRepo().buildMap(repoPath));
+  });
+
+  /** GET /api/dev/comprehension/multi?repoPaths=a,b — across repos */
+  router.get('/comprehension/multi', (req, res) => {
+    const raw = String(req.query.repoPaths ?? '');
+    const repoPaths = raw.split(',').map(s => s.trim()).filter(Boolean);
+    if (repoPaths.length === 0) { res.status(400).json({ error: 'repoPaths required' }); return; }
+    res.json({ maps: db.getComprehensionRepo().buildMapAcrossRepos(repoPaths) });
+  });
+
+  /** GET /api/dev/challenge/pick?repoPath= — pick a recently-explained item to challenge */
+  router.get('/challenge/pick', (req, res) => {
+    const repoPath = String(req.query.repoPath ?? '');
+    if (!repoPath) { res.status(400).json({ error: 'repoPath required' }); return; }
+    const items = db.getComprehensionRepo().getAll(repoPath);
+    const candidates = items
+      .filter(i => i.level === 'explained')
+      .sort((a, b) => b.lastTouchedAt.localeCompare(a.lastTouchedAt));
+    if (candidates.length === 0) {
+      res.json({ item: null });
+      return;
+    }
+    const picked = candidates[0];
+    const briefing = db.getBriefingRepo().get(repoPath, picked.itemId);
+    res.json({
+      item: picked,
+      prompt: `Quick check — in your own words, what does ${picked.label} do?`,
+      expectedKeywords: briefing?.talkingPoints ?? [],
+    });
+  });
+
+  /** POST /api/dev/challenge/evaluate { repoPath, itemId, response } */
+  router.post('/challenge/evaluate', (req, res) => {
+    try {
+      const { repoPath, itemId, response } = req.body ?? {};
+      if (!repoPath || !itemId || typeof response !== 'string') {
+        res.status(400).json({ error: 'repoPath + itemId + response required' }); return;
+      }
+      const briefing = db.getBriefingRepo().get(repoPath, itemId);
+      const keywords = briefing?.talkingPoints ?? [];
+      const normalized = response.toLowerCase();
+      const matched = keywords.filter(k => normalized.includes(k.toLowerCase()));
+      const ratio = keywords.length === 0 ? 0.5 : matched.length / keywords.length;
+      const passed = response.split(/\s+/).length >= 5 && ratio >= 0.3;
+      const item = db.getComprehensionRepo().get(repoPath, itemId);
+      if (passed && item) {
+        db.getComprehensionRepo().observe(
+          repoPath, itemId, item.layer, item.label, 'confirmed',
+          { sessionId: item.lastSessionId ?? undefined },
+        );
+      }
+      res.json({ passed, ratio, matchedKeywords: matched });
+    } catch (err) {
+      sendErr(res, err);
+    }
+  });
+
+  /** POST /api/dev/voice/simulate { sessionId, kind, payload } — inject audio-layer state */
+  router.post('/voice/simulate', (req, res) => {
+    try {
+      const { devSessionId, kind, payload } = req.body ?? {};
+      if (!devSessionId || !kind) { res.status(400).json({ error: 'devSessionId + kind required' }); return; }
+      const session = registry.resolve(devSessionId);
+      if (!session) { res.status(404).json({ error: 'session not found' }); return; }
+
+      // Route simulated audio events through the SAME backend handlers as the
+      // real WS path so we test the actual state machine.
+      switch (kind) {
+        case 'utterance': {
+          const text = String((payload as any)?.text ?? '');
+          if (!text) { res.status(400).json({ error: 'payload.text required' }); return; }
+          session.manager.handleEvent({
+            type: 'user:utterance',
+            payload: { text, timestamp: Date.now() },
+          });
+          break;
+        }
+        case 'segment_finished': {
+          const segmentId = String((payload as any)?.segmentId ?? '');
+          session.manager.handleEvent({
+            type: 'audio:segment_finished',
+            payload: { segmentId },
+          });
+          break;
+        }
+        case 'interrupt': {
+          // Explicit interrupt: equivalent to utterance arriving mid-speech
+          const text = String((payload as any)?.text ?? '');
+          session.manager.handleEvent({
+            type: 'user:utterance',
+            payload: { text, timestamp: Date.now() },
+          });
+          break;
+        }
+        default:
+          res.status(400).json({ error: `unknown kind: ${kind}` });
+          return;
+      }
+      res.json({ ok: true });
+    } catch (err) {
+      sendErr(res, err);
+    }
+  });
+
+  /** GET /api/dev/briefing/share?repoPath=&id= — render briefing as static HTML */
+  router.get('/briefing/share', (req, res) => {
+    const repoPath = String(req.query.repoPath ?? '');
+    const id = String(req.query.id ?? '');
+    if (!repoPath || !id) { res.status(400).json({ error: 'repoPath + id required' }); return; }
+    const briefing = db.getBriefingRepo().get(repoPath, id);
+    if (!briefing) { res.status(404).json({ error: 'briefing not found' }); return; }
+    import('../briefing/share.js').then(({ renderBriefingHTML }) => {
+      res.setHeader('content-type', 'text/html; charset=utf-8');
+      res.send(renderBriefingHTML(briefing, { repoName: briefing.title }));
+    }).catch(err => sendErr(res, err));
+  });
+
+  /** POST /api/dev/briefing/rebuild { repoPath } — force rebuild from cache */
+  router.post('/briefing/rebuild', async (req, res) => {
+    try {
+      const { repoPath } = req.body ?? {};
+      if (!repoPath) { res.status(400).json({ error: 'repoPath required' }); return; }
+      const { warmBriefings } = await import('../briefing/warmer.js');
+      const result = await warmBriefings(repoPath, db.getContextCacheRepo(), db.getBriefingRepo(), null);
+      res.json({ ok: true, ...result });
+    } catch (err) {
+      sendErr(res, err);
+    }
+  });
+
   // Expose registry to other routers if needed.
   (router as any).__registry = registry;
 

@@ -17,8 +17,14 @@ export interface AppConfig {
 }
 
 export function loadConfig(overrides: { port?: number; repoPath?: string } = {}): AppConfig {
-  const dataDir = path.join(os.homedir(), '.tetherline');
-  migrateLegacyDataDir(dataDir);
+  // Honor TETHERLINE_DATA_DIR_OVERRIDE for test isolation (each harness gets
+  // its own tmp dir so tests don't share db state with each other or with
+  // the user's real ~/.tetherline data).
+  const dataDir = process.env.TETHERLINE_DATA_DIR_OVERRIDE
+    ?? path.join(os.homedir(), '.tetherline');
+  if (!process.env.TETHERLINE_DATA_DIR_OVERRIDE) {
+    migrateLegacyDataDir(dataDir);
+  }
 
   const intelligenceMode = (process.env.INTELLIGENCE_MODE as IntelligenceMode) ?? 'auto';
 
