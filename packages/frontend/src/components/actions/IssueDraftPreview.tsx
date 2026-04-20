@@ -54,18 +54,16 @@ export function IssueDraftPreview({ title, body, labels, onDismiss }: Props) {
           {labels.map(l => <span key={l} className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--color-surface)] border border-[var(--color-border)]">{l}</span>)}
         </div>
       )}
-      <div className="flex gap-2">
-        <button
-          onClick={handleCreate}
-          disabled={creating}
-          className="px-4 py-2 bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white rounded-lg text-sm disabled:opacity-50"
-        >
-          {creating ? (lastIssueResult ? 'Created!' : 'Creating...') : 'Create Issue'}
+      <div className="flex gap-2 items-center">
+        <button type="button" onClick={handleCreate} disabled={creating} className="btn btn-primary">
+          {creating ? (lastIssueResult ? 'Created' : 'Creating…') : 'Create issue'}
         </button>
-        <button onClick={onDismiss} className="px-4 py-2 text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text)]">
+        <button type="button" onClick={onDismiss} className="btn btn-ghost">
           Cancel
         </button>
-        <p className="text-[10px] text-[var(--color-text-muted)] self-center ml-auto">or say &quot;looks good&quot; / &quot;cancel&quot;</p>
+        <p className="font-mono ml-auto" style={{ fontSize: 10.5, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--cream-500)' }}>
+          or say &ldquo;looks good&rdquo; / &ldquo;cancel&rdquo;
+        </p>
       </div>
     </motion.div>
   );

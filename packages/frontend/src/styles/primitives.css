@@ -1,0 +1,294 @@
+/* ——— Voice Orb ——— */
+.orb {
+  position: relative;
+  width: var(--orb-size, 140px);
+  height: var(--orb-size, 140px);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.orb-core {
+  position: absolute; inset: 0; border-radius: 50%;
+  background:
+    radial-gradient(circle at 32% 28%, oklch(0.95 0.08 60 / 0.95), transparent 35%),
+    radial-gradient(circle at 50% 50%, var(--amber-400), var(--amber-700) 45%, var(--amber-900) 75%, oklch(0.22 0.03 50) 100%);
+  box-shadow:
+    0 0 80px -10px var(--amber-500),
+    0 0 24px -4px var(--amber-500) inset,
+    0 0 0 1px oklch(1 0 0 / 0.04);
+  transition: box-shadow var(--dur-2) var(--ease-out), background var(--dur-2) var(--ease-out);
+}
+.orb-halo {
+  position: absolute; inset: -30%; border-radius: 50%;
+  background: radial-gradient(circle, var(--amber-500) 0%, transparent 55%);
+  opacity: 0.22;
+  filter: blur(24px);
+  transition: opacity var(--dur-2) var(--ease-out);
+}
+.orb-ring {
+  position: absolute; inset: 8%; border-radius: 50%;
+  border: 1px solid oklch(1 0 0 / 0.08);
+  box-shadow: 0 0 20px -2px oklch(0 0 0 / 0.5) inset;
+}
+
+/* Listening: cooler cream */
+.orb.is-listening .orb-core {
+  background:
+    radial-gradient(circle at 32% 28%, oklch(0.96 0.02 80 / 0.95), transparent 35%),
+    radial-gradient(circle at 50% 50%, var(--cream-800), oklch(0.55 0.01 80) 45%, oklch(0.32 0.01 60) 80%);
+  box-shadow:
+    0 0 60px -10px oklch(0.92 0.015 82 / 0.5),
+    0 0 24px -4px oklch(1 0 0 / 0.2) inset,
+    0 0 0 1px oklch(1 0 0 / 0.06);
+}
+.orb.is-listening .orb-halo {
+  background: radial-gradient(circle, oklch(0.92 0.015 82) 0%, transparent 55%);
+  opacity: 0.15;
+}
+
+/* Hearing: user is speaking — breathing cream with amber rim */
+.orb.is-hearing .orb-core {
+  background:
+    radial-gradient(circle at 32% 28%, oklch(0.96 0.02 80 / 0.95), transparent 35%),
+    radial-gradient(circle at 50% 50%, var(--cream-900), oklch(0.65 0.02 80) 45%, oklch(0.38 0.02 60) 80%);
+  box-shadow:
+    0 0 80px -10px oklch(0.92 0.015 82 / 0.7),
+    0 0 24px -4px var(--amber-500) inset,
+    0 0 0 1px color-mix(in oklch, var(--amber-500) 40%, transparent);
+  animation: orb-breathe var(--dur-4) var(--ease-in-out) infinite;
+}
+.orb.is-hearing .orb-halo {
+  background: radial-gradient(circle, var(--amber-500) 0%, transparent 55%);
+  opacity: 0.28;
+}
+
+/* Thinking / processing */
+.orb.is-thinking .orb-core,
+.orb.is-processing .orb-core {
+  background:
+    radial-gradient(circle at 32% 28%, oklch(0.55 0.05 55 / 0.4), transparent 35%),
+    radial-gradient(circle at 50% 50%, oklch(0.40 0.06 55), oklch(0.25 0.03 50) 50%, oklch(0.18 0.015 50) 80%);
+  box-shadow:
+    0 0 40px -10px var(--amber-700),
+    0 0 24px -4px oklch(0 0 0 / 0.6) inset,
+    0 0 0 1px oklch(1 0 0 / 0.03);
+  animation: orb-pulse var(--dur-3) var(--ease-in-out) infinite;
+}
+.orb.is-thinking .orb-halo,
+.orb.is-processing .orb-halo { opacity: 0.08; }
+
+/* Idle */
+.orb.is-idle .orb-core {
+  background:
+    radial-gradient(circle at 32% 28%, oklch(0.45 0.04 55 / 0.3), transparent 35%),
+    radial-gradient(circle at 50% 50%, oklch(0.30 0.04 55), oklch(0.18 0.015 50) 70%);
+  box-shadow: 0 0 24px -10px var(--amber-700), 0 0 0 1px oklch(1 0 0 / 0.04);
+}
+.orb.is-idle .orb-halo { opacity: 0; }
+
+/* Speaking shimmer rings */
+.orb.is-speaking::before,
+.orb.is-speaking::after {
+  content: ''; position: absolute; inset: -8%; border-radius: 50%;
+  border: 1px solid color-mix(in oklch, var(--amber-500) 30%, transparent);
+  opacity: 0.6;
+  animation: orb-ring-pulse var(--dur-4) var(--ease-out) infinite;
+}
+.orb.is-speaking::after {
+  inset: -18%;
+  opacity: 0.3;
+  border-color: color-mix(in oklch, var(--amber-500) 20%, transparent);
+  animation-delay: calc(var(--dur-4) / 2);
+}
+
+@keyframes orb-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+@keyframes orb-pulse {
+  0%, 100% { opacity: 0.85; }
+  50% { opacity: 1; }
+}
+@keyframes orb-ring-pulse {
+  0% { transform: scale(1); opacity: 0.6; }
+  100% { transform: scale(1.12); opacity: 0; }
+}
+
+/* ——— Heatmap ——— */
+.heatmap {
+  display: grid;
+  grid-template-columns: repeat(var(--hm-cols, 12), 1fr);
+  gap: 3px;
+}
+.heatmap-cell {
+  aspect-ratio: 1;
+  border-radius: 3px;
+  position: relative;
+  border: 1px solid oklch(1 0 0 / 0.02);
+  transition: transform var(--dur-1) var(--ease-out);
+}
+.heatmap-cell[data-heat="0"] { background: var(--heat-0); }
+.heatmap-cell[data-heat="1"] { background: var(--heat-1); }
+.heatmap-cell[data-heat="2"] { background: var(--heat-2); }
+.heatmap-cell[data-heat="3"] { background: var(--heat-3); }
+.heatmap-cell[data-heat="4"] { background: var(--heat-4); }
+.heatmap-cell[data-heat="5"] { background: var(--heat-5); box-shadow: 0 0 8px -1px var(--amber-500); }
+
+/* ——— Timeline scrubber ——— */
+.timeline { position: relative; padding: 18px 0 24px; }
+.timeline-track {
+  position: relative;
+  height: 2px;
+  background: oklch(1 0 0 / 0.06);
+  border-radius: 2px;
+}
+.timeline-fill {
+  position: absolute; inset: 0;
+  width: var(--pos, 0%);
+  background: linear-gradient(90deg, var(--amber-700), var(--amber-400));
+  border-radius: 2px;
+  box-shadow: 0 0 12px var(--amber-500);
+  transition: width var(--dur-3) var(--ease-out);
+}
+.timeline-chapter {
+  position: absolute; top: -12px;
+  transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  cursor: pointer;
+}
+.timeline-chapter .tick {
+  width: 1px; height: 18px;
+  background: oklch(1 0 0 / 0.12);
+  transition: all var(--dur-1) var(--ease-out);
+}
+.timeline-chapter.is-past .tick { background: var(--amber-500); }
+.timeline-chapter.is-current .tick {
+  background: var(--amber-400);
+  box-shadow: 0 0 10px var(--amber-400);
+  height: 26px;
+}
+.timeline-chapter .lab {
+  position: absolute; top: 32px;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--cream-500);
+  letter-spacing: 0.04em;
+}
+.timeline-chapter.is-current .lab { color: var(--cream-900); }
+
+/* ——— Badge ——— */
+.badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px 4px 8px;
+  border-radius: var(--r-pill);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1px solid;
+}
+.badge .pip { width: 6px; height: 6px; border-radius: 50%; }
+.badge-concern { color: var(--sig-concern); border-color: color-mix(in oklch, var(--sig-concern) 40%, transparent); background: color-mix(in oklch, var(--sig-concern) 8%, transparent); }
+.badge-concern .pip { background: var(--sig-concern); }
+.badge-break   { color: var(--sig-break);   border-color: color-mix(in oklch, var(--sig-break) 40%, transparent);   background: color-mix(in oklch, var(--sig-break) 10%, transparent); }
+.badge-break .pip   { background: var(--sig-break); }
+.badge-okay    { color: var(--sig-okay);    border-color: color-mix(in oklch, var(--sig-okay) 40%, transparent);    background: color-mix(in oklch, var(--sig-okay) 8%, transparent); }
+.badge-okay .pip    { background: var(--sig-okay); }
+.badge-muted   { color: var(--cream-500); border-color: oklch(1 0 0 / 0.1); }
+.badge-muted .pip   { background: var(--cream-500); }
+.badge-amber   { color: var(--amber-200); border-color: color-mix(in oklch, var(--amber-500) 40%, transparent); background: color-mix(in oklch, var(--amber-500) 10%, transparent); }
+.badge-amber .pip   { background: var(--amber-400); }
+
+/* ——— Toggle ——— */
+.toggle {
+  display: flex; align-items: center; gap: 14px;
+  padding: 18px 20px;
+  border: 1px solid oklch(1 0 0 / 0.06);
+  border-radius: var(--r-lg);
+  background: oklch(1 0 0 / 0.015);
+  transition: all var(--dur-1) var(--ease-out);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+.toggle:hover { background: oklch(1 0 0 / 0.03); border-color: oklch(1 0 0 / 0.1); }
+.toggle-label { flex: 1; }
+.toggle-label .t { font-size: 14px; color: var(--cream-900); }
+.toggle-label .d { font-size: 12.5px; color: var(--cream-500); margin-top: 2px; line-height: 1.45; }
+.sw {
+  position: relative; width: 34px; height: 20px;
+  border-radius: var(--r-pill);
+  background: oklch(1 0 0 / 0.06);
+  border: 1px solid oklch(1 0 0 / 0.08);
+  transition: all var(--dur-1) var(--ease-out);
+  flex: none;
+}
+.sw::after {
+  content: ''; position: absolute; top: 2px; left: 2px;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--cream-600);
+  transition: all var(--dur-2) var(--ease-out);
+}
+.sw.is-on { background: var(--amber-500); border-color: var(--amber-500); }
+.sw.is-on::after { left: 16px; background: var(--ink-050); }
+
+/* ——— Panels ——— */
+.panel {
+  background: var(--ink-100);
+  border: 1px solid oklch(1 0 0 / 0.045);
+  border-radius: var(--r-lg);
+}
+.panel-muted {
+  background: oklch(1 0 0 / 0.015);
+  border: 1px solid oklch(1 0 0 / 0.04);
+  border-radius: var(--r-lg);
+}
+
+/* ——— Buttons ——— */
+.btn {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 12px 18px;
+  border-radius: var(--r-md);
+  font-size: 13.5px; font-weight: 500;
+  letter-spacing: -0.005em;
+  transition: all var(--dur-1) var(--ease-out);
+  border: 1px solid transparent;
+}
+.btn-ghost { color: var(--cream-600); border-color: oklch(1 0 0 / 0.08); }
+.btn-ghost:hover { color: var(--cream-900); border-color: oklch(1 0 0 / 0.16); background: oklch(1 0 0 / 0.03); }
+.btn-primary {
+  color: oklch(0.14 0.02 50);
+  background: linear-gradient(180deg, var(--amber-400), var(--amber-500));
+  border-color: color-mix(in oklch, var(--amber-500) 50%, transparent);
+  box-shadow: 0 1px 0 oklch(1 0 0 / 0.2) inset, 0 12px 30px -12px var(--amber-500);
+  font-weight: 600;
+}
+.btn-primary:hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+  box-shadow: 0 1px 0 oklch(1 0 0 / 0.25) inset, 0 18px 36px -12px var(--amber-500);
+}
+.btn-primary:disabled {
+  filter: none;
+  transform: none;
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+.btn-xl { padding: 18px 28px; font-size: 15px; border-radius: var(--r-lg); }
+
+/* ——— Keycap ——— */
+kbd.kc, .kc {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 24px; height: 22px; padding: 0 6px;
+  margin-right: 4px;
+  border: 1px solid oklch(1 0 0 / 0.12);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: oklch(1 0 0 / 0.04);
+  color: var(--cream-800);
+  font-family: var(--mono);
+  font-size: 10.5px;
+}

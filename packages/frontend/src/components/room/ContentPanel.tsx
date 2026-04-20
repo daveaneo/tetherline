@@ -138,7 +138,8 @@ export function ContentPanel() {
 
             {state.phase === 'HEATMAP' && (
               <div>
-                <h2 className="text-xl font-semibold mb-4">Understanding Map</h2>
+                <div className="kicker mb-2">Coverage</div>
+              <h2 className="font-serif mb-6" style={{ fontSize: 36, fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--cream-900)' }}>Understanding map</h2>
                 <UnderstandingMap data={heatmap} />
               </div>
             )}
@@ -172,16 +173,26 @@ export function ContentPanel() {
             )}
 
             {state.phase === 'COMPLETED' && (
-              <div className="text-center py-12">
-                <h2 className="text-2xl font-bold mb-3">Session Complete</h2>
-                <p className="text-[var(--color-text-muted)]">Your understanding map has been updated.</p>
+              <div className="text-center py-16">
+                <div className="kicker mb-3">Fin</div>
+                <h2 className="font-serif" style={{ fontSize: 56, fontWeight: 300, letterSpacing: '-0.025em', color: 'var(--cream-900)' }}>
+                  Session complete.
+                </h2>
+                <p className="mt-4" style={{ color: 'var(--cream-500)' }}>
+                  Your understanding map has been updated.
+                </p>
               </div>
             )}
 
             {state.phase === 'ERROR' && (
-              <div className="text-center py-12">
-                <h2 className="text-xl font-bold text-red-400 mb-3">Something went wrong</h2>
-                <p className="text-[var(--color-text-muted)]">{state.error ?? 'An unexpected error occurred'}</p>
+              <div className="text-center py-16">
+                <div className="kicker mb-3" style={{ color: 'var(--sig-break)' }}>Error</div>
+                <h2 className="font-serif" style={{ fontSize: 40, fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--cream-900)' }}>
+                  Something went wrong.
+                </h2>
+                <p className="mt-4" style={{ color: 'var(--cream-500)' }}>
+                  {state.error ?? 'An unexpected error occurred'}
+                </p>
               </div>
             )}
           </motion.div>
@@ -254,16 +265,21 @@ function formatTime(ts: number): string {
 function AnalyzingContent({ progress }: { progress: { phase: string; progress: number; message: string } | null }) {
   return (
     <div className="space-y-6 py-8">
-      <h2 className="text-xl font-semibold">Analyzing Repository</h2>
-      <div className="space-y-3">
-        <div className="h-2 bg-[var(--color-border)] rounded-full overflow-hidden">
+      <div className="kicker">Reading</div>
+      <h2 className="font-serif" style={{ fontSize: 40, fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--cream-900)' }}>
+        Getting to know your repository.
+      </h2>
+      <div className="space-y-3 max-w-xl">
+        <div className="und-bar" style={{ height: 4 }}>
           <motion.div
-            className="h-full bg-[var(--color-accent)] rounded-full"
+            className="fill"
             animate={{ width: `${(progress?.progress ?? 0) * 100}%` }}
-            transition={{ duration: 0.5 }}
+            transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
           />
         </div>
-        <p className="text-sm text-[var(--color-text-muted)]">{progress?.message ?? 'Starting...'}</p>
+        <p className="font-mono" style={{ fontSize: 12, color: 'var(--cream-500)', letterSpacing: '0.02em' }}>
+          {progress?.message ?? 'Starting…'}
+        </p>
       </div>
     </div>
   );
@@ -272,25 +288,35 @@ function AnalyzingContent({ progress }: { progress: { phase: string; progress: n
 function ProposalContent({ proposal }: { proposal: { message: string; suggestedOrder: string[]; areas: Array<{ id: string; name: string; significance: string }> } }) {
   return (
     <div className="space-y-6 py-4">
-      <h2 className="text-xl font-semibold">Tour Plan</h2>
-      <p className="text-[var(--color-text)] leading-relaxed">{proposal.message}</p>
+      <div className="kicker">Tour plan</div>
+      <h2 className="font-serif" style={{ fontSize: 40, fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--cream-900)', maxWidth: '22ch', lineHeight: 1.05 }}>
+        Here&apos;s what I&apos;d like to show you.
+      </h2>
+      <p className="narration" style={{ fontSize: 18 }}>{proposal.message}</p>
 
       <div className="space-y-2">
-        <h3 className="text-sm font-medium text-[var(--color-text-muted)]">Suggested order</h3>
+        <h3 className="kicker">Suggested order</h3>
         <div className="space-y-2">
           {proposal.areas.map((area, index) => (
             <div
               key={area.id}
-              className="flex items-center gap-3 p-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)]"
+              className="panel-muted flex items-center gap-3"
+              style={{ padding: '14px 16px' }}
             >
-              <span className="text-sm font-medium text-[var(--color-text-muted)] w-6 text-right">{index + 1}</span>
-              <span className={`w-2 h-2 rounded-full ${
-                area.significance === 'major' ? 'bg-[var(--color-red)]' :
-                area.significance === 'minor' ? 'bg-[var(--color-yellow)]' :
-                'bg-[var(--color-green)]'
-              }`} />
-              <span className="text-sm font-medium">{area.name}</span>
-              <span className="text-xs text-[var(--color-text-muted)] ml-auto">{area.significance}</span>
+              <span className="font-mono" style={{ width: 24, textAlign: 'right', color: 'var(--cream-400)', fontSize: 12 }}>
+                {String(index + 1).padStart(2, '0')}
+              </span>
+              <span className={`w-2 h-2 rounded-full`} style={{
+                background: area.significance === 'major' ? 'var(--sig-break)' :
+                            area.significance === 'minor' ? 'var(--sig-concern)' :
+                            'var(--sig-okay)',
+              }} />
+              <span className="font-serif" style={{ fontSize: 17, color: 'var(--cream-900)', letterSpacing: '-0.005em' }}>
+                {area.name}
+              </span>
+              <span className="font-mono ml-auto" style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--cream-500)' }}>
+                {area.significance}
+              </span>
             </div>
           ))}
         </div>
@@ -298,12 +324,15 @@ function ProposalContent({ proposal }: { proposal: { message: string; suggestedO
 
       <div className="flex items-center gap-3">
         <button
+          type="button"
           onClick={() => sendEvent({ type: 'command:next' })}
-          className="px-5 py-2.5 bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white rounded-lg text-sm transition-colors"
+          className="btn btn-primary"
         >
-          Let's go
+          Let&apos;s go
         </button>
-        <span className="text-xs text-[var(--color-text-muted)] opacity-60">or say "let's go"</span>
+        <span className="font-mono" style={{ fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--cream-500)' }}>
+          or say &ldquo;let&apos;s go&rdquo;
+        </span>
       </div>
     </div>
   );
@@ -311,37 +340,42 @@ function ProposalContent({ proposal }: { proposal: { message: string; suggestedO
 
 function RecapContent({ recap, previousSession }: { recap: string | null; previousSession: any }) {
   return (
-    <div className="space-y-4 py-8">
-      <h2 className="text-xl font-semibold">Previously...</h2>
+    <div className="space-y-5 py-8">
+      <div className="kicker" style={{ color: 'var(--amber-400)' }}>Previously on</div>
+      <h2 className="font-serif" style={{ fontSize: 48, fontWeight: 300, letterSpacing: '-0.025em', color: 'var(--cream-900)', maxWidth: '20ch', lineHeight: 1.02 }}>
+        {previousSession ? 'Where we left off.' : 'A fresh start.'}
+      </h2>
       {previousSession && (
-        <div className="p-4 bg-[var(--color-bg)] rounded-xl border border-[var(--color-border)]">
-          <p className="text-sm text-[var(--color-text-muted)] mb-1">
-            Last session: {previousSession.totalCommits} commits, {previousSession.totalAreas} areas
-          </p>
+        <div className="prev-meta-row">
+          <span><b>{previousSession.totalCommits}</b>commits</span>
+          <span><b>{previousSession.totalAreas}</b>areas</span>
         </div>
       )}
-      {recap && <p className="text-[var(--color-text)] leading-relaxed">{recap}</p>}
+      {recap && (
+        <p className="narration" style={{ fontSize: 20, maxWidth: '58ch' }}>{recap}</p>
+      )}
     </div>
   );
 }
 
 function OverviewContent({ areas }: { areas: AreaWithContent[] }) {
-  // Sort areas by impact score descending (if available), then by original order
   const sortedAreas = [...areas].sort((a, b) => (b.impactScore ?? 0) - (a.impactScore ?? 0));
-
-  // Group areas by theme
   const themes = new Map<string, AreaWithContent[]>();
   for (const area of sortedAreas) {
     const theme = area.theme ?? 'Other';
     if (!themes.has(theme)) themes.set(theme, []);
     themes.get(theme)!.push(area);
   }
-
   const hasThemes = sortedAreas.some(a => a.theme);
 
   return (
-    <div className="space-y-4 py-4">
-      <h2 className="text-xl font-semibold">This Week's Changes</h2>
+    <div className="space-y-6 py-4">
+      <div>
+        <div className="kicker">This week</div>
+        <h2 className="font-serif mt-2" style={{ fontSize: 40, fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--cream-900)' }}>
+          What changed.
+        </h2>
+      </div>
       {hasThemes ? (
         // Grouped by theme
         Array.from(themes.entries()).map(([theme, themeAreas]) => (
@@ -468,33 +502,40 @@ function ConcernsContent({ concerns }: { concerns: Concern[] }) {
   });
 
   return (
-    <div className="space-y-4 py-4">
-      <h2 className="text-xl font-semibold">AI Observations</h2>
+    <div className="space-y-5 py-4">
+      <div>
+        <div className="kicker">Advisory</div>
+        <h2 className="font-serif mt-2" style={{ fontSize: 40, fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--cream-900)' }}>
+          Things worth a look.
+        </h2>
+      </div>
       {sorted.length === 0 ? (
-        <p className="text-[var(--color-text-muted)]">No concerns flagged.</p>
+        <p className="narration" style={{ fontSize: 18, color: 'var(--cream-500)' }}>No concerns flagged. Quiet week.</p>
       ) : (
         <div className="space-y-3">
-          {sorted.map(c => (
-            <div
-              key={c.id}
-              className={`p-4 rounded-xl border ${
-                c.severity === 'critical' ? 'border-red-500/40 bg-red-500/5' :
-                c.severity === 'warning' ? 'border-amber-500/40 bg-amber-500/5' :
-                'border-[var(--color-border)] bg-[var(--color-bg)]'
-              }`}
-            >
-              <div className="flex items-center gap-2 mb-2">
-                <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                  c.severity === 'critical' ? 'bg-red-500/20 text-red-400' :
-                  c.severity === 'warning' ? 'bg-amber-500/20 text-amber-400' :
-                  'bg-[var(--color-surface)] text-[var(--color-text-muted)]'
-                }`}>{c.severity}</span>
-                <span className="text-xs text-[var(--color-text-muted)]">{c.category}</span>
+          {sorted.map(c => {
+            const kind = c.severity === 'critical' ? 'break' : c.severity === 'warning' ? 'concern' : 'muted';
+            const accent = c.severity === 'critical' ? 'var(--sig-break)' : c.severity === 'warning' ? 'var(--sig-concern)' : 'oklch(1 0 0 / 0.08)';
+            return (
+              <div
+                key={c.id}
+                className="panel-muted"
+                style={{ padding: 20, borderLeft: `2px solid ${accent}` }}
+              >
+                <div className="flex items-center gap-3 mb-2">
+                  <span className={`badge badge-${kind}`}>
+                    <span className="pip" />
+                    {c.severity}
+                  </span>
+                  <span className="font-mono" style={{ fontSize: 10.5, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--cream-500)' }}>
+                    {c.category}
+                  </span>
+                </div>
+                <h3 className="font-serif" style={{ fontSize: 20, letterSpacing: '-0.01em', color: 'var(--cream-900)' }}>{c.title}</h3>
+                <p className="mt-1.5" style={{ fontSize: 14, color: 'var(--cream-600)', lineHeight: 1.6 }}>{c.description}</p>
               </div>
-              <h3 className="font-medium mb-1">{c.title}</h3>
-              <p className="text-sm text-[var(--color-text-muted)]">{c.description}</p>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -506,8 +547,15 @@ function ProjectOverviewContent({ areas, understanding }: { areas: AreaWithConte
 
   return (
     <div className="space-y-6 py-4">
-      <h2 className="text-xl font-semibold">Project Overview</h2>
-      <p className="text-[var(--color-text-muted)]">Getting to know this codebase for the first time.</p>
+      <div>
+        <div className="kicker">First look</div>
+        <h2 className="font-serif mt-2" style={{ fontSize: 40, fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--cream-900)' }}>
+          Project overview.
+        </h2>
+        <p className="mt-3" style={{ color: 'var(--cream-500)', fontSize: 16 }}>
+          Getting to know this codebase for the first time.
+        </p>
+      </div>
 
       {/* Stats grid */}
       <div className="grid grid-cols-2 gap-3">
@@ -564,17 +612,21 @@ function ProjectOverviewContent({ areas, understanding }: { areas: AreaWithConte
 }
 
 function ArchitectureOverviewContent({ areas, understanding }: { areas: AreaWithContent[]; understanding: UnderstandingState | null }) {
-  // Use architecture data from the first area (shared across all areas)
   const nodes = areas[0]?.architectureNodes ?? [];
-
-  // Group nodes by type for display
   const modules = nodes.filter(n => n.type === 'module');
   const files = nodes.filter(n => n.type === 'file');
 
   return (
     <div className="space-y-6 py-4">
-      <h2 className="text-xl font-semibold">Architecture Overview</h2>
-      <p className="text-[var(--color-text-muted)]">How the codebase is structured and organized.</p>
+      <div>
+        <div className="kicker">The map</div>
+        <h2 className="font-serif mt-2" style={{ fontSize: 40, fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--cream-900)' }}>
+          Architecture overview.
+        </h2>
+        <p className="mt-3" style={{ color: 'var(--cream-500)', fontSize: 16 }}>
+          How the codebase is structured and organized.
+        </p>
+      </div>
 
       {/* Module breakdown */}
       {modules.length > 0 && (
@@ -769,24 +821,25 @@ function WrapUpContent({ heatmap, sessionId }: { heatmap: any; sessionId: string
 
   return (
     <div className="space-y-6 py-4">
-      <h2 className="text-xl font-semibold">Session Complete</h2>
+      <div>
+        <div className="kicker">End credits</div>
+        <h2 className="font-serif mt-2" style={{ fontSize: 48, fontWeight: 300, letterSpacing: '-0.025em', color: 'var(--cream-900)' }}>
+          Session complete.
+        </h2>
+      </div>
       <UnderstandingMap data={heatmap} />
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-3">
         <div className="flex gap-3">
-          <button
-            onClick={() => handleExport('slides')}
-            className="px-5 py-2.5 bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white rounded-lg text-sm transition-colors"
-          >
-            Export Slides
+          <button type="button" onClick={() => handleExport('slides')} className="btn btn-primary">
+            Export slides
           </button>
-          <button
-            onClick={() => handleExport('markdown')}
-            className="px-5 py-2.5 border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] rounded-lg text-sm transition-colors"
-          >
-            Export Markdown
+          <button type="button" onClick={() => handleExport('markdown')} className="btn btn-ghost">
+            Export markdown
           </button>
         </div>
-        <span className="text-xs text-[var(--color-text-muted)] opacity-60">or say "export slides" / "export markdown"</span>
+        <span className="font-mono" style={{ fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--cream-500)' }}>
+          or say &ldquo;export slides&rdquo; / &ldquo;export markdown&rdquo;
+        </span>
       </div>
     </div>
   );

@@ -4,111 +4,111 @@ import { useSession } from '../../hooks/useSession.js';
 import { motion, AnimatePresence } from 'framer-motion';
 import { sendEvent } from '../../lib/ws-client.js';
 import { VoiceHelp } from './VoiceHelp.js';
+import { VoiceOrb } from '../primitives/VoiceOrb.js';
 
-const STATE_CONFIG: Record<VoiceState, { color: string; borderColor: string; label: string }> = {
-  speaking: { color: 'var(--color-accent)', borderColor: 'rgba(99, 102, 241, 0.4)', label: 'AI Speaking' },
-  listening: { color: 'var(--color-text-muted)', borderColor: 'var(--color-border)', label: 'Listening' },
-  hearing: { color: 'var(--color-green)', borderColor: 'rgba(52, 211, 153, 0.5)', label: 'Hearing you' },
-  processing: { color: 'var(--color-yellow)', borderColor: 'rgba(251, 191, 36, 0.4)', label: 'Thinking...' },
+const STATE_LABEL: Record<VoiceState, string> = {
+  speaking: 'speaking',
+  listening: 'listening',
+  hearing: 'hearing you',
+  processing: 'thinking',
 };
 
 export function NarrationBar() {
-  const { currentSegment, isPlaying, voiceState } = useAudioStore();
+  const { currentSegment, voiceState } = useAudioStore();
   const state = useSessionStore(s => s.state);
   const { areas } = useSession();
-  const config = STATE_CONFIG[voiceState];
+
+  const idleText =
+    state.phase === 'ANALYZING' ? 'Analyzing repository…' :
+    voiceState === 'hearing' ? 'Go ahead — I\'m listening.' :
+    voiceState === 'processing' ? 'Let me think about that…' :
+    'Say something, or I\'ll keep going.';
 
   return (
-    <motion.div
-      animate={{ borderColor: config.borderColor }}
-      transition={{ duration: 0.3 }}
-      className="h-20 border-t-2 bg-[var(--color-surface)] flex items-center px-6 gap-4"
+    <div
+      className="flex items-center gap-6"
+      style={{
+        padding: '14px 24px',
+        borderTop: '1px solid oklch(1 0 0 / 0.05)',
+        background: 'color-mix(in oklch, var(--ink-050) 92%, transparent)',
+        backdropFilter: 'blur(20px)',
+      }}
     >
-      {/* Voice state indicator */}
-      <div className="flex items-center gap-3 min-w-[140px]">
-        {/* Animated state icon */}
-        <motion.div
-          animate={{
-            scale: voiceState === 'hearing' ? [1, 1.2, 1] : voiceState === 'speaking' ? [1, 1.05, 1] : 1,
-            boxShadow: voiceState === 'listening'
-              ? '0 0 0px transparent'
-              : `0 0 ${voiceState === 'hearing' ? '16px' : '10px'} ${config.borderColor}`,
-          }}
-          transition={{
-            duration: voiceState === 'hearing' ? 0.6 : 1.5,
-            repeat: voiceState === 'listening' ? 0 : Infinity,
-            repeatType: 'reverse',
-          }}
-          className="w-10 h-10 flex items-center justify-center rounded-full border-2 transition-colors"
-          style={{ borderColor: config.color }}
-        >
-          {voiceState === 'speaking' && (
-            <WaveformBars color={config.color} />
-          )}
-          {voiceState === 'listening' && (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={config.color} strokeWidth="2">
-              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-            </svg>
-          )}
-          {voiceState === 'hearing' && (
-            <WaveformBars color={config.color} active />
-          )}
-          {voiceState === 'processing' && (
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-              className="w-4 h-4 border-2 rounded-full"
-              style={{ borderColor: config.color, borderTopColor: 'transparent' }}
-            />
-          )}
-        </motion.div>
-
-        {/* State label */}
-        <AnimatePresence mode="wait">
-          <motion.span
-            key={voiceState}
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.15 }}
-            className="text-xs font-medium"
-            style={{ color: config.color }}
+      <div className="flex items-center gap-4 flex-none">
+        <VoiceOrb state={voiceState} size={60} />
+        <div style={{ minWidth: 104 }}>
+          <div
+            className="font-mono"
+            style={{
+              fontSize: 9.5,
+              letterSpacing: '0.16em',
+              textTransform: 'uppercase',
+              color: voiceState === 'hearing' ? 'var(--sig-okay)' : 'var(--cream-500)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
           >
-            {config.label}
-          </motion.span>
-        </AnimatePresence>
+            {voiceState === 'hearing' && (
+              <span
+                style={{
+                  width: 6, height: 6, borderRadius: '50%',
+                  background: 'var(--sig-okay)',
+                  boxShadow: '0 0 8px var(--sig-okay)',
+                }}
+              />
+            )}
+            {voiceState === 'hearing' ? 'Mic live' : 'Voice'}
+          </div>
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={voiceState}
+              initial={{ opacity: 0, y: 3 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -3 }}
+              transition={{ duration: 0.15 }}
+              className="font-serif mt-0.5"
+              style={{ fontSize: 16, fontStyle: 'italic', color: 'var(--amber-400)', letterSpacing: '-0.005em' }}
+            >
+              {STATE_LABEL[voiceState]}
+            </motion.div>
+          </AnimatePresence>
+        </div>
       </div>
 
-      {/* Progress dots */}
       {areas.length > 0 && (
-        <div className="flex items-center gap-1.5 mx-2">
-          {areas.map((_, i) => (
-            <div
-              key={i}
-              className={`w-1.5 h-1.5 rounded-full transition-colors ${
-                i === (state.areaIndex ?? -1)
-                  ? 'bg-[var(--color-accent)]'
-                  : i < (state.areaIndex ?? 0)
-                  ? 'bg-[var(--color-text-muted)]/50'
-                  : 'bg-[var(--color-border)]'
-              }`}
-            />
-          ))}
+        <div className="flex items-center gap-1.5" aria-label="Area progress">
+          {areas.map((_, i) => {
+            const current = i === (state.areaIndex ?? -1);
+            const past = i < (state.areaIndex ?? 0);
+            return (
+              <span
+                key={i}
+                className="rounded-full"
+                style={{
+                  width: current ? 6 : 4,
+                  height: current ? 6 : 4,
+                  background: current ? 'var(--amber-400)' : past ? 'var(--cream-500)' : 'oklch(1 0 0 / 0.08)',
+                  boxShadow: current ? '0 0 6px var(--amber-400)' : 'none',
+                  transition: 'all 0.2s ease-out',
+                }}
+              />
+            );
+          })}
         </div>
       )}
 
-      {/* Narration text / subtitle */}
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 min-w-0">
         <AnimatePresence mode="wait">
           {currentSegment ? (
             <motion.p
               key={currentSegment.id}
-              initial={{ opacity: 0, y: 8 }}
+              initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.2 }}
-              className="text-sm text-[var(--color-text)] leading-relaxed line-clamp-2"
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.25 }}
+              className="narration line-clamp-2"
+              style={{ fontSize: 18 }}
             >
               {currentSegment.text}
             </motion.p>
@@ -117,70 +117,48 @@ export function NarrationBar() {
               key="idle"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="text-sm text-[var(--color-text-muted)] italic"
+              className="narration"
+              style={{ fontSize: 16, color: 'var(--cream-500)' }}
             >
-              {state.phase === 'ANALYZING' ? 'Analyzing repository...' :
-               voiceState === 'hearing' ? 'Go ahead, I\'m listening...' :
-               voiceState === 'processing' ? 'Let me think about that...' :
-               'Say something or I\'ll continue the tour...'}
+              {idleText}
             </motion.p>
           )}
         </AnimatePresence>
       </div>
 
-      {/* Compact nav controls */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-none">
         <button
+          type="button"
           onClick={() => sendEvent({ type: 'command:previous' })}
-          className="px-3 py-1.5 text-xs rounded-md border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors"
+          className="btn btn-ghost"
+          style={{ padding: '8px 12px', fontSize: 12 }}
           title='Previous (or say "go back")'
         >
-          &larr; Back
+          <span className="kc">←</span>
+          Back
         </button>
         <button
+          type="button"
           onClick={() => sendEvent(state.paused ? { type: 'command:resume' } : { type: 'command:pause' })}
-          className="px-3 py-1.5 text-xs rounded-md border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors"
+          className="btn btn-ghost"
+          style={{ padding: '8px 12px', fontSize: 12 }}
           title={state.paused ? 'or say "resume"' : 'or say "pause"'}
         >
-          {state.paused ? '\u25B6 Resume' : '\u23F8 Pause'}
+          <span className="kc">␣</span>
+          {state.paused ? 'Resume' : 'Pause'}
         </button>
         <button
+          type="button"
           onClick={() => sendEvent({ type: 'command:skip' })}
-          className="px-3 py-1.5 text-xs rounded-md border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors"
+          className="btn btn-ghost"
+          style={{ padding: '8px 12px', fontSize: 12 }}
           title='or say "skip"'
         >
-          Skip \u2192
+          Skip
+          <span className="kc">→</span>
         </button>
-        <div className="relative">
-          <VoiceHelp />
-        </div>
+        <VoiceHelp />
       </div>
-    </motion.div>
-  );
-}
-
-/** Small animated waveform bars */
-function WaveformBars({ color, active }: { color: string; active?: boolean }) {
-  return (
-    <div className="flex items-center gap-[2px] h-4">
-      {[0, 1, 2, 3].map(i => (
-        <motion.div
-          key={i}
-          className="w-[3px] rounded-full"
-          style={{ background: color }}
-          animate={{
-            height: active
-              ? [4, 14, 8, 16, 6]
-              : [3, 10, 6, 12, 4],
-          }}
-          transition={{
-            duration: active ? 0.5 : 0.8,
-            repeat: Infinity,
-            repeatType: 'reverse',
-            delay: i * 0.1,
-          }}
-        />
-      ))}
     </div>
   );
 }

@@ -1,58 +1,155 @@
 @import 'tailwindcss';
+@import './primitives.css';
+@import './screens.css';
 
+/* ——— Interactive Reviewer ——— design tokens (from Claude Design handoff)
+   Ember-in-espresso. Fraunces (serif) / Geist (UI) / JetBrains Mono (code). */
 :root {
-  --color-bg: #0a0a0f;
-  --color-surface: #12121a;
-  --color-surface-hover: #1a1a25;
-  --color-border: #2a2a3a;
-  --color-text: #e4e4ef;
-  --color-text-muted: #8888a0;
-  --color-accent: #6366f1;
-  --color-accent-hover: #818cf8;
-  --color-green: #34d399;
-  --color-yellow: #fbbf24;
-  --color-red: #f87171;
-  --color-critical: #ef4444;
+  /* Surfaces — warm espresso, not black-on-black */
+  --ink-000: oklch(0.12 0.012 50);
+  --ink-050: oklch(0.16 0.013 52);
+  --ink-100: oklch(0.20 0.014 54);
+  --ink-150: oklch(0.24 0.015 56);
+  --ink-200: oklch(0.30 0.014 56);
+  --ink-300: oklch(0.38 0.012 58);
+  --ink-400: oklch(0.50 0.010 60);
+
+  /* Foreground — cream, slightly warm */
+  --cream-900: oklch(0.96 0.012 82);
+  --cream-800: oklch(0.92 0.015 82);
+  --cream-600: oklch(0.78 0.016 82);
+  --cream-500: oklch(0.68 0.014 80);
+  --cream-400: oklch(0.58 0.012 78);
+
+  /* Accent — ember (single) */
+  --amber-900: oklch(0.34 0.08 55);
+  --amber-700: oklch(0.52 0.13 55);
+  --amber-500: oklch(0.72 0.14 55);
+  --amber-400: oklch(0.80 0.12 58);
+  --amber-200: oklch(0.90 0.06 60);
+
+  /* Status (quiet) */
+  --sig-concern: oklch(0.70 0.12 35);
+  --sig-break:   oklch(0.65 0.17 25);
+  --sig-okay:    oklch(0.72 0.07 140);
+
+  /* Heatmap gradient — cold (ink) → hot (amber) */
+  --heat-0: oklch(0.22 0.014 56);
+  --heat-1: oklch(0.28 0.025 58);
+  --heat-2: oklch(0.38 0.055 56);
+  --heat-3: oklch(0.52 0.095 55);
+  --heat-4: oklch(0.68 0.13 55);
+  --heat-5: oklch(0.80 0.14 58);
+
+  /* Type */
+  --serif: 'Fraunces', 'Newsreader', Georgia, serif;
+  --ui:    'Geist', 'Söhne', ui-sans-serif, system-ui, sans-serif;
+  --mono:  'JetBrains Mono', 'Geist Mono', ui-monospace, monospace;
+
+  /* Scale */
+  --fs-hero:  clamp(64px, 6.2vw, 112px);
+  --fs-h1:    56px;
+  --fs-h2:    36px;
+  --fs-h3:    26px;
+  --fs-lead:  20px;
+  --fs-body:  15px;
+  --fs-sm:    13px;
+  --fs-micro: 11px;
+
+  /* Spacing — 4px base */
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 20px;
+  --s-6: 24px; --s-7: 32px; --s-8: 40px; --s-9: 56px; --s-10: 72px;
+  --s-11: 96px; --s-12: 128px;
+
+  /* Radii */
+  --r-sm: 4px; --r-md: 8px; --r-lg: 14px; --r-xl: 22px; --r-pill: 999px;
+
+  /* Motion — slow, cinematic */
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in:     cubic-bezier(0.7, 0, 1, 0.4);
+  --dur-1: 240ms;
+  --dur-2: 480ms;
+  --dur-3: 800ms;
+  --dur-4: 1400ms;
+
+  /* Shadow — soft, amber-tinted */
+  --glow-amber: 0 0 80px -20px oklch(0.72 0.14 55 / 0.35);
+  --shadow-1: 0 1px 0 oklch(1 0 0 / 0.03) inset, 0 1px 2px oklch(0 0 0 / 0.4);
+  --shadow-2: 0 24px 48px -24px oklch(0 0 0 / 0.6), 0 1px 0 oklch(1 0 0 / 0.03) inset;
+
+  /* ——— Legacy alias tokens — existing Tailwind utilities reference these.
+     Repointing them here adopts the new skin automatically everywhere. */
+  --color-bg: var(--ink-050);
+  --color-surface: var(--ink-100);
+  --color-surface-hover: var(--ink-150);
+  --color-border: oklch(1 0 0 / 0.06);
+  --color-text: var(--cream-800);
+  --color-text-muted: var(--cream-500);
+  --color-accent: var(--amber-500);
+  --color-accent-hover: var(--amber-400);
+  --color-green: var(--sig-okay);
+  --color-yellow: var(--sig-concern);
+  --color-red: var(--sig-break);
+  --color-critical: var(--sig-break);
 }
 
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
 body {
-  margin: 0;
-  background: var(--color-bg);
-  color: var(--color-text);
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: var(--ink-050);
+  color: var(--cream-800);
+  font-family: var(--ui);
+  font-size: var(--fs-body);
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: -0.005em;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-* {
-  box-sizing: border-box;
+h1, h2, h3, h4 {
+  margin: 0;
+  font-family: var(--serif);
+  font-weight: 400;
+  letter-spacing: -0.015em;
+  line-height: 1.05;
 }
+h1 { font-size: var(--fs-h1); }
+h2 { font-size: var(--fs-h2); }
+h3 { font-size: var(--fs-h3); }
+p { margin: 0; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
 
-/* Scrollbar styling */
-::-webkit-scrollbar {
-  width: 8px;
+/* Utility classes */
+.font-serif { font-family: var(--serif); }
+.font-ui    { font-family: var(--ui); }
+.font-mono  { font-family: var(--mono); letter-spacing: 0; }
+.kicker {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--cream-500);
 }
+.hairline { height: 1px; background: oklch(1 0 0 / 0.06); width: 100%; }
 
-::-webkit-scrollbar-track {
-  background: var(--color-bg);
-}
+/* Focus ring */
+:focus-visible { outline: 1px solid var(--amber-500); outline-offset: 2px; border-radius: var(--r-sm); }
 
-::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 4px;
-}
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: var(--ink-050); }
+::-webkit-scrollbar-thumb { background: var(--ink-200); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--cream-500); }
 
-::-webkit-scrollbar-thumb:hover {
-  background: var(--color-text-muted);
-}
-
-/* Skeleton shimmer for loading states */
+/* Skeleton shimmer */
 .skeleton {
-  background: linear-gradient(90deg, var(--color-surface) 25%, var(--color-surface-hover) 50%, var(--color-surface) 75%);
+  background: linear-gradient(90deg, var(--ink-100) 25%, var(--ink-150) 50%, var(--ink-100) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
   border-radius: 8px;
 }
-
 @keyframes shimmer {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }

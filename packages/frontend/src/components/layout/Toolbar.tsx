@@ -5,17 +5,12 @@ import { VERSION } from '../../version.js';
 
 function ConnectionIndicator() {
   const connected = useSessionStore(s => s.connected);
-
   return (
-    <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
-      <span
-        className={`w-2 h-2 rounded-full ${
-          connected
-            ? 'bg-emerald-500'
-            : 'bg-amber-500 animate-pulse'
-        }`}
-      />
-      <span>{connected ? 'Connected' : 'Reconnecting'}</span>
+    <div className="chrome-meta">
+      <span className={`ping ${connected ? '' : 'is-warn'}`} />
+      <span>{connected ? 'connected' : 'reconnecting'}</span>
+      <span className="hidden md:inline" style={{ opacity: 0.5 }}>·</span>
+      <span className="hidden md:inline" style={{ opacity: 0.5 }}>v{VERSION}</span>
     </div>
   );
 }
@@ -27,27 +22,35 @@ export function Toolbar() {
   const inSession = phase !== 'IDLE';
 
   return (
-    <header className="flex items-center justify-between px-6 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
-      <div className="flex items-center gap-3">
+    <header className="chrome">
+      <div className="flex items-center gap-4">
         {inSession && (
           <button
+            type="button"
             onClick={resetSession}
-            className="flex items-center gap-1.5 text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors mr-2"
+            className="chrome-tab"
             title='Back to lobby (or say "exit")'
           >
-            <span className="text-base">&larr;</span>
+            <span style={{ fontSize: 14 }}>←</span>
             <span>Exit</span>
           </button>
         )}
-        <h1 className="text-lg font-semibold tracking-tight">Interactive Reviewer</h1>
-        <span className="text-[10px] text-[var(--color-text-muted)] opacity-50 font-mono">v{VERSION}</span>
-        <ConnectionIndicator />
+        <div className="chrome-brand">
+          <span className="dot" />
+          <span>Interactive Reviewer</span>
+        </div>
       </div>
-      <div className="flex items-center gap-4">
+
+      <div>
         {inSession && <ModeToggles />}
+      </div>
+
+      <div className="flex items-center gap-3">
+        <ConnectionIndicator />
         <button
+          type="button"
           onClick={() => setSettingsOpen(true)}
-          className="px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] transition-colors"
+          className="chrome-tab"
         >
           Settings
         </button>

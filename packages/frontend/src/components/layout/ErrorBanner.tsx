@@ -12,21 +12,36 @@ export function ErrorBanner() {
           initial={{ height: 0, opacity: 0 }}
           animate={{ height: 'auto', opacity: 1 }}
           exit={{ height: 0, opacity: 0 }}
-          className={`px-6 py-3 flex items-center justify-between ${
-            error.recoverable
-              ? 'bg-amber-500/10 border-b border-amber-500/30'
-              : 'bg-red-500/10 border-b border-red-500/30'
-          }`}
+          style={{
+            padding: '12px 24px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            background: error.recoverable
+              ? 'color-mix(in oklch, var(--sig-concern) 10%, transparent)'
+              : 'color-mix(in oklch, var(--sig-break) 10%, transparent)',
+            borderBottom: `1px solid color-mix(in oklch, ${error.recoverable ? 'var(--sig-concern)' : 'var(--sig-break)'} 30%, transparent)`,
+          }}
         >
           <div className="flex items-center gap-3">
-            <span className={`text-sm font-medium ${error.recoverable ? 'text-amber-400' : 'text-red-400'}`}>
+            <span
+              className="font-mono"
+              style={{
+                fontSize: 10.5,
+                letterSpacing: '0.14em',
+                textTransform: 'uppercase',
+                color: error.recoverable ? 'var(--sig-concern)' : 'var(--sig-break)',
+              }}
+            >
               {error.recoverable ? 'Warning' : 'Error'}
             </span>
-            <span className="text-sm text-[var(--color-text)]">{error.message}</span>
+            <span style={{ fontSize: 14, color: 'var(--cream-800)' }}>{error.message}</span>
           </div>
           <button
+            type="button"
             onClick={clearError}
-            className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+            className="font-mono"
+            style={{ fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--cream-500)' }}
           >
             Dismiss
           </button>

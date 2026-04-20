@@ -34,13 +34,13 @@ export function SharePanel({ markdown, onDismiss }: Props) {
       <h3 className="text-sm font-semibold text-[var(--color-green)]">Share Explanation</h3>
       <pre className="p-3 bg-[var(--color-bg)] rounded-lg text-xs font-mono overflow-auto max-h-48 text-[var(--color-text-muted)]">{markdown}</pre>
       <div className="flex gap-2">
-        <button onClick={handleCopy} className="px-4 py-2 bg-[var(--color-green)] hover:opacity-90 text-white rounded-lg text-sm">
-          {copied ? 'Copied!' : 'Copy to Clipboard'}
+        <button type="button" onClick={handleCopy} className="btn btn-primary">
+          {copied ? 'Copied' : 'Copy to clipboard'}
         </button>
-        <button onClick={handleDownload} className="px-4 py-2 border border-[var(--color-border)] rounded-lg text-sm hover:bg-[var(--color-surface-hover)]">
+        <button type="button" onClick={handleDownload} className="btn btn-ghost">
           Download .md
         </button>
-        <button onClick={onDismiss} className="px-4 py-2 text-sm text-[var(--color-text-muted)]">Dismiss</button>
+        <button type="button" onClick={onDismiss} className="btn btn-ghost">Dismiss</button>
       </div>
     </motion.div>
   );

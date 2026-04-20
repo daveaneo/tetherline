@@ -4,28 +4,15 @@ import { motion, AnimatePresence } from 'framer-motion';
 const STORAGE_KEY = 'voice_help_shown';
 
 const HELP_GROUPS = [
-  {
-    label: 'Navigation',
-    commands: ['"next"', '"skip"', '"go back"', '"dive deeper"'],
-  },
-  {
-    label: 'Control',
-    commands: ['"pause"', '"resume"', '"mute"', '"exit"'],
-  },
-  {
-    label: 'Questions',
-    commands: ['Just ask anything naturally'],
-  },
-  {
-    label: 'Export',
-    commands: ['"export slides"', '"export markdown"'],
-  },
+  { label: 'Navigation', commands: ['"next"', '"skip"', '"go back"', '"dive deeper"'] },
+  { label: 'Control',    commands: ['"pause"', '"resume"', '"mute"', '"exit"'] },
+  { label: 'Questions',  commands: ['Just ask anything naturally'] },
+  { label: 'Export',     commands: ['"export slides"', '"export markdown"'] },
 ];
 
 export function VoiceHelp() {
   const [visible, setVisible] = useState(false);
 
-  // Show automatically on first session
   useEffect(() => {
     if (!localStorage.getItem(STORAGE_KEY)) {
       setVisible(true);
@@ -34,46 +21,72 @@ export function VoiceHelp() {
   }, []);
 
   return (
-    <>
-      {/* Toggle button */}
+    <div className="relative">
       <button
+        type="button"
         onClick={() => setVisible(v => !v)}
-        className="w-7 h-7 flex items-center justify-center rounded-full border border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] text-xs font-bold text-[var(--color-text-muted)] transition-colors"
+        className="flex items-center justify-center rounded-full transition-colors"
+        style={{
+          width: 28, height: 28,
+          border: '1px solid oklch(1 0 0 / 0.1)',
+          background: visible ? 'color-mix(in oklch, var(--amber-500) 12%, transparent)' : 'oklch(1 0 0 / 0.03)',
+          color: visible ? 'var(--amber-400)' : 'var(--cream-500)',
+          fontFamily: 'var(--mono)',
+          fontSize: 12,
+        }}
         title="Voice command help"
         aria-label="Toggle voice command help"
+        aria-expanded={visible}
       >
         ?
       </button>
 
-      {/* Help overlay */}
       <AnimatePresence>
         {visible && (
           <motion.div
-            initial={{ opacity: 0, y: 8, scale: 0.95 }}
+            initial={{ opacity: 0, y: 8, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 8, scale: 0.95 }}
-            transition={{ duration: 0.15 }}
-            className="absolute bottom-full right-0 mb-2 w-72 p-4 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] shadow-lg z-50"
+            exit={{ opacity: 0, y: 8, scale: 0.96 }}
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            className="absolute bottom-full right-0 mb-3 z-50"
+            style={{
+              width: 300,
+              padding: 18,
+              borderRadius: 'var(--r-lg)',
+              background: 'var(--ink-100)',
+              border: '1px solid oklch(1 0 0 / 0.08)',
+              boxShadow: 'var(--shadow-2)',
+            }}
           >
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-[var(--color-text)]">What can I say?</h3>
+              <h3 className="kicker" style={{ color: 'var(--cream-500)' }}>What can I say?</h3>
               <button
+                type="button"
                 onClick={() => setVisible(false)}
-                className="text-[var(--color-text-muted)] hover:text-[var(--color-text)] text-sm leading-none"
+                className="text-sm leading-none"
+                style={{ color: 'var(--cream-500)' }}
                 aria-label="Dismiss"
               >
-                &times;
+                ×
               </button>
             </div>
             <div className="space-y-3">
               {HELP_GROUPS.map(group => (
                 <div key={group.label}>
-                  <div className="text-xs font-medium text-[var(--color-text-muted)] mb-1">{group.label}</div>
+                  <div className="kicker mb-1.5" style={{ fontSize: 9.5 }}>{group.label}</div>
                   <div className="flex flex-wrap gap-1.5">
                     {group.commands.map(cmd => (
                       <span
                         key={cmd}
-                        className="text-xs px-2 py-0.5 rounded-md bg-[var(--color-bg)] border border-[var(--color-border)] text-[var(--color-text)]"
+                        className="font-mono"
+                        style={{
+                          fontSize: 11,
+                          padding: '3px 8px',
+                          borderRadius: 'var(--r-pill)',
+                          background: 'oklch(1 0 0 / 0.04)',
+                          border: '1px solid oklch(1 0 0 / 0.06)',
+                          color: 'var(--cream-800)',
+                        }}
                       >
                         {cmd}
                       </span>
@@ -85,6 +98,6 @@ export function VoiceHelp() {
           </motion.div>
         )}
       </AnimatePresence>
-    </>
+    </div>
   );
 }

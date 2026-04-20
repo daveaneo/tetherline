@@ -70,7 +70,7 @@ export function App() {
     <AppShell>
       {!inSession && <Toolbar />}
       <ErrorBanner />
-      <main className="flex-1 overflow-hidden">
+      <main className={`flex-1 ${inSession ? 'overflow-hidden' : 'overflow-y-auto'}`}>
         {inSession ? <Room /> : <Lobby />}
       </main>
       <SpeechToasts />

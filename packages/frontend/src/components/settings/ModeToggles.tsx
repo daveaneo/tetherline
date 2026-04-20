@@ -2,11 +2,11 @@ import { useSettingsStore } from '../../state/settings-store.js';
 import { sendEvent } from '../../lib/ws-client.js';
 import type { ModeKey } from '@interactive-reviewer/shared';
 
-const MODES: { key: ModeKey; label: string; icon: string }[] = [
-  { key: 'narration', label: 'Narration', icon: '🔊' },
-  { key: 'activeLearning', label: 'Active Learning', icon: '🧠' },
-  { key: 'advisory', label: 'Advisory', icon: '⚡' },
-  { key: 'alerts', label: 'Alerts', icon: '🚨' },
+const MODES: { key: ModeKey; label: string; glyph: string; hint: string }[] = [
+  { key: 'narration',      label: 'Narration',       glyph: '◉', hint: 'AI voice on/off' },
+  { key: 'activeLearning', label: 'Active learning', glyph: '◐', hint: 'Socratic prompts' },
+  { key: 'advisory',       label: 'Advisory',        glyph: '◇', hint: 'Concerns & flags' },
+  { key: 'alerts',         label: 'Alerts',          glyph: '△', hint: 'Security / breaking' },
 ];
 
 export function ModeToggles() {
@@ -14,22 +14,20 @@ export function ModeToggles() {
   const toggleMode = useSettingsStore(s => s.toggleMode);
 
   return (
-    <div className="flex items-center gap-2">
-      {MODES.map(({ key, label, icon }) => (
+    <div className="chrome-tabs" role="group" aria-label="Session modes">
+      {MODES.map(({ key, label, glyph, hint }) => (
         <button
           key={key}
+          type="button"
           onClick={() => {
             toggleMode(key);
             sendEvent({ type: 'command:toggle_mode', payload: { mode: key, enabled: !modes[key] } });
           }}
-          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full transition-colors ${
-            modes[key]
-              ? 'bg-[var(--color-accent)] text-white'
-              : 'bg-[var(--color-surface-hover)] text-[var(--color-text-muted)]'
-          }`}
-          title={label}
+          className={`chrome-tab ${modes[key] ? 'is-on' : ''}`}
+          title={`${label} — ${hint}`}
+          aria-pressed={modes[key]}
         >
-          <span>{icon}</span>
+          <span style={{ fontFamily: 'var(--mono)', fontSize: 10, opacity: 0.8 }}>{glyph}</span>
           <span>{label}</span>
         </button>
       ))}

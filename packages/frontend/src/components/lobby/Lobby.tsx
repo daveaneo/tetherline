@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { api } from '../../lib/api-client.js';
 import { sendEvent } from '../../lib/ws-client.js';
 import { useAudioStore } from '../../state/audio-store.js';
 import { useSessionStore } from '../../state/session-store.js';
-import { motion, AnimatePresence } from 'framer-motion';
 import type { EntryMode } from '@interactive-reviewer/shared';
 
 interface Repo {
@@ -18,19 +18,36 @@ interface Repo {
   contributors?: string[];
 }
 
+interface RecentSession {
+  id: string;
+  repoName: string;
+  startedAt: string;
+  totalAreas?: number;
+  totalCommits?: number;
+  summary?: string;
+}
+
+const WINDOWS = [
+  { days: 1,  label: '24', unit: 'hours' },
+  { days: 7,  label: '7',  unit: 'days' },
+  { days: 14, label: '14', unit: 'days' },
+  { days: 30, label: '30', unit: 'days' },
+];
+
 export function Lobby() {
   const [repos, setRepos] = useState<Repo[]>([]);
+  const [sessions, setSessions] = useState<RecentSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddDialog, setShowAddDialog] = useState(false);
-  const [selectedRepo, setSelectedRepo] = useState<Repo | null>(null);
+  const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
+  const [windowDays, setWindowDays] = useState(7);
   const [keyStatus, setKeyStatus] = useState<{ hasAnthropicKey: boolean; hasOpenaiKey: boolean } | null>(null);
+  const [entryModeRepo, setEntryModeRepo] = useState<Repo | null>(null);
 
   const loadRepos = useCallback(async () => {
     try {
       const data = await api.listRepos();
       setRepos(data.repos);
-
-      // Enrich repos with commit counts and contributors in the background
       const enriched = await Promise.all(
         data.repos.map(async (repo: Repo) => {
           try {
@@ -42,179 +59,15 @@ export function Lobby() {
         })
       );
       setRepos(enriched);
+      if (enriched[0] && !selectedRepoId) setSelectedRepoId(enriched[0].id);
     } catch (err) {
       console.error('Failed to load repos:', err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedRepoId]);
 
   useEffect(() => { loadRepos(); }, [loadRepos]);
-
-  useEffect(() => {
-    api.health().then(data => setKeyStatus({ hasAnthropicKey: data.hasAnthropicKey, hasOpenaiKey: data.hasOpenaiKey })).catch(() => {});
-  }, []);
-
-  const handleSelectRepo = (repo: Repo) => {
-    setSelectedRepo(repo);
-    // Start mic from this click handler (user gesture = browser allows mic access)
-    const { requestMicStart } = useAudioStore.getState();
-    requestMicStart();
-  };
-
-  const handleStartSession = (mode: EntryMode) => {
-    if (!selectedRepo) return;
-    // Start mic from this click handler (user gesture = browser allows mic access)
-    const { requestMicStart } = useAudioStore.getState();
-    requestMicStart();
-    useSessionStore.setState({ activeRepoPath: selectedRepo.path, entryMode: mode });
-    sendEvent({ type: 'session:start', payload: { repoPath: selectedRepo.path, sinceDays: 7, entryMode: mode } });
-    setSelectedRepo(null);
-  };
-
-  const handleRepoAdded = () => {
-    setShowAddDialog(false);
-    loadRepos();
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <div className="animate-pulse text-[var(--color-text-muted)]">Loading repositories...</div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="max-w-5xl mx-auto w-full p-8">
-      {/* API key warning banner */}
-      {keyStatus && !keyStatus.hasAnthropicKey && (
-        <div className="mb-6 p-4 rounded-xl border border-amber-500/30 bg-amber-500/5">
-          <p className="text-sm text-amber-400">
-            No Anthropic API key detected. AI narration and analysis won't work.
-            Add <code className="text-xs bg-[var(--color-bg)] px-1 rounded">ANTHROPIC_API_KEY</code> to your .env file.
-          </p>
-        </div>
-      )}
-
-      {/* Header */}
-      <div className="flex items-center justify-between mb-10">
-        <div>
-          <h1 className="text-3xl font-bold">Interactive Reviewer</h1>
-          <p className="text-[var(--color-text-muted)] mt-1">Select a repository to begin your review session</p>
-        </div>
-        <button
-          onClick={() => setShowAddDialog(true)}
-          className="flex items-center gap-2 px-5 py-2.5 bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white rounded-lg text-sm font-medium transition-colors"
-        >
-          <span className="text-lg">+</span> Add Repository
-        </button>
-      </div>
-
-      {/* Repo Grid */}
-      {repos.length === 0 ? (
-        <div className="text-center py-20">
-          <div className="text-5xl mb-4 opacity-30">&#128193;</div>
-          <h2 className="text-xl font-semibold mb-2">No repositories yet</h2>
-          <p className="text-[var(--color-text-muted)] mb-6">Add a git repository to start your first review session</p>
-          <button
-            onClick={() => setShowAddDialog(true)}
-            className="px-6 py-3 bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white rounded-lg transition-colors"
-          >
-            Add Your First Repository
-          </button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-12">
-          {repos.map((repo, i) => (
-            <motion.button
-              key={repo.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.05 }}
-              onClick={() => handleSelectRepo(repo)}
-              className="text-left p-5 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] hover:border-[var(--color-accent)]/50 transition-all group"
-            >
-              <div className="flex items-start justify-between mb-3">
-                <h3 className="font-semibold text-lg group-hover:text-[var(--color-accent)] transition-colors">{repo.name}</h3>
-                {repo.totalSessions > 0 && (
-                  <span className="text-xs text-[var(--color-text-muted)] bg-[var(--color-bg)] px-2 py-0.5 rounded-full">
-                    {repo.totalSessions} session{repo.totalSessions !== 1 ? 's' : ''}
-                  </span>
-                )}
-              </div>
-
-              {/* Understanding bar */}
-              <div className="mb-3">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs text-[var(--color-text-muted)]">Understanding</span>
-                  <span className="text-xs font-medium">{Math.round(repo.understandingPct)}%</span>
-                </div>
-                <div className="h-2 bg-[var(--color-bg)] rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-500"
-                    style={{
-                      width: `${repo.understandingPct}%`,
-                      background: repo.understandingPct > 70
-                        ? 'var(--color-green)'
-                        : repo.understandingPct > 40
-                        ? 'var(--color-yellow)'
-                        : 'var(--color-red)',
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* Meta */}
-              <div className="flex items-center gap-3 text-xs text-[var(--color-text-muted)]">
-                {repo.lastReviewedAt ? (
-                  <span>Last: {formatTimeAgo(repo.lastReviewedAt)}</span>
-                ) : (
-                  <span className="text-[var(--color-yellow)]">Never reviewed</span>
-                )}
-                {repo.newCommits != null && repo.newCommits > 0 && (
-                  <span className="text-xs text-[var(--color-accent)]">{repo.newCommits} new commits</span>
-                )}
-                {repo.contributors && repo.contributors.length > 0 && (
-                  <span className="text-xs text-[var(--color-text-muted)]">{repo.contributors.length} contributors</span>
-                )}
-              </div>
-
-              {/* Path */}
-              <div className="mt-2 text-xs text-[var(--color-text-muted)] opacity-50 truncate font-mono">
-                {repo.path}
-              </div>
-            </motion.button>
-          ))}
-        </div>
-      )}
-
-      {/* Recent Sessions */}
-      <RecentSessions />
-
-      {/* Entry Mode Selection */}
-      <AnimatePresence>
-        {selectedRepo && (
-          <EntryModeDialog
-            repo={selectedRepo}
-            onSelect={handleStartSession}
-            onClose={() => setSelectedRepo(null)}
-          />
-        )}
-      </AnimatePresence>
-
-      {/* Add Dialog */}
-      <AnimatePresence>
-        {showAddDialog && (
-          <AddRepoDialog onClose={() => setShowAddDialog(false)} onAdded={handleRepoAdded} />
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-function RecentSessions() {
-  const [sessions, setSessions] = useState<any[]>([]);
 
   useEffect(() => {
     api.listSessions()
@@ -222,32 +75,343 @@ function RecentSessions() {
       .catch(() => {});
   }, []);
 
-  if (sessions.length === 0) return null;
+  useEffect(() => {
+    api.health()
+      .then(data => setKeyStatus({ hasAnthropicKey: data.hasAnthropicKey, hasOpenaiKey: data.hasOpenaiKey }))
+      .catch(() => {});
+  }, []);
+
+  const selectedRepo = useMemo(
+    () => repos.find(r => r.id === selectedRepoId) ?? null,
+    [repos, selectedRepoId]
+  );
+
+  const lastSessionForSelected = useMemo(
+    () => sessions.find(s => s.repoName === selectedRepo?.name),
+    [sessions, selectedRepo]
+  );
+
+  const handlePickRepo = (repo: Repo) => {
+    setSelectedRepoId(repo.id);
+  };
+
+  const handleBegin = () => {
+    if (!selectedRepo) return;
+    const { requestMicStart } = useAudioStore.getState();
+    requestMicStart();
+    setEntryModeRepo(selectedRepo);
+  };
+
+  const handleStartSession = (mode: EntryMode) => {
+    const target = entryModeRepo;
+    if (!target) return;
+    const { requestMicStart } = useAudioStore.getState();
+    requestMicStart();
+    useSessionStore.setState({ activeRepoPath: target.path, entryMode: mode });
+    sendEvent({ type: 'session:start', payload: { repoPath: target.path, sinceDays: windowDays, entryMode: mode } });
+    setEntryModeRepo(null);
+  };
+
+  const handleResumeSession = (sessionId: string) => {
+    sendEvent({ type: 'session:resume', payload: { sessionId } });
+  };
+
+  if (loading) {
+    return (
+      <div className="lobby">
+        <div className="kicker">Loading</div>
+        <p className="mt-4 font-serif text-3xl text-[var(--cream-500)]">Reading your repositories…</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="mt-12">
-      <h2 className="text-lg font-semibold mb-4">Recent Sessions</h2>
-      <div className="space-y-2">
-        {sessions.map(session => (
-          <div
-            key={session.id}
-            className="flex items-center justify-between p-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] hover:bg-[var(--color-surface-hover)] transition-colors cursor-pointer"
-            onClick={() => sendEvent({ type: 'session:resume', payload: { sessionId: session.id } })}
+    <div className="lobby">
+      {keyStatus && !keyStatus.hasAnthropicKey && (
+        <div
+          className="mb-6 p-4 rounded-xl"
+          style={{
+            border: '1px solid color-mix(in oklch, var(--amber-500) 30%, transparent)',
+            background: 'color-mix(in oklch, var(--amber-500) 8%, transparent)',
+          }}
+        >
+          <p className="text-sm" style={{ color: 'var(--amber-200)' }}>
+            No Anthropic API key detected. AI narration and analysis won&apos;t work.
+            Add <code className="font-mono text-xs px-1 rounded" style={{ background: 'var(--ink-000)' }}>ANTHROPIC_API_KEY</code> to your <code className="font-mono">.env</code> file.
+          </p>
+        </div>
+      )}
+
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+        className="lobby-kicker"
+      >
+        <span className="dot" />
+        <span>Interactive Reviewer · Weekly briefing</span>
+      </motion.div>
+      <motion.h1
+        initial={{ opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.7, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
+        className="lobby-hero"
+      >
+        Let&apos;s see what <em>changed</em> this week.
+      </motion.h1>
+      <motion.p
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.6, delay: 0.35 }}
+        className="lobby-sub"
+      >
+        Sit down, hit Begin, and the AI will walk you through your repository like a weekly briefing — voice-led, interruptible, with a heatmap of what you&apos;ve actually absorbed.
+      </motion.p>
+
+      {repos.length === 0 ? (
+        <div className="lobby-card mt-12 text-center" style={{ padding: 64 }}>
+          <h2 className="font-serif text-3xl" style={{ color: 'var(--cream-900)' }}>No repositories yet</h2>
+          <p className="mt-3" style={{ color: 'var(--cream-500)' }}>
+            Add a git repository to start your first review session.
+          </p>
+          <button
+            type="button"
+            onClick={() => setShowAddDialog(true)}
+            className="btn btn-primary btn-xl mt-8"
           >
-            <div>
-              <span className="text-sm font-medium">{session.repoName}</span>
-              <span className="text-xs text-[var(--color-text-muted)] ml-3">
-                {new Date(session.startedAt).toLocaleDateString()} · {session.totalAreas} areas · {session.totalCommits} commits
-              </span>
+            Add your first repository
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="lobby-grid">
+            <div className="lobby-card">
+              <div className="ck">
+                <div className="kicker">Repositories</div>
+                <button
+                  type="button"
+                  onClick={() => setShowAddDialog(true)}
+                  className="btn btn-ghost"
+                  style={{ padding: '8px 14px', fontSize: 12.5 }}
+                >
+                  + Add repository
+                </button>
+              </div>
+              <div className="space-y-1">
+                {repos.map((repo, i) => (
+                  <motion.button
+                    key={repo.id}
+                    type="button"
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.04 }}
+                    onClick={() => handlePickRepo(repo)}
+                    className={`repo-row ${selectedRepoId === repo.id ? 'is-active' : ''}`}
+                  >
+                    <div className="repo-glyph">{glyph(repo.name)}</div>
+                    <div className="repo-meta">
+                      <div className="n">{repo.name}</div>
+                      <div className="b">{repo.path}</div>
+                      <div className="und-bar" style={{ width: 160, marginTop: 6 }}>
+                        <div className="fill" style={{ width: `${Math.max(2, Math.round(repo.understandingPct))}%` }} />
+                      </div>
+                    </div>
+                    <div className="repo-stat">
+                      {repo.newCommits != null && repo.newCommits > 0 ? (
+                        <span style={{ color: 'var(--amber-400)' }}>+{repo.newCommits}</span>
+                      ) : repo.lastReviewedAt ? (
+                        <span>{formatTimeAgo(repo.lastReviewedAt)}</span>
+                      ) : (
+                        <span>new</span>
+                      )}
+                    </div>
+                  </motion.button>
+                ))}
+              </div>
+
+              <div className="kicker mt-8 mb-3">Review window</div>
+              <div className="window-picker">
+                {WINDOWS.map(w => (
+                  <button
+                    key={w.days}
+                    type="button"
+                    onClick={() => setWindowDays(w.days)}
+                    className={`window-pill ${windowDays === w.days ? 'is-active' : ''}`}
+                  >
+                    <div className="n">{w.label}</div>
+                    <div className="u">{w.unit}</div>
+                  </button>
+                ))}
+              </div>
             </div>
-            {session.summary && (
-              <span className="text-xs text-[var(--color-text-muted)] max-w-xs truncate">{session.summary}</span>
+
+            {lastSessionForSelected ? (
+              <div className="prev-card">
+                <div className="prev-eyebrow">Previously on</div>
+                <div className="prev-title">
+                  {lastSessionForSelected.summary?.split('.')[0] || lastSessionForSelected.repoName}
+                </div>
+                <div className="prev-meta-row">
+                  {lastSessionForSelected.totalAreas != null && (
+                    <span><b>{lastSessionForSelected.totalAreas}</b>areas</span>
+                  )}
+                  {lastSessionForSelected.totalCommits != null && (
+                    <span><b>{lastSessionForSelected.totalCommits}</b>commits</span>
+                  )}
+                  <span><b>{formatTimeAgo(lastSessionForSelected.startedAt)}</b></span>
+                </div>
+                {lastSessionForSelected.summary && (
+                  <p className="prev-body">{lastSessionForSelected.summary}</p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleResumeSession(lastSessionForSelected.id)}
+                  className="btn btn-ghost mt-5"
+                  style={{ padding: '8px 14px', fontSize: 12.5 }}
+                >
+                  Resume this session
+                </button>
+              </div>
+            ) : (
+              <div className="prev-card">
+                <div className="prev-eyebrow">First visit</div>
+                <div className="prev-title">
+                  Pick a repo. We&apos;ll take it from there.
+                </div>
+                <p className="prev-body">
+                  Your first session will build a baseline — the AI skims the repo, maps the architecture, and hands you a guided tour. After that, every weekly session builds on what you&apos;ve already seen.
+                </p>
+              </div>
             )}
           </div>
-        ))}
-      </div>
+
+          {selectedRepo && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.5 }}
+              className="mt-10 flex items-center justify-between gap-6"
+              style={{
+                padding: '22px 28px',
+                background: 'oklch(1 0 0 / 0.02)',
+                border: '1px solid oklch(1 0 0 / 0.05)',
+                borderRadius: 'var(--r-xl)',
+              }}
+            >
+              <div>
+                <div className="font-mono" style={{ fontSize: 10.5, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--amber-400)' }}>
+                  Ready · last {windowDays} day{windowDays === 1 ? '' : 's'}
+                </div>
+                <div className="mt-2 font-serif" style={{ fontSize: 28, color: 'var(--cream-900)', letterSpacing: '-0.018em', fontStyle: 'italic', fontWeight: 300 }}>
+                  {selectedRepo.name}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleBegin}
+                className="btn btn-primary btn-xl"
+              >
+                Begin session
+                <span className="font-mono" style={{ fontSize: 11, opacity: 0.7 }}>⏎</span>
+              </button>
+            </motion.div>
+          )}
+
+          {sessions.length > 0 && (() => {
+            const visible = sessions.filter(s => (s.totalCommits ?? 0) > 0 || (s.totalAreas ?? 0) > 0).slice(0, 5);
+            if (visible.length === 0) return null;
+            return (
+              <div className="mt-16">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="kicker">Recent sessions</div>
+                  {sessions.length > 5 && (
+                    <span className="font-mono" style={{ fontSize: 11, letterSpacing: '0.06em', color: 'var(--cream-500)' }}>
+                      {visible.length} of {sessions.length}
+                    </span>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  {visible.map((session, i) => (
+                    <button
+                      key={session.id}
+                      type="button"
+                      onClick={() => handleResumeSession(session.id)}
+                      className="w-full flex items-center gap-4 text-left transition-colors"
+                      style={{
+                        padding: '14px 18px',
+                        borderLeft: i === 0
+                          ? '2px solid var(--amber-500)'
+                          : '2px solid color-mix(in oklch, var(--amber-500) 25%, transparent)',
+                        background: i === 0 ? 'oklch(1 0 0 / 0.025)' : 'oklch(1 0 0 / 0.012)',
+                        borderRadius: '0 var(--r-md) var(--r-md) 0',
+                      }}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="font-serif" style={{ fontSize: 17, color: 'var(--cream-900)', letterSpacing: '-0.008em' }}>
+                          {session.repoName}
+                        </div>
+                        <div className="font-mono mt-1" style={{ fontSize: 11, color: 'var(--cream-500)', letterSpacing: '0.02em' }}>
+                          {session.totalAreas != null && session.totalAreas > 0 && `${session.totalAreas} areas · `}
+                          {session.totalCommits != null && session.totalCommits > 0 && `${session.totalCommits} commits · `}
+                          {formatTimeAgo(session.startedAt)}
+                        </div>
+                      </div>
+                      {session.summary && (
+                        <span className="truncate max-w-sm font-serif italic" style={{ fontSize: 14, color: 'var(--cream-600)' }}>
+                          {session.summary}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+        </>
+      )}
+
+      <AnimatePresence>
+        {entryModeRepo && (
+          <EntryModeDialog
+            repo={entryModeRepo}
+            onSelect={handleStartSession}
+            onClose={() => setEntryModeRepo(null)}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showAddDialog && (
+          <AddRepoDialog
+            onClose={() => setShowAddDialog(false)}
+            onAdded={() => { setShowAddDialog(false); loadRepos(); }}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
+}
+
+function glyph(name: string): string {
+  const clean = name.replace(/[^a-zA-Z0-9]/g, '');
+  if (clean.length === 0) return '··';
+  if (clean.length === 1) return clean[0].toUpperCase();
+  return (clean[0] + clean[1]).toUpperCase();
+}
+
+function formatTimeAgo(dateStr: string): string {
+  const now = Date.now();
+  const then = new Date(dateStr).getTime();
+  const diffMs = now - then;
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+  if (diffMins < 1) return 'just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
+  return `${Math.floor(diffDays / 30)}mo ago`;
 }
 
 function EntryModeDialog({ repo, onSelect, onClose }: { repo: Repo; onSelect: (mode: EntryMode) => void; onClose: () => void }) {
@@ -257,16 +421,11 @@ function EntryModeDialog({ repo, onSelect, onClose }: { repo: Repo; onSelect: (m
   useEffect(() => {
     if (!lastToast) return;
     const text = lastToast.text.toLowerCase();
-    if (text.startsWith('[')) return; // ignore system toasts like [Mic: started]
-    if (text.includes('full') || text.includes('walkthrough') || text.includes('everything')) {
-      onSelect('full_walkthrough');
-    } else if (text.includes('update') || text.includes('what changed') || text.includes("what's new") || text.includes('recent')) {
-      onSelect('updates');
-    } else if (text.includes('onboarding') || text.includes('learn') || text.includes('program')) {
-      onSelect('onboarding');
-    } else if (text.includes('explore') || text.includes('manual') || text.includes('free') || text.includes('self')) {
-      onSelect('explore');
-    }
+    if (text.startsWith('[')) return;
+    if (text.includes('full') || text.includes('walkthrough') || text.includes('everything')) onSelect('full_walkthrough');
+    else if (text.includes('update') || text.includes('what changed') || text.includes("what's new") || text.includes('recent')) onSelect('updates');
+    else if (text.includes('onboarding') || text.includes('learn') || text.includes('program')) onSelect('onboarding');
+    else if (text.includes('explore') || text.includes('manual') || text.includes('free') || text.includes('self')) onSelect('explore');
   }, [lastToast, onSelect]);
 
   return (
@@ -274,114 +433,58 @@ function EntryModeDialog({ repo, onSelect, onClose }: { repo: Repo; onSelect: (m
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      className="modal-backdrop"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <motion.div
-        initial={{ scale: 0.95, y: 10 }}
-        animate={{ scale: 1, y: 0 }}
-        exit={{ scale: 0.95, y: 10 }}
-        className="w-full max-w-lg mx-4 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl shadow-2xl p-6"
+        initial={{ scale: 0.96, y: 8, opacity: 0 }}
+        animate={{ scale: 1, y: 0, opacity: 1 }}
+        exit={{ scale: 0.96, y: 8, opacity: 0 }}
+        className="modal-shell"
+        style={{ maxWidth: 600 }}
       >
-        <div className="mb-5">
-          <h2 className="text-xl font-semibold">{repo.name}</h2>
-          <div className="flex items-center gap-3 mt-2">
-            <div className="flex-1">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-xs text-[var(--color-text-muted)]">Understanding</span>
-                <span className="text-xs font-medium">{Math.round(repo.understandingPct)}%</span>
-              </div>
-              <div className="h-1.5 bg-[var(--color-bg)] rounded-full overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-all"
-                  style={{
-                    width: `${repo.understandingPct}%`,
-                    background: repo.understandingPct > 70
-                      ? 'var(--color-green)'
-                      : repo.understandingPct > 40
-                      ? 'var(--color-yellow)'
-                      : 'var(--color-red)',
-                  }}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
+        <div className="kicker">{repo.name}</div>
+        <h2 className="font-serif mt-2" style={{ fontSize: 32, color: 'var(--cream-900)', letterSpacing: '-0.02em', fontWeight: 300 }}>
+          How should we open?
+        </h2>
 
-        <div className="flex items-center gap-2 mt-3 mb-2">
-          <motion.div
-            animate={{ scale: [1, 1.2, 1] }}
-            transition={{ duration: 1.5, repeat: Infinity }}
-            className="w-3 h-3 rounded-full bg-[var(--color-green)]"
+        <div className="mt-4 flex items-center gap-3">
+          <motion.span
+            className="block rounded-full"
+            animate={{ scale: [1, 1.2, 1], opacity: [0.6, 1, 0.6] }}
+            transition={{ duration: 1.6, repeat: Infinity }}
+            style={{ width: 8, height: 8, background: 'var(--sig-okay)', boxShadow: '0 0 8px var(--sig-okay)' }}
           />
-          <span className="text-xs text-[var(--color-green)]">Mic active — say your choice or click</span>
+          <span className="font-mono" style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--sig-okay)' }}>
+            Mic live — say your choice or click
+          </span>
         </div>
 
-        <p className="text-sm text-[var(--color-text-muted)] mb-5">How would you like to explore? Just say it.</p>
-
-        <div className="space-y-3">
-          <button
-            onClick={() => onSelect('full_walkthrough')}
-            className="w-full text-left p-4 rounded-xl border border-[var(--color-border)] hover:border-[var(--color-accent)]/50 hover:bg-[var(--color-surface-hover)] transition-all group"
-          >
-            <div className="flex items-center gap-3 mb-1">
-              <span className="text-lg">&#128218;</span>
-              <h3 className="font-medium group-hover:text-[var(--color-accent)] transition-colors">Full Walkthrough</h3>
-            </div>
-            <p className="text-sm text-[var(--color-text-muted)] ml-8">
-              Start from scratch. Get a project overview, architecture tour, and component-by-component walkthrough.
-            </p>
-            <p className="text-xs text-[var(--color-text-muted)] ml-8 mt-1 opacity-60">or say "full walkthrough"</p>
+        <div className="mt-5 space-y-2">
+          <button type="button" className="mode-card" onClick={() => onSelect('full_walkthrough')}>
+            <div className="t">Full walkthrough</div>
+            <div className="d">Start from scratch. Overview, architecture tour, then component-by-component.</div>
+            <div className="h"><em>say</em> &ldquo;full walkthrough&rdquo;</div>
           </button>
-
-          <button
-            onClick={() => onSelect('updates')}
-            className="w-full text-left p-4 rounded-xl border border-[var(--color-border)] hover:border-[var(--color-accent)]/50 hover:bg-[var(--color-surface-hover)] transition-all group"
-          >
-            <div className="flex items-center gap-3 mb-1">
-              <span className="text-lg">&#128260;</span>
-              <h3 className="font-medium group-hover:text-[var(--color-accent)] transition-colors">Updates Only</h3>
-            </div>
-            <p className="text-sm text-[var(--color-text-muted)] ml-8">
-              Review recent changes. See what happened since your last session with a focused diff walkthrough.
-            </p>
-            <p className="text-xs text-[var(--color-text-muted)] ml-8 mt-1 opacity-60">or say "updates"</p>
+          <button type="button" className="mode-card" onClick={() => onSelect('updates')}>
+            <div className="t">Updates only</div>
+            <div className="d">Just what&apos;s changed. A focused diff walkthrough since your last session.</div>
+            <div className="h"><em>say</em> &ldquo;updates&rdquo; or &ldquo;what changed&rdquo;</div>
           </button>
-
-          <button
-            onClick={() => onSelect('onboarding')}
-            className="w-full text-left p-4 rounded-xl border border-[var(--color-border)] hover:border-[var(--color-accent)]/50 hover:bg-[var(--color-surface-hover)] transition-all group"
-          >
-            <div className="flex items-center gap-3 mb-1">
-              <span className="text-lg">&#127891;</span>
-              <h3 className="font-medium group-hover:text-[var(--color-accent)] transition-colors">Onboarding Program</h3>
-            </div>
-            <p className="text-sm text-[var(--color-text-muted)] ml-8">
-              A structured 5-day program to learn this codebase from the ground up.
-            </p>
-            <p className="text-xs text-[var(--color-text-muted)] ml-8 mt-1 opacity-60">or say "onboarding"</p>
+          <button type="button" className="mode-card" onClick={() => onSelect('onboarding')}>
+            <div className="t">Onboarding program</div>
+            <div className="d">A structured 5-day program to learn this codebase from the ground up.</div>
+            <div className="h"><em>say</em> &ldquo;onboarding&rdquo;</div>
           </button>
-
-          <button
-            onClick={() => onSelect('explore')}
-            className="w-full text-left p-4 rounded-xl border border-[var(--color-border)] hover:border-[var(--color-accent)]/50 hover:bg-[var(--color-surface-hover)] transition-all group"
-          >
-            <div className="flex items-center gap-3 mb-1">
-              <span className="text-lg">&#128270;</span>
-              <h3 className="font-medium group-hover:text-[var(--color-accent)] transition-colors">Explore</h3>
-            </div>
-            <p className="text-sm text-[var(--color-text-muted)] ml-8">
-              Free exploration. You lead — ask questions, navigate, and dive into whatever interests you.
-            </p>
-            <p className="text-xs text-[var(--color-text-muted)] ml-8 mt-1 opacity-60">or say "explore"</p>
+          <button type="button" className="mode-card" onClick={() => onSelect('explore')}>
+            <div className="t">Explore</div>
+            <div className="d">You lead. Ask questions, navigate, and dive into whatever interests you.</div>
+            <div className="h"><em>say</em> &ldquo;explore&rdquo;</div>
           </button>
         </div>
 
         <div className="mt-5 flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
-          >
+          <button type="button" onClick={onClose} className="btn btn-ghost" style={{ padding: '8px 14px', fontSize: 12.5 }}>
             Cancel
           </button>
         </div>
@@ -399,11 +502,9 @@ function AddRepoDialog({ onClose, onAdded }: { onClose: () => void; onAdded: () 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!repoPath.trim()) return;
-
     setLoading(true);
     setError('');
     setResult(null);
-
     try {
       const data = await api.addRepo(repoPath.trim());
       if (data.alreadyExists) {
@@ -414,7 +515,7 @@ function AddRepoDialog({ onClose, onAdded }: { onClose: () => void; onAdded: () 
           commitCount: data.commitCount ?? 0,
           contributorCount: data.contributorCount ?? 0,
         });
-        setTimeout(onAdded, 1000);
+        setTimeout(onAdded, 900);
       }
     } catch (err: any) {
       setError(err.message ?? 'Failed to add repository');
@@ -428,68 +529,62 @@ function AddRepoDialog({ onClose, onAdded }: { onClose: () => void; onAdded: () 
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      className="modal-backdrop"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <motion.div
-        initial={{ scale: 0.95, y: 10 }}
-        animate={{ scale: 1, y: 0 }}
-        exit={{ scale: 0.95, y: 10 }}
-        className="w-full max-w-md mx-4 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl shadow-2xl p-6"
+        initial={{ scale: 0.96, y: 8, opacity: 0 }}
+        animate={{ scale: 1, y: 0, opacity: 1 }}
+        exit={{ scale: 0.96, y: 8, opacity: 0 }}
+        className="modal-shell"
       >
-        <h2 className="text-xl font-semibold mb-4">Add Repository</h2>
-
-        <form onSubmit={handleSubmit}>
-          <label className="block text-sm text-[var(--color-text-muted)] mb-1.5">Git URL or local path</label>
+        <div className="kicker">New repository</div>
+        <h2 className="font-serif mt-2" style={{ fontSize: 28, color: 'var(--cream-900)', letterSpacing: '-0.015em', fontWeight: 300 }}>
+          Point us at a repo.
+        </h2>
+        <form onSubmit={handleSubmit} className="mt-5">
+          <label className="kicker block mb-2">Git URL or local path</label>
           <input
             type="text"
             value={repoPath}
             onChange={(e) => setRepoPath(e.target.value)}
-            placeholder="https://github.com/user/repo or /path/to/local/repo"
-            className="w-full px-4 py-2.5 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg text-sm focus:outline-none focus:border-[var(--color-accent)] mb-4"
+            placeholder="https://github.com/user/repo or /path/to/repo"
+            className="w-full px-4 py-3 font-mono text-sm rounded-lg"
+            style={{
+              background: 'var(--ink-000)',
+              border: '1px solid oklch(1 0 0 / 0.08)',
+              color: 'var(--cream-800)',
+              outline: 'none',
+            }}
             autoFocus
           />
 
           {error && (
-            <div className="text-sm text-red-400 mb-4">{error}</div>
+            <div className="mt-3 text-sm" style={{ color: 'var(--sig-break)' }}>{error}</div>
           )}
 
           {result && (
-            <div className="p-3 bg-[var(--color-bg)] rounded-lg mb-4 space-y-1">
-              <div className="text-sm text-[var(--color-green)]">Repository added!</div>
-              <div className="text-xs text-[var(--color-text-muted)]">{result.commitCount} commits from {result.contributorCount} contributors</div>
+            <div
+              className="mt-3 p-3 rounded-lg"
+              style={{ background: 'color-mix(in oklch, var(--sig-okay) 10%, transparent)', border: '1px solid color-mix(in oklch, var(--sig-okay) 30%, transparent)' }}
+            >
+              <div className="text-sm" style={{ color: 'var(--sig-okay)' }}>Repository added.</div>
+              <div className="text-xs mt-1" style={{ color: 'var(--cream-500)' }}>
+                {result.commitCount} commits · {result.contributorCount} contributors
+              </div>
             </div>
           )}
 
-          <div className="flex gap-3 justify-end">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text)]">
+          <div className="flex gap-3 justify-end mt-6">
+            <button type="button" onClick={onClose} className="btn btn-ghost" style={{ padding: '10px 16px' }}>
               Cancel
             </button>
-            <button
-              type="submit"
-              disabled={loading || !repoPath.trim()}
-              className="px-6 py-2 bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white rounded-lg text-sm disabled:opacity-50 transition-colors"
-            >
-              {loading ? 'Checking...' : 'Add'}
+            <button type="submit" disabled={loading || !repoPath.trim()} className="btn btn-primary">
+              {loading ? 'Checking…' : 'Add'}
             </button>
           </div>
         </form>
       </motion.div>
     </motion.div>
   );
-}
-
-function formatTimeAgo(dateStr: string): string {
-  const now = Date.now();
-  const then = new Date(dateStr).getTime();
-  const diffMs = now - then;
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffMins < 1) return 'just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
-  if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
-  return `${Math.floor(diffDays / 30)}mo ago`;
 }
