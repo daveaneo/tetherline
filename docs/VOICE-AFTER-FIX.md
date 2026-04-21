@@ -1,6 +1,6 @@
 # Voice interaction — after-fix measurement
 
-_Generated 2026-04-21T15:40:52.042Z — 12 scenarios._
+_Generated 2026-04-21T16:02:11.607Z — 12 scenarios._
 
 ## Legend
 
@@ -25,8 +25,8 @@ _Generated 2026-04-21T15:40:52.042Z — 12 scenarios._
 | 05-long-question | User interrupts with a full multi-second question. | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 0ms ✅ |
 | 06-mid-thought-pause | User speaks, pauses 900ms mid-thought, continues. AI must no | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 0ms ✅ |
 | 07-clean-end-of-turn | User asks a full question then goes silent; AI should respon | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | 803ms ✅ | 0 ✅ | 0ms ✅ |
-| 08-queue-leak | Backend emits 3 narrations back-to-back, user interrupts aft | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 0ms ✅ |
-| 09-segment-boundary | User starts speaking exactly as segment N ends / N+1 starts. | ✅ | 1ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 1ms ✅ |
+| 08-queue-leak | Backend emits 3 narrations back-to-back, user interrupts aft | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 1ms ✅ |
+| 09-segment-boundary | User starts speaking exactly as segment N ends / N+1 starts. | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 0ms ✅ |
 | 10-early-session-interrupt | User barges in before the greeting finishes. | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 0ms ✅ |
 | 11-self-interrupt | Backend emits two narrations with no segment_finished betwee | ❌ | —ms — | 0 ✅ | 0 ✅ | —ms — | 1 ❌ | 0ms ✅ |
 | 12-sustained-user-speech | User speaks for 3 seconds continuously. Backend keeps trying | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 0ms ✅ |

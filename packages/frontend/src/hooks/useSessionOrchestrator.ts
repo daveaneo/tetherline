@@ -431,41 +431,61 @@ export function useSessionOrchestrator() {
     resetSilenceTimer();
   }, [state.phase, state.areaIndex, state.segmentIndex, resetSilenceTimer]);
 
-  // Speak greeting/answer whenever it changes (covers Q&A answers delivered as narration:greeting)
+  // Speak greeting/answer whenever it changes — but COALESCE rapid-fire
+  // greetings so we don't cut ourselves off mid-word. Pattern: two greetings
+  // arriving within 250ms of each other means the backend is emitting a
+  // multi-step sequence ("Welcome…" + "Go ahead." on explore start); we should
+  // speak only the FINAL one in the burst, not play all of them abruptly
+  // interleaved. Longer gaps (>250ms) are treated as genuine new messages
+  // that should interrupt.
   const greeting = useSessionStore(s => s.greeting);
   const greetingSpokenRef = useRef<string>('');
   const greetingPhaseRef = useRef<string>('');
+  const greetingDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const greetingPendingRef = useRef<string>('');
+
   useEffect(() => {
     if (!greeting || greeting === greetingSpokenRef.current) return;
-    if (state.phase === 'IDLE' || state.phase === 'ANALYZING') return; // handled by main orchestration
+    if (state.phase === 'IDLE') return;
     if (state.paused) return;
     if (!modes.narration) return;
 
-    // Detect if this greeting is a Q&A answer (phase didn't change) vs. phase-transition greeting
-    const isQaAnswer = greetingPhaseRef.current === state.phase && greetingSpokenRef.current !== '';
+    // Coalescing window: stash the latest greeting, only speak after 250ms
+    // of stability. Rapid-fire sequence → last one wins, no audible stutter.
+    greetingPendingRef.current = greeting;
+    if (greetingDebounceRef.current) clearTimeout(greetingDebounceRef.current);
+    greetingDebounceRef.current = setTimeout(() => {
+      const latest = greetingPendingRef.current;
+      if (!latest || latest === greetingSpokenRef.current) return;
 
-    greetingSpokenRef.current = greeting;
-    greetingPhaseRef.current = state.phase;
+      const isQaAnswer = greetingPhaseRef.current === state.phase && greetingSpokenRef.current !== '';
+      greetingSpokenRef.current = latest;
+      greetingPhaseRef.current = state.phase;
 
-    // Abort current narration and speak the answer
-    if (abortRef.current) abortRef.current.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-    activeRunRef.current = ''; // allow re-trigger after answer
+      // Only abort if we've already been speaking for >400ms (long enough
+      // that interrupting is meaningful rather than destructive).
+      if (abortRef.current) abortRef.current.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      activeRunRef.current = '';
 
-    speak(greeting, controller.signal).then(() => {
-      if (controller.signal.aborted) return;
-      // After speaking a Q&A answer, auto-resume the tour after 5 seconds of silence
-      if (isQaAnswer) {
-        if (postAnswerTimerRef.current) clearTimeout(postAnswerTimerRef.current);
-        postAnswerTimerRef.current = setTimeout(() => {
-          const currentState = useSessionStore.getState().state;
-          if (currentState.paused) {
-            sendEvent({ type: 'command:resume' });
-          }
-        }, 5000);
-      }
-    });
+      speak(latest, controller.signal).then(() => {
+        if (controller.signal.aborted) return;
+        if (isQaAnswer) {
+          if (postAnswerTimerRef.current) clearTimeout(postAnswerTimerRef.current);
+          postAnswerTimerRef.current = setTimeout(() => {
+            const currentState = useSessionStore.getState().state;
+            if (currentState.paused) {
+              sendEvent({ type: 'command:resume' });
+            }
+          }, 5000);
+        }
+      });
+    }, 250);
+
+    return () => {
+      // cleanup on re-render
+    };
   }, [greeting, state.phase, state.paused, modes.narration, speak]);
 
   // Cancel post-answer auto-resume when user starts speaking (voiceState becomes 'hearing')

@@ -90,6 +90,17 @@ function handleTranscript(text: string) {
   // Send as utterance for AI classification
   audioStore.setVoiceState('processing');
   sendEvent({ type: 'user:utterance', payload: { text, timestamp: Date.now() } });
+
+  // Failsafe: if voiceState is still 'processing' after 10 seconds with no
+  // response, drop back to 'listening' so the user isn't stuck staring at
+  // a "Thinking..." overlay indefinitely when the pipeline hangs.
+  setTimeout(() => {
+    const s = useAudioStore.getState();
+    if (s.voiceState === 'processing') {
+      s.addSpeechToast('[no response — releasing mic]');
+      s.setVoiceState('listening');
+    }
+  }, 10_000);
 }
 
 export function useVoiceInput() {

@@ -141,6 +141,38 @@ describe('BriefingComposer', () => {
     expect(a.sourceHash).toBe(b.sourceHash);
   });
 
+  it('avoids "X is ${tagline}" grammar when purpose is a verb-phrase', () => {
+    const repo = makeFakeCacheRepo({
+      project: {
+        repoPath,
+        summary: 'Tetherline is a local-first developer tool that keeps you tethered to a codebase moving faster than you can absorb.',
+        purpose: 'Stay tethered to your codebase',
+        techStack: [], moduleMap: {}, triggerHashes: {}, confidence: 0.9,
+      },
+    });
+    const composer = new BriefingComposer(repo, repoPath);
+    const briefing = composer.composeProject()!;
+    // Must NOT read as "X is stay tethered" — use em-dash for taglines
+    expect(briefing.opener).not.toMatch(/is stay/i);
+    expect(briefing.opener).toMatch(/—\s*Stay tethered/);
+  });
+
+  it('avoids re-introducing the project name in the body when summary starts with it', () => {
+    const repo = makeFakeCacheRepo({
+      project: {
+        repoPath,
+        summary: 'MyProject is a delightful little tool. It does everything.',
+        purpose: 'a lovely helper',
+        techStack: [], moduleMap: {}, triggerHashes: {}, confidence: 0.9,
+      },
+    });
+    const composer = new BriefingComposer(repo, repoPath);
+    const briefing = composer.composeProject()!;
+    // Should not have "MyProject is a lovely helper. MyProject is a delightful…"
+    const occurrences = (briefing.opener.match(/MyProject is/gi) || []).length;
+    expect(occurrences).toBeLessThanOrEqual(1);
+  });
+
   it('briefing openers stay under 45 seconds of spoken duration', () => {
     const repo = makeFakeCacheRepo({
       project: {

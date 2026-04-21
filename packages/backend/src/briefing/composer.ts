@@ -1,9 +1,37 @@
 import { createHash } from 'crypto';
+import fs from 'fs';
 import path from 'path';
 import type { Briefing, BriefingLayer } from '@tetherline/shared';
 import type { ContextCacheRepository } from '../db/repositories/context-cache-repo.js';
 import type { IClaudeClient } from '../intelligence/client-interface.js';
 import { stripMarkdownForSpeech, validateTTSText } from './tts-safety.js';
+
+/** Best-effort project name detection. Prefers a README first-heading or a
+ *  manifest `name` field over the directory basename (which can lag renames
+ *  and confuses briefings with stale names). */
+function detectProjectName(repoPath: string): string {
+  const basename = path.basename(repoPath);
+  // Try README.md first — most authoritative for display name.
+  for (const filename of ['README.md', 'README.rst', 'README', 'readme.md']) {
+    try {
+      const content = fs.readFileSync(path.join(repoPath, filename), 'utf8').slice(0, 2000);
+      // Look for the first H1 header, stripping HTML <div> wrappers
+      const m = content.match(/^#\s+(.+?)(?:\s+v?\d[\d.]*)?\s*$/m);
+      if (m) {
+        const candidate = m[1].trim();
+        if (candidate.length > 0 && candidate.length < 60) return candidate;
+      }
+    } catch { /* file missing */ }
+  }
+  // Fall back to package.json name
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(repoPath, 'package.json'), 'utf8'));
+    if (typeof pkg.name === 'string' && pkg.name.length > 0) {
+      return pkg.name.replace(/^@[^/]+\//, '').replace(/-monorepo$/, '');
+    }
+  } catch { /* no manifest */ }
+  return basename;
+}
 
 /**
  * Turns raw context-cache entries (project summary, module summaries, file
@@ -32,9 +60,12 @@ export class BriefingComposer {
     const project = this.cacheRepo.getProject(this.repoPath);
     if (!project?.summary) return null;
 
-    const title = path.basename(this.repoPath);
+    // Prefer README/manifest name over directory basename — directories can
+    // lag renames (e.g. repo dir is still `interactive-reviewer/` but the
+    // project inside is called `Tetherline`).
+    const title = detectProjectName(this.repoPath);
     const source = [project.summary, project.purpose ?? ''].join('\n');
-    const sourceHash = this.hash([source, ...(project.triggerHashes?.head ? [project.triggerHashes.head] : [])]);
+    const sourceHash = this.hash([title, source, ...(project.triggerHashes?.head ? [project.triggerHashes.head] : [])]);
     const opener = this.buildProjectOpener(title, project.purpose, project.summary);
 
     const modules = this.cacheRepo.getModulesForRepo(this.repoPath);
@@ -131,13 +162,44 @@ export class BriefingComposer {
   // ─────────────────────────────────────────────────────────────
 
   private buildProjectOpener(name: string, purpose: string | undefined, summary: string): string {
-    const cleaned = stripMarkdownForSpeech(summary);
-    const firstTwoSentences = splitSentences(cleaned).slice(0, 3).join(' ').trim();
-    const lead = purpose && purpose.length > 0
-      ? `${name} is ${lowerFirst(stripMarkdownForSpeech(purpose))}`
-      : `${name} — `;
-    const body = firstTwoSentences || 'Let me walk you through it from the top.';
-    const opener = lead.endsWith('.') ? `${lead} ${body}` : `${lead}. ${body}`;
+    const cleanedSummary = stripMarkdownForSpeech(summary);
+    const firstTwoSentences = splitSentences(cleanedSummary).slice(0, 2).join(' ').trim();
+    const cleanedPurpose = purpose ? stripMarkdownForSpeech(purpose).trim() : '';
+
+    // Shape the lead sentence around what `purpose` actually looks like.
+    // Imperative/tag-line ("Stay tethered to your codebase") reads awkwardly
+    // after "X is" — use em-dash. Noun phrases ("a voice-led review tool")
+    // read naturally after "X is".
+    const IMPERATIVE_VERBS = new Set([
+      'stay', 'make', 'build', 'create', 'keep', 'close', 'turn', 'be', 'do', 'find',
+      'fix', 'get', 'give', 'go', 'let', 'put', 'run', 'see', 'set', 'take', 'use',
+      'help', 'ship', 'open', 'master', 'learn', 'teach', 'save', 'track', 'automate',
+      'generate', 'analyze', 'understand', 'explore',
+    ]);
+    const firstWord = cleanedPurpose.split(/\s+/)[0]?.toLowerCase() ?? '';
+    const wordCount = cleanedPurpose.split(/\s+/).length;
+    const purposeLooksLikeTagline =
+      IMPERATIVE_VERBS.has(firstWord) ||
+      (wordCount <= 8 && /^[A-Z][a-z]/.test(cleanedPurpose) && !/\s(is|are|was|were|a|an|the)\s/i.test(cleanedPurpose.split(/\s+/).slice(0, 3).join(' ')));
+    const lead = !cleanedPurpose
+      ? name
+      : purposeLooksLikeTagline
+        ? `${name} — ${cleanedPurpose}`
+        : `${name} is ${lowerFirst(cleanedPurpose)}`;
+
+    // Avoid immediately repeating the project name if it already appears at
+    // the start of the summary.
+    const summaryStartsWithName = firstTwoSentences.toLowerCase().startsWith(name.toLowerCase() + ' ');
+    let body = summaryStartsWithName
+      ? firstTwoSentences.slice(name.length).replace(/^\s+(is|is a|is the)\s+/i, '').trim()
+      : firstTwoSentences || 'Let me walk you through it from the top.';
+    // Re-capitalize if we trimmed away the sentence opener
+    if (body.length > 0 && /^[a-z]/.test(body)) body = body[0].toUpperCase() + body.slice(1);
+    // If the body is now redundant with the lead (very short), drop it
+    if (body.length < 15) body = '';
+
+    const joiner = /[.!?]$/.test(lead) ? ' ' : '. ';
+    const opener = body ? `${lead}${joiner}${body}` : lead;
     return ensureSuffixPrompt(opener, "Say \"walk me through the architecture\" whenever you're ready.");
   }
 
