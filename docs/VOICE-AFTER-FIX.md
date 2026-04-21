@@ -1,6 +1,6 @@
 # Voice interaction — after-fix measurement
 
-_Generated 2026-04-20T23:47:19.003Z — 10 scenarios._
+_Generated 2026-04-21T15:34:57.298Z — 12 scenarios._
 
 ## Legend
 
@@ -18,77 +18,89 @@ _Generated 2026-04-20T23:47:19.003Z — 10 scenarios._
 
 | # | Scenario | Flush | To-Flush | During | Leaks | To-Respond | Self-int | Overlap |
 |---|---|---|---|---|---|---|---|---|
-| 01-clean-barge-in | AI is mid-segment, user barges in with a question. | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 186ms ⚠️ |
-| 02-rapid-double-barge-in | User interrupts, AI pauses, user immediately says another th | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 204ms ⚠️ |
-| 03-brief-cough | User coughs / says "hmm" for <300ms mid-narration. | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 181ms ⚠️ |
-| 04-long-question | User interrupts with a full question. | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 1353ms ❌ |
-| 05-mid-thought-pause | User speaks, pauses 900ms mid-thought, continues. | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 0ms ✅ |
-| 06-clean-end-of-turn | User asks a full question then goes silent. | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 0ms ✅ |
-| 07-queue-leak | Server emits 3 narration segments back-to-back, user interru | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 2 ❌ | 183ms ⚠️ |
-| 08-segment-boundary | User starts speaking exactly as segment N ends / N+1 starts. | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 204ms ⚠️ |
-| 09-early-session-interrupt | User barges in before greeting finishes. | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 183ms ⚠️ |
-| 10-self-interrupt | Server emits two narration events with no segment_ended betw | ❌ | —ms — | 0 ✅ | 0 ✅ | —ms — | 1 ❌ | 0ms ✅ |
+| 01-clean-barge-in | AI is mid-segment, user barges in with a question. | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 0ms ✅ |
+| 02-heavy-backend-generation-during-speech | Backend streams 5 narration segments while user is speaking. | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 0ms ✅ |
+| 03-rapid-double-barge-in | User interrupts, AI pauses, user immediately says another th | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 0ms ✅ |
+| 04-brief-cough | User coughs / says "hmm" for <200ms mid-narration. | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | 702ms ✅ | 0 ✅ | 0ms ✅ |
+| 05-long-question | User interrupts with a full multi-second question. | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 1ms ✅ |
+| 06-mid-thought-pause | User speaks, pauses 900ms mid-thought, continues. AI must no | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 0ms ✅ |
+| 07-clean-end-of-turn | User asks a full question then goes silent; AI should respon | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | 802ms ✅ | 0 ✅ | 0ms ✅ |
+| 08-queue-leak | Backend emits 3 narrations back-to-back, user interrupts aft | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 0ms ✅ |
+| 09-segment-boundary | User starts speaking exactly as segment N ends / N+1 starts. | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 0ms ✅ |
+| 10-early-session-interrupt | User barges in before the greeting finishes. | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 0ms ✅ |
+| 11-self-interrupt | Backend emits two narrations with no segment_finished betwee | ❌ | —ms — | 0 ✅ | 0 ✅ | —ms — | 1 ❌ | 0ms ✅ |
+| 12-sustained-user-speech | User speaks for 3 seconds continuously. Backend keeps trying | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 0ms ✅ |
 
 ## Aggregate
 
 | Metric | Pass rate |
 |---|---|
-| flushed | 9/10 |
-| timeToFlushMs | 9/10 |
-| emitsDuringUserSpeech | 10/10 |
-| emitsBeforeFlush | 10/10 |
-| timeToRespondMs | 0/10 |
-| selfInterrupts | 8/10 |
-| overlapMs | 3/10 |
+| flushed | 11/12 |
+| timeToFlushMs | 11/12 |
+| emitsDuringUserSpeech | 12/12 |
+| emitsBeforeFlush | 12/12 |
+| timeToRespondMs | 2/12 |
+| selfInterrupts | 11/12 |
+| overlapMs | 12/12 |
 
 ## Scenarios
 
 ### 01-clean-barge-in
-_Can the AI stop speaking quickly when the user takes over?_
+_Does the AI stop emitting narration the moment user voice begins?_
 
 AI is mid-segment, user barges in with a question.
 
-### 02-rapid-double-barge-in
-_Does the AI lock into responding to the first interrupt before the second arrives?_
+### 02-heavy-backend-generation-during-speech
+_Does the gate catch a burst of server-side generation during the floor?_
+
+Backend streams 5 narration segments while user is speaking.
+
+### 03-rapid-double-barge-in
+_Does the gate handle back-to-back interrupts without leaks in between?_
 
 User interrupts, AI pauses, user immediately says another thing.
 
-### 03-brief-cough
-_Short involuntary sounds should NOT derail the AI._
+### 04-brief-cough
+_Short involuntary sounds should gate briefly but let AI resume quickly._
 
-User coughs / says "hmm" for <300ms mid-narration.
+User coughs / says "hmm" for <200ms mid-narration.
 
-### 04-long-question
-_AI should cut over to answering the question, not finish old narration._
+### 05-long-question
+_Long user speech — gate must hold the whole time, release only after silence._
 
-User interrupts with a full question.
+User interrupts with a full multi-second question.
 
-### 05-mid-thought-pause
-_AI should wait, not interpret the pause as end-of-turn._
+### 06-mid-thought-pause
+_Can the gate treat a pause as temporary rather than end-of-turn?_
 
-User speaks, pauses 900ms mid-thought, continues.
+User speaks, pauses 900ms mid-thought, continues. AI must not jump in.
 
-### 06-clean-end-of-turn
-_How fast does the AI respond? 400-1500ms is the target._
+### 07-clean-end-of-turn
+_Timing: AI responds in 400-1500ms after user stops._
 
-User asks a full question then goes silent.
+User asks a full question then goes silent; AI should respond after cooldown.
 
-### 07-queue-leak
-_Do queued segments leak through after the user has taken the floor?_
+### 08-queue-leak
+_Do queued narrations leak through after the floor transfer?_
 
-Server emits 3 narration segments back-to-back, user interrupts after the first.
+Backend emits 3 narrations back-to-back, user interrupts after the first.
 
-### 08-segment-boundary
-_Edge case — transition boundary._
+### 09-segment-boundary
+_Edge case — floor transfer right at the hand-off._
 
 User starts speaking exactly as segment N ends / N+1 starts.
 
-### 09-early-session-interrupt
-_Interrupt-handling active from the first moment of a session?_
+### 10-early-session-interrupt
+_Floor control active from the first moment of a session?_
 
-User barges in before greeting finishes.
+User barges in before the greeting finishes.
 
-### 10-self-interrupt
-_AI interrupting ITSELF — no user input involved._
+### 11-self-interrupt
+_AI interrupting itself (no user involved)._
 
-Server emits two narration events with no segment_ended between them.
+Backend emits two narrations with no segment_finished between them.
+
+### 12-sustained-user-speech
+_Does the gate hold for a long sustained floor?_
+
+User speaks for 3 seconds continuously. Backend keeps trying to emit.

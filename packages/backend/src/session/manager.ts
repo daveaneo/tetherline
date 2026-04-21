@@ -1592,6 +1592,13 @@ export class SessionManager {
     };
   }
 
+  /** Test-only escape hatch: fire a narration:greeting right now. Flows
+   *  through the gated `emit()` wrapper, so it's dropped if the user holds
+   *  the floor. Used by voice-measurement scenarios to exercise the gate. */
+  forceEmitNarration(text: string): void {
+    this.emit({ type: 'narration:greeting', payload: { text } });
+  }
+
   // ─────────────────────────────────────────────────────────────
   // Comprehension — passive confidence tracking
   // ─────────────────────────────────────────────────────────────

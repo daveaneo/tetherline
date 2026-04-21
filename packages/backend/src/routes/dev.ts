@@ -419,13 +419,40 @@ export function createDevRoutes(db: Database, config: AppConfig): Router {
           break;
         }
         case 'speaking_started': {
-          session.manager.markUserSpeakingStarted();
+          // Emit user.speaking_started BEFORE markUserSpeakingStarted so the
+          // tts.queue_flush it produces has a strictly-greater timestamp.
+          // The time-to-flush metric requires flush.ts >= speaking_started.ts.
           tr?.emit({ kind: 'user.speaking_started', sessionId: session.backendId, payload: {} });
+          session.manager.markUserSpeakingStarted();
+          // Auto-ack any currently-playing segment — models what a real
+          // frontend does on mic-hot: stops audio, which fires
+          // audio:segment_finished back to the server. Gated behind the same
+          // env flag as floor suppression so the pre-fix baseline can be
+          // reproduced.
+          if (tr && process.env.TETHERLINE_DISABLE_FLOOR_SUPPRESSION !== '1') {
+            const recent = tr.getEvents({ sessionId: session.backendId, limit: 50 });
+            const openSegments = new Set<string>();
+            for (const e of recent) {
+              if (e.kind === 'audio.segment_started') openSegments.add(String((e.payload as any).segmentId ?? ''));
+              else if (e.kind === 'audio.segment_ended') openSegments.delete(String((e.payload as any).segmentId ?? ''));
+            }
+            for (const id of openSegments) {
+              tr.emit({ kind: 'audio.segment_ended', sessionId: session.backendId, payload: { segmentId: id, reason: 'auto_ack_on_speaking' } });
+            }
+          }
           break;
         }
         case 'speaking_stopped': {
           session.manager.markUserSpeakingStopped();
           tr?.emit({ kind: 'user.speaking_stopped', sessionId: session.backendId, payload: {} });
+          break;
+        }
+        case 'server_narration': {
+          // Force the backend to emit an AI-speech event right now — flows
+          // through the gated `emit()` wrapper so the gate is actually
+          // exercised. Used by voice-measurement scenarios.
+          const text = String((payload as any)?.text ?? 'Simulated narration.');
+          session.manager.forceEmitNarration(text);
           break;
         }
         case 'interrupt': {
