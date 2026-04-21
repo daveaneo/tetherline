@@ -163,6 +163,12 @@ export class SessionManager {
           this.emit({ type: 'error', payload: { code: 'UTTERANCE_FAILED', message: err.message ?? 'Failed to handle utterance', recoverable: true } });
         });
         break;
+      case 'user:speaking_started':
+        this.markUserSpeakingStarted();
+        break;
+      case 'user:speaking_stopped':
+        this.markUserSpeakingStopped();
+        break;
       case 'action:confirm_issue':
         this.confirmIssue(event.payload).catch(err => {
           this.emit({ type: 'action:issue_failed', payload: { error: err.message } });

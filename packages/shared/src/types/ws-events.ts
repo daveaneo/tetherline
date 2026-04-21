@@ -23,6 +23,8 @@ export type ClientEvent =
   | { type: 'command:export'; payload: { format: 'slides' | 'markdown' } }
   | { type: 'audio:segment_finished'; payload: { segmentId: string } }
   | { type: 'user:utterance'; payload: { text: string; timestamp: number } }
+  | { type: 'user:speaking_started' }
+  | { type: 'user:speaking_stopped' }
   | { type: 'action:confirm_issue'; payload: { title: string; body: string; labels: string[] } }
   | { type: 'session:start_onboarding'; payload: { repoPath: string; programId?: string; dayNumber?: number } };
 

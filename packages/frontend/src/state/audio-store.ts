@@ -21,6 +21,7 @@ interface AudioStore {
   setAudioElement: (el: HTMLAudioElement) => void;
   muteOutput: () => void;
   unmuteOutput: () => void;
+  flushOnInterrupt: () => void;
 
   // Interrupt backoff — prevents AI from speaking immediately after being interrupted
   interruptBackoffUntil: number;
@@ -56,6 +57,15 @@ export const useAudioStore = create<AudioStore>((set, get) => ({
     const el = get().audioElement;
     if (el) { el.pause(); el.currentTime = el.duration || 0; } // hard stop, not just volume
     if ('speechSynthesis' in window) speechSynthesis.cancel(); // cancel, not pause — more reliable
+  },
+  /** Full interrupt flush: hard-stops current playback AND drops the queued
+   *  segments so nothing resumes behind the user's back. Called when the
+   *  mic goes hot. Does NOT touch voiceState (the caller owns that). */
+  flushOnInterrupt: () => {
+    const el = get().audioElement;
+    if (el) { el.pause(); el.currentTime = el.duration || 0; }
+    if ('speechSynthesis' in window) speechSynthesis.cancel();
+    set({ queue: [], currentSegment: null, isPlaying: false });
   },
   unmuteOutput: () => {
     // After a hard stop, we don't resume — the orchestrator will play the next segment

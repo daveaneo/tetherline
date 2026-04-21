@@ -148,6 +148,11 @@ export function useVoiceInput() {
         onSpeechStart: () => {
           const audioStore = useAudioStore.getState();
           audioStore.setVoiceState('hearing');
+          // Hard-flush current playback + drop queued segments. The backend's
+          // floor-control gate will also start suppressing new narration once
+          // we send user:speaking_started below.
+          audioStore.flushOnInterrupt();
+          sendEvent({ type: 'user:speaking_started' });
           if (audioStore.isPlaying) {
             sendEvent({ type: 'command:pause' });
           }
@@ -157,6 +162,7 @@ export function useVoiceInput() {
           if (audioStore.voiceState === 'hearing') {
             audioStore.setVoiceState('processing');
           }
+          sendEvent({ type: 'user:speaking_stopped' });
         },
         onTranscript: (text) => {
           handleTranscript(text);
@@ -223,6 +229,8 @@ function wireWebSpeechCallbacks(recognizer: VoiceCommandRecognizer) {
     const audioStore = useAudioStore.getState();
     audioStore.setVoiceState('hearing');
     audioStore.addSpeechToast('[hearing...]');
+    audioStore.flushOnInterrupt();
+    sendEvent({ type: 'user:speaking_started' });
     if (audioStore.isPlaying) {
       sendEvent({ type: 'command:pause' });
     }
@@ -233,6 +241,7 @@ function wireWebSpeechCallbacks(recognizer: VoiceCommandRecognizer) {
     if (audioStore.voiceState === 'hearing') {
       audioStore.setVoiceState('processing');
     }
+    sendEvent({ type: 'user:speaking_stopped' });
   };
 
   recognizer.onCommand = (command) => {
