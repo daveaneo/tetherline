@@ -48,6 +48,8 @@ describe('buildQAContext', () => {
     expect(prompt).toMatch(/Stay tethered to your codebase/);
     expect(prompt).toMatch(/TypeScript/);
     expect(prompt).toMatch(/spoken aloud/);
+    // Hermes persona is grounded in the prompt so the AI has an identity.
+    expect(prompt).toMatch(/Hermes/);
   });
 
   it('emits the module map so the LLM can answer "what are the main parts?" without exploration', () => {

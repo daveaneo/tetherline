@@ -8,6 +8,7 @@ import { ContentDrawer } from './ContentDrawer.js';
 import { NarrationBar } from './NarrationBar.js';
 import { QuickChips } from './QuickChips.js';
 import { GapsPanel } from './GapsPanel.js';
+import { LiveTranscript } from './LiveTranscript.js';
 import { useGapsStore } from '../../state/gaps-store.js';
 import { SessionEntrance } from './SessionEntrance.js';
 import { BriefingCard } from '../vision/BriefingCard.js';
@@ -99,6 +100,7 @@ export function Room() {
         </div>
 
         <GapsPanel />
+        <LiveTranscript />
       </div>
 
       <ComprehensionOverlay />

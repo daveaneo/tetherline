@@ -1,6 +1,6 @@
 # Voice interaction — after-fix measurement
 
-_Generated 2026-04-21T16:02:11.607Z — 12 scenarios._
+_Generated 2026-04-25T19:54:13.671Z — 12 scenarios._
 
 ## Legend
 
@@ -21,11 +21,11 @@ _Generated 2026-04-21T16:02:11.607Z — 12 scenarios._
 | 01-clean-barge-in | AI is mid-segment, user barges in with a question. | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 0ms ✅ |
 | 02-heavy-backend-generation-during-speech | Backend streams 5 narration segments while user is speaking. | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 0ms ✅ |
 | 03-rapid-double-barge-in | User interrupts, AI pauses, user immediately says another th | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 0ms ✅ |
-| 04-brief-cough | User coughs / says "hmm" for <200ms mid-narration. | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | 701ms ✅ | 0 ✅ | 0ms ✅ |
+| 04-brief-cough | User coughs / says "hmm" for <200ms mid-narration. | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | 702ms ✅ | 0 ✅ | 0ms ✅ |
 | 05-long-question | User interrupts with a full multi-second question. | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 0ms ✅ |
 | 06-mid-thought-pause | User speaks, pauses 900ms mid-thought, continues. AI must no | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 0ms ✅ |
-| 07-clean-end-of-turn | User asks a full question then goes silent; AI should respon | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | 803ms ✅ | 0 ✅ | 0ms ✅ |
-| 08-queue-leak | Backend emits 3 narrations back-to-back, user interrupts aft | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 1ms ✅ |
+| 07-clean-end-of-turn | User asks a full question then goes silent; AI should respon | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | 801ms ✅ | 0 ✅ | 0ms ✅ |
+| 08-queue-leak | Backend emits 3 narrations back-to-back, user interrupts aft | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 0ms ✅ |
 | 09-segment-boundary | User starts speaking exactly as segment N ends / N+1 starts. | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 0ms ✅ |
 | 10-early-session-interrupt | User barges in before the greeting finishes. | ✅ | 0ms ✅ | 0 ✅ | 0 ✅ | —ms — | 0 ✅ | 0ms ✅ |
 | 11-self-interrupt | Backend emits two narrations with no segment_finished betwee | ❌ | —ms — | 0 ✅ | 0 ✅ | —ms — | 1 ❌ | 0ms ✅ |

@@ -69,9 +69,11 @@ export class BriefingComposer {
     const opener = this.buildProjectOpener(title, project.purpose, project.summary);
 
     const modules = this.cacheRepo.getModulesForRepo(this.repoPath);
+    // Cap at 6 — Miller's-rule cognitive load guard for the radial map.
+    // (5 modules + arch/root = 6 satellites.)
     const children = modules
       .filter(m => m.confidence >= 0.3)
-      .slice(0, 8)
+      .slice(0, 5)
       .map(m => `module/${m.modulePath}`);
     children.unshift('arch/root');
 
@@ -98,7 +100,8 @@ export class BriefingComposer {
 
     const opener = this.buildArchitectureOpener(modules);
     const sourceHash = this.hash(modules.map(m => `${m.modulePath}:${m.summary.slice(0, 80)}`));
-    const children = modules.slice(0, 8).map(m => `module/${m.modulePath}`);
+    // Cap children at 6 to keep the radial map readable. (Miller's law.)
+    const children = modules.slice(0, 6).map(m => `module/${m.modulePath}`);
 
     return {
       id: 'arch/root',

@@ -1,5 +1,7 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSessionStore } from '../../state/session-store.js';
+import { useAudioStore } from '../../state/audio-store.js';
+import { sendEvent } from '../../lib/ws-client.js';
 
 /** Shown in the session Room when a narration:briefing event arrives.
  *  Pre-rendered opener text + children suggestions ("you can go deeper into …"). */
@@ -73,8 +75,10 @@ export function BriefingCard() {
               <div className="kicker mb-2">You can drill into</div>
               <div className="flex flex-wrap gap-2">
                 {briefing.children.slice(0, 6).map(c => (
-                  <span
+                  <button
                     key={c}
+                    type="button"
+                    onClick={() => drillInto(c)}
                     style={{
                       fontSize: 12,
                       padding: '6px 12px',
@@ -84,17 +88,44 @@ export function BriefingCard() {
                       color: 'var(--cream-600)',
                       fontFamily: 'var(--serif)',
                       fontStyle: 'italic',
+                      cursor: 'pointer',
                     }}
+                    aria-label={`Drill into ${prettyChildLabel(c)}`}
+                    data-testid={`briefing-child-${c}`}
                   >
                     {prettyChildLabel(c)}
-                  </span>
+                  </button>
                 ))}
               </div>
               <div className="font-mono mt-2" style={{ fontSize: 10.5, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--cream-500)' }}>
-                Say &ldquo;tell me about &hellip;&rdquo; or &ldquo;deeper&rdquo; to continue.
+                Tap a chip, say &ldquo;tell me about &hellip;&rdquo;, or hit the Quiz / Up buttons.
               </div>
             </div>
           )}
+
+          <div className="flex items-center gap-2 mt-5">
+            <button
+              type="button"
+              onClick={() => sendEvent({ type: 'command:level_up' })}
+              className="btn btn-ghost"
+              style={{ padding: '6px 12px', fontSize: 12 }}
+              title="Go one level up"
+              data-testid="briefing-up-arrow"
+              disabled={!briefing.parent}
+            >
+              ↑ Up
+            </button>
+            <button
+              type="button"
+              onClick={() => sendEvent({ type: 'command:quiz_start' })}
+              className="btn btn-ghost"
+              style={{ padding: '6px 12px', fontSize: 12 }}
+              title="Quick comprehension check on this layer"
+              data-testid="briefing-quiz"
+            >
+              ❓ Quiz me
+            </button>
+          </div>
         </motion.div>
       )}
     </AnimatePresence>
@@ -107,4 +138,16 @@ function prettyChildLabel(id: string): string {
   if (id.startsWith('file/')) return id.slice('file/'.length);
   if (id === 'arch/root') return 'architecture';
   return id;
+}
+
+/** Click-handler shared by every child chip. Sends an utterance the
+ *  backend's navigator-vocab routes to push_named — same path voice
+ *  takes. Updates the orb to 'processing' so the user sees feedback
+ *  immediately. */
+function drillInto(childId: string): void {
+  const label = prettyChildLabel(childId);
+  const utterance = `tell me about ${label}`;
+  useSessionStore.getState().addConversation('you', utterance);
+  useAudioStore.getState().setVoiceState('processing');
+  sendEvent({ type: 'user:utterance', payload: { text: utterance, timestamp: Date.now() } });
 }

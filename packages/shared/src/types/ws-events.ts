@@ -15,12 +15,15 @@ export type ClientEvent =
   | { type: 'command:next' }
   | { type: 'command:previous' }
   | { type: 'command:dive_deeper' }
+  | { type: 'command:level_up' }
   | { type: 'command:skip' }
   | { type: 'command:pause' }
   | { type: 'command:resume' }
   | { type: 'command:ask'; payload: { question: string } }
   | { type: 'command:toggle_mode'; payload: { mode: ModeKey; enabled: boolean } }
   | { type: 'command:export'; payload: { format: 'slides' | 'markdown' } }
+  | { type: 'command:quiz_start' }
+  | { type: 'user:quiz_answer'; payload: { questionId: string; answer: string } }
   | { type: 'audio:segment_finished'; payload: { segmentId: string } }
   | { type: 'user:utterance'; payload: { text: string; timestamp: number } }
   | { type: 'user:speaking_started' }
@@ -85,6 +88,25 @@ export type ServerEvent =
   | { type: 'session:state_changed'; payload: { state: SessionState; context: StateContext } }
   | { type: 'session:recap'; payload: { previousSession: SessionSummary; narrative: string } }
   | { type: 'session:recall'; payload: { questions: string[] } }
+  | {
+      type: 'quiz:question';
+      payload: {
+        questionId: string;
+        question: string;
+        index: number;
+        total: number;
+      };
+    }
+  | {
+      type: 'quiz:result';
+      payload: {
+        briefingId: string;
+        correct: number;
+        total: number;
+        previousLevel: 'unknown'|'mentioned'|'heard'|'engaged'|'explained'|'confirmed';
+        newLevel: 'unknown'|'mentioned'|'heard'|'engaged'|'explained'|'confirmed';
+      };
+    }
   | {
       /** Streamed chunk of an AI answer. Frontend appends chunks to its
        *  audio queue and plays them sequentially as each TTS clip is ready,

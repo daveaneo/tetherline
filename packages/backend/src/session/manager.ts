@@ -38,6 +38,8 @@ import { Navigator, frameFromBriefing } from './navigator.js';
 import { resolveNavOp, type NavOp } from './navigator-vocab.js';
 import { isConfirmationPhrase } from './confirmation-phrases.js';
 import { getTraceRecorder } from '../dev/trace.js';
+import { scoreQuizAnswer } from '../intelligence/quiz.js';
+import { getDefaultLLMAdapter } from '../intelligence/llm/index.js';
 import type { ComprehensionItemLayer, ComprehensionLevel } from '@tetherline/shared';
 
 export class SessionManager {
@@ -150,6 +152,19 @@ export class SessionManager {
       case 'command:pause':
       case 'command:resume':
         this.handleNavigation(event.type);
+        break;
+      case 'command:level_up':
+        this.handleLevelUp();
+        break;
+      case 'command:quiz_start':
+        this.handleQuizStart().catch(err => {
+          this.emit({ type: 'error', payload: { code: 'QUIZ_FAILED', message: err.message ?? 'Quiz failed', recoverable: true } });
+        });
+        break;
+      case 'user:quiz_answer':
+        this.handleQuizAnswer(event.payload.questionId, event.payload.answer).catch(err => {
+          this.emit({ type: 'error', payload: { code: 'QUIZ_FAILED', message: err.message ?? 'Quiz answer failed', recoverable: true } });
+        });
         break;
       case 'command:ask':
         this.handleQuestion(event.payload.question);
@@ -1367,6 +1382,139 @@ export class SessionManager {
     await answerAndNarrate("Sorry, I couldn't process that. Make sure the Claude CLI is installed or an API key is set.");
   }
 
+  /** Programmatic "level up" — same effect as the voice phrase "go back".
+   *  Pops the navigator and re-emits the parent briefing. UP arrow button
+   *  in the chrome wires to this. */
+  private handleLevelUp(): void {
+    const repoPath = this.activeRepoPath;
+    if (!repoPath) return;
+    const popped = this.navigator.pop();
+    if (!popped) return;
+    const current = this.navigator.peek();
+    this.emit({
+      type: 'navigator:pop',
+      payload: {
+        poppedBriefingId: popped.briefingId,
+        currentBriefingId: current?.briefingId ?? null,
+        depth: this.navigator.depth,
+        breadcrumb: this.navigator.breadcrumb(),
+      },
+    });
+    if (current) this.reemitBriefing(repoPath, current.briefingId, 'Back up here');
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // Quiz: 3 LLM-generated questions per layer. Right answers
+  // promote comprehension from 'heard' → 'explained' → 'confirmed'.
+  // 3/3 → confirmed, 2/3 → explained, ≤1 → stays heard. Hearing alone
+  // never reaches 'explained' — that's the depth lock.
+  // ─────────────────────────────────────────────────────────────
+  private activeQuiz: {
+    briefingId: string;
+    layer: ComprehensionItemLayer;
+    label: string;
+    questions: Array<{ id: string; question: string; expected: string }>;
+    answers: Array<{ questionId: string; correct: boolean }>;
+    cursor: number;
+  } | null = null;
+
+  private async handleQuizStart(): Promise<void> {
+    const repoPath = this.activeRepoPath;
+    if (!repoPath) return;
+    const current = this.navigator.peek();
+    // Fall back to the project briefing when the user hasn't drilled in yet
+    // — quiz on the project layer is a perfectly reasonable starting place.
+    const briefingId = current?.briefingId ?? 'project';
+    const briefing = this.db.getBriefingRepo().get(repoPath, briefingId);
+    if (!briefing) {
+      this.emit({ type: 'narration:greeting', payload: { text: "There's nothing to quiz on yet. Pick something on the map first." } });
+      return;
+    }
+
+    // Generate quiz questions. Falls back to deterministic templates if no
+    // LLM available — the test fixtures lean on this so the suite stays
+    // hermetic.
+    const { generateQuiz } = await import('../intelligence/quiz.js');
+    const quiz = await generateQuiz({
+      briefing,
+      cacheRepo: this.db.getContextCacheRepo(),
+      repoPath,
+      adapter: getDefaultLLMAdapter(),
+    });
+
+    this.activeQuiz = {
+      briefingId: briefing.id,
+      layer: briefing.layer as ComprehensionItemLayer,
+      label: briefing.title,
+      questions: quiz,
+      answers: [],
+      cursor: 0,
+    };
+    this.emitNextQuizQuestion();
+  }
+
+  private emitNextQuizQuestion(): void {
+    if (!this.activeQuiz) return;
+    const q = this.activeQuiz.questions[this.activeQuiz.cursor];
+    if (!q) return;
+    this.emit({
+      type: 'quiz:question',
+      payload: {
+        questionId: q.id,
+        question: q.question,
+        index: this.activeQuiz.cursor,
+        total: this.activeQuiz.questions.length,
+      },
+    });
+  }
+
+  private async handleQuizAnswer(questionId: string, answer: string): Promise<void> {
+    if (!this.activeQuiz) return;
+    const q = this.activeQuiz.questions[this.activeQuiz.cursor];
+    if (!q || q.id !== questionId) return;
+
+    const correct = scoreQuizAnswer(answer, q.expected);
+    this.activeQuiz.answers.push({ questionId, correct });
+    this.activeQuiz.cursor += 1;
+
+    if (this.activeQuiz.cursor < this.activeQuiz.questions.length) {
+      this.emitNextQuizQuestion();
+      return;
+    }
+
+    // Done — finalize.
+    const correctCount = this.activeQuiz.answers.filter(a => a.correct).length;
+    const total = this.activeQuiz.questions.length;
+    const previousLevel = this.db.getComprehensionRepo()
+      .get(this.activeRepoPath, this.activeQuiz.briefingId)?.level ?? 'unknown';
+
+    let newLevel: ComprehensionLevel = previousLevel;
+    if (correctCount === total) newLevel = 'confirmed';
+    else if (correctCount === total - 1 && total >= 3) newLevel = 'explained';
+    // ≤1 correct: stay where we are (no demotion).
+
+    if (newLevel !== previousLevel) {
+      this.observeComprehension(
+        this.activeQuiz.briefingId,
+        this.activeQuiz.label,
+        newLevel,
+        'question_asked',
+      );
+    }
+
+    this.emit({
+      type: 'quiz:result',
+      payload: {
+        briefingId: this.activeQuiz.briefingId,
+        correct: correctCount,
+        total,
+        previousLevel,
+        newLevel,
+      },
+    });
+    this.activeQuiz = null;
+  }
+
   private handleModeToggle(mode: string, enabled: boolean) {
     const key = mode as ModeKey;
     if (key in this.context.modes) {
@@ -1499,8 +1647,12 @@ export class SessionManager {
     this.emit({ type: 'narration:greeting', payload: { text: briefing.opener } });
     this.lastBriefingEmittedAt = Date.now();
     this.lastBriefingId = briefing.id;
-    // The act of delivering a briefing counts as explaining that item.
-    this.observeComprehension(briefing.id, briefing.title, 'explained', 'briefing_delivered', {
+    // Hearing a briefing only counts as 'heard'. To progress to 'explained'
+    // / 'confirmed' the user has to actively engage — pass a quiz, ask a
+    // follow-up, or confirm with a phrase. This is the depth lock: hearing
+    // ≠ knowing, so a project-level briefing doesn't accidentally certify
+    // the user on the modules underneath.
+    this.observeComprehension(briefing.id, briefing.title, 'heard', 'briefing_delivered', {
       secondsHeard: briefing.estimatedSeconds,
     });
   }
@@ -1717,7 +1869,14 @@ export class SessionManager {
 
     const now = Date.now();
     const lastTouch = this.lastComprehensionTouchAt.get(itemId) ?? 0;
-    if (now - lastTouch < this.COMPREHENSION_COOLDOWN_MS && reason !== 'confirmed_phrase' && reason !== 'stale') {
+    // Cooldown applies to passive signals only — confirmation phrases,
+    // staleness degrade, and quiz scoring are all intentional and must
+    // always update.
+    const bypassCooldown =
+      reason === 'confirmed_phrase' ||
+      reason === 'stale' ||
+      reason === 'question_asked';
+    if (!bypassCooldown && now - lastTouch < this.COMPREHENSION_COOLDOWN_MS) {
       return; // cooldown — skip
     }
     this.lastComprehensionTouchAt.set(itemId, now);

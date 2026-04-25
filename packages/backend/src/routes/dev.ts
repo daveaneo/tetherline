@@ -138,6 +138,31 @@ export function createDevRoutes(db: Database, config: AppConfig): Router {
     }
   });
 
+  /** POST /api/dev/quiz/answer { devSessionId, questionId, answer } */
+  router.post('/quiz/answer', (req, res) => {
+    try {
+      const { devSessionId, questionId, answer } = req.body ?? {};
+      if (!devSessionId || !questionId || typeof answer !== 'string') {
+        res.status(400).json({ error: 'devSessionId + questionId + answer required' });
+        return;
+      }
+      const eventsBefore = registry.getEvents(devSessionId).length;
+      registry.sendEvent(devSessionId, {
+        type: 'user:quiz_answer',
+        payload: { questionId, answer },
+      } as ClientEvent);
+      setTimeout(() => {
+        res.json({
+          ok: true,
+          newEvents: registry.getEvents(devSessionId, eventsBefore),
+          state: registry.getState(devSessionId),
+        });
+      }, 50);
+    } catch (err) {
+      sendErr(res, err);
+    }
+  });
+
   /** POST /api/dev/command { devSessionId, type } */
   router.post('/command', (req, res) => {
     try {
@@ -146,7 +171,8 @@ export function createDevRoutes(db: Database, config: AppConfig): Router {
 
       const valid = new Set([
         'command:next', 'command:previous', 'command:dive_deeper',
-        'command:skip', 'command:pause', 'command:resume',
+        'command:level_up', 'command:skip', 'command:pause', 'command:resume',
+        'command:quiz_start',
       ]);
       const fullType = type.startsWith('command:') ? type : `command:${type}`;
       if (!valid.has(fullType)) {

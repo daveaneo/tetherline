@@ -73,9 +73,15 @@ export class DevClient {
 
   async command(
     devSessionId: string,
-    type: 'next' | 'previous' | 'skip' | 'pause' | 'resume' | 'dive_deeper',
+    type:
+      | 'next' | 'previous' | 'skip' | 'pause' | 'resume'
+      | 'dive_deeper' | 'level_up' | 'quiz_start',
   ): Promise<UtterResponse> {
     return this.req('POST', '/command', { devSessionId, type });
+  }
+
+  async quizAnswer(devSessionId: string, questionId: string, answer: string): Promise<UtterResponse> {
+    return this.req('POST', '/quiz/answer', { devSessionId, questionId, answer });
   }
 
   async toggleMode(devSessionId: string, key: ModeKey, enabled: boolean): Promise<void> {

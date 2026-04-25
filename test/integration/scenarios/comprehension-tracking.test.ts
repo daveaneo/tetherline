@@ -66,21 +66,24 @@ describe('S8/S9 — comprehension tracking', () => {
 
   afterAll(async () => { await h?.stop(); });
 
-  it('project briefing delivered at session start marks project item as explained', async () => {
+  it('project briefing delivered at session start marks project item as heard', async () => {
+    // Hearing a briefing only earns 'heard' — the depth lock that prevents
+    // passive consumption from inflating into 'explained' / 'confirmed'.
+    // Quiz / confirmation phrases are how the user actively earns deeper levels.
     const map = await h.client.comprehension(FIXTURE);
     const project = map.items.find(i => i.itemId === 'project');
     expect(project).toBeTruthy();
-    expect(project!.level).toBe('explained');
+    expect(project!.level).toBe('heard');
     expect(project!.layer).toBe('project');
   });
 
-  it('drilling into a module marks it as explained', async () => {
+  it('drilling into a module marks it as heard', async () => {
     await h.client.utter(sid, 'walk me through the architecture');
     await h.client.utter(sid, 'tell me about core');
     const map = await h.client.comprehension(FIXTURE);
     const core = map.items.find(i => i.itemId === 'module/core');
     expect(core).toBeTruthy();
-    expect(core!.level).toBe('explained');
+    expect(core!.level).toBe('heard');
   });
 
   it('confirmation phrase within window upgrades to confirmed', async () => {
