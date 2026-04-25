@@ -11,6 +11,7 @@ const STATE_LABEL: Record<VoiceState, string> = {
   listening: 'listening',
   hearing: 'hearing you',
   processing: 'thinking',
+  idle: 'paused',
 };
 
 export function NarrationBar() {
@@ -142,7 +143,7 @@ export function NarrationBar() {
           onClick={() => sendEvent(state.paused ? { type: 'command:resume' } : { type: 'command:pause' })}
           className="btn btn-ghost"
           style={{ padding: '8px 12px', fontSize: 12 }}
-          title={state.paused ? 'or say "resume"' : 'or say "pause"'}
+          title={state.paused ? 'Tap space to resume' : 'Tap space to pause · hold space to talk'}
         >
           <span className="kc">␣</span>
           {state.paused ? 'Resume' : 'Pause'}

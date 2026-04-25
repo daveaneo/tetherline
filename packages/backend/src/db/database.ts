@@ -11,6 +11,7 @@ import { OnboardingRepository } from './repositories/onboarding-repo.js';
 import { ContextCacheRepository } from './repositories/context-cache-repo.js';
 import { BriefingRepository } from './repositories/briefing-repo.js';
 import { ComprehensionRepository } from './repositories/comprehension-repo.js';
+import { QAHistoryRepository } from './repositories/qa-history-repo.js';
 
 export class Database {
   private db: BetterSqlite3.Database;
@@ -24,6 +25,7 @@ export class Database {
   private contextCacheRepo: ContextCacheRepository;
   private briefingRepo: BriefingRepository;
   private comprehensionRepo: ComprehensionRepository;
+  private qaHistoryRepo: QAHistoryRepository;
 
   constructor(dbPath: string) {
     // Ensure directory exists
@@ -45,6 +47,7 @@ export class Database {
     this.contextCacheRepo = new ContextCacheRepository(this.db);
     this.briefingRepo = new BriefingRepository(this.db);
     this.comprehensionRepo = new ComprehensionRepository(this.db);
+    this.qaHistoryRepo = new QAHistoryRepository(this.db);
   }
 
   private runMigrations() {
@@ -299,6 +302,20 @@ export class Database {
       );
       CREATE INDEX IF NOT EXISTS idx_comprehension_repo ON comprehension(repo_path);
       CREATE INDEX IF NOT EXISTS idx_comprehension_level ON comprehension(repo_path, level);
+
+      -- Cross-session conversation log. Lets a fresh session recall what was
+      -- asked last time so follow-ups stay coherent across days. Capped via
+      -- pruning at read time (we only ever fetch the last N).
+      CREATE TABLE IF NOT EXISTS qa_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        repo_path TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('user','assistant')),
+        content TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_qa_history_repo ON qa_history(repo_path, created_at);
+      CREATE INDEX IF NOT EXISTS idx_qa_history_session ON qa_history(session_id);
     `);
 
     // Rename migration: rows stored under ~/.interactive-reviewer/ need
@@ -356,6 +373,7 @@ export class Database {
   getContextCacheRepo(): ContextCacheRepository { return this.contextCacheRepo; }
   getBriefingRepo(): BriefingRepository { return this.briefingRepo; }
   getComprehensionRepo(): ComprehensionRepository { return this.comprehensionRepo; }
+  getQAHistoryRepo(): QAHistoryRepository { return this.qaHistoryRepo; }
   getRawDb(): BetterSqlite3.Database { return this.db; }
 
   close() {

@@ -6,6 +6,9 @@ import { DiagramPanel } from './DiagramPanel.js';
 import { ContentPanel } from './ContentPanel.js';
 import { ContentDrawer } from './ContentDrawer.js';
 import { NarrationBar } from './NarrationBar.js';
+import { QuickChips } from './QuickChips.js';
+import { GapsPanel } from './GapsPanel.js';
+import { useGapsStore } from '../../state/gaps-store.js';
 import { SessionEntrance } from './SessionEntrance.js';
 import { BriefingCard } from '../vision/BriefingCard.js';
 import { BreadcrumbStrip } from '../vision/BreadcrumbStrip.js';
@@ -76,6 +79,13 @@ export function Room() {
               &larr; Exit
             </button>
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => useGapsStore.getState().toggle()}
+                className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
+                title="Show what you haven't reviewed"
+              >
+                Gaps
+              </button>
               <ComprehensionToggle />
               <span className="text-[10px] text-[var(--color-text-muted)] opacity-50 font-mono">v{VERSION}</span>
               <button
@@ -87,10 +97,13 @@ export function Room() {
             </div>
           </div>
         </div>
+
+        <GapsPanel />
       </div>
 
       <ComprehensionOverlay />
 
+      <QuickChips />
       <NarrationBar />
     </div>
   );

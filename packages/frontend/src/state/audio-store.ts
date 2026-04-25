@@ -1,7 +1,9 @@
 import { create } from 'zustand';
 import type { NarrationSegment } from '@tetherline/shared';
 
-export type VoiceState = 'speaking' | 'listening' | 'hearing' | 'processing';
+/** `idle` means mic off — used while the session is paused so the user sees
+ *  a clear "not listening" indicator (and we actually stop the capture). */
+export type VoiceState = 'speaking' | 'listening' | 'hearing' | 'processing' | 'idle';
 
 export interface SpeechToast {
   id: string;

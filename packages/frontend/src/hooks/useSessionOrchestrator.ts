@@ -22,7 +22,6 @@ export function useSessionOrchestrator() {
   // Guard against the effect firing multiple times for the same state
   const activeRunRef = useRef<string>('');
   const abortRef = useRef<AbortController | null>(null);
-  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const postAnswerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Speak text via TTS (returns a promise that resolves when done speaking)
@@ -147,16 +146,14 @@ export function useSessionOrchestrator() {
         clearTimeout(autoAdvanceTimerRef.current);
         autoAdvanceTimerRef.current = null;
       }
-      if (silenceTimerRef.current) {
-        clearTimeout(silenceTimerRef.current);
-        silenceTimerRef.current = null;
-      }
       if (postAnswerTimerRef.current) {
         clearTimeout(postAnswerTimerRef.current);
         postAnswerTimerRef.current = null;
       }
       setPlaying(false);
-      useAudioStore.getState().setVoiceState('listening');
+      // Pause = full stop: mic gets torn down in useVoiceInput, the orb shows
+      // 'idle' so the user knows nothing is being captured.
+      useAudioStore.getState().setVoiceState('idle');
       // Clear the active run so resume can re-trigger
       activeRunRef.current = '';
     }
@@ -172,6 +169,21 @@ export function useSessionOrchestrator() {
     // Don't re-trigger for the same state
     const stateKey = `${phase}-${areaIndex ?? -1}-${segmentIndex ?? -1}`;
     if (stateKey === activeRunRef.current) return;
+
+    // Silent phases: this effect doesn't speak or schedule, so leave any
+    // in-flight narration (e.g. a greeting) alone. Aborting abortRef here
+    // cut the greeting off mid-word whenever analysis completed and the
+    // phase flipped to OVERVIEW-explore. That was the self-interrupt.
+    const isSilentPhase =
+      phase === 'ANALYZING' ||
+      (phase === 'OVERVIEW' && entryMode === 'explore');
+    if (isSilentPhase) {
+      activeRunRef.current = stateKey;
+      lastPhaseRef.current = phase;
+      lastAreaIndexRef.current = areaIndex ?? -1;
+      lastSegmentIndexRef.current = segmentIndex ?? -1;
+      return;
+    }
 
     // Abort any in-flight narration from the previous state
     if (abortRef.current) {
@@ -190,15 +202,6 @@ export function useSessionOrchestrator() {
       const signal = controller.signal;
 
       switch (phase) {
-        case 'ANALYZING': {
-          // Speak the greeting if available
-          const greeting = useSessionStore.getState().greeting;
-          if (greeting && modes.narration) {
-            await speak(greeting, signal);
-          }
-          break;
-        }
-
         case 'PROPOSAL': {
           // Speak the proposal message, then WAIT — user drives from here
           const proposal = useSessionStore.getState().proposal;
@@ -387,49 +390,44 @@ export function useSessionOrchestrator() {
         clearTimeout(autoAdvanceTimerRef.current);
       }
     };
-  }, [state.phase, state.areaIndex, state.segmentIndex, state.paused, areas, modes.narration, speak, scheduleAdvance, setCurrentSegment]);
+  }, [state.phase, state.areaIndex, state.segmentIndex, state.paused, areas, entryMode, modes.narration, speak, scheduleAdvance, setCurrentSegment]);
 
-  // 20-second silence rule
-  const resetSilenceTimer = useCallback(() => {
-    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-    // Also cancel the post-answer auto-resume timer when user interacts
-    if (postAnswerTimerRef.current) {
-      clearTimeout(postAnswerTimerRef.current);
-      postAnswerTimerRef.current = null;
-    }
+  // Stream chunk player: drains streamChunks one at a time, awaiting each
+  // speak() to keep playback strictly in order. The first chunk's TTS
+  // request fires immediately on receipt, so the user hears the start of
+  // the answer while later chunks are still TTS-generating in parallel
+  // (the OpenAI TTS endpoint handles each chunk independently).
+  const streamChunks = useSessionStore(s => s.streamChunks);
+  const streamPlayingRef = useRef(false);
+  useEffect(() => {
+    if (streamPlayingRef.current) return; // a drain loop is already running
+    if (streamChunks.length === 0) return;
+    if (state.paused) return;
+    if (!modes.narration) return;
+    streamPlayingRef.current = true;
 
-    // Only run silence timer when in a session and not analyzing
-    const currentPhase = useSessionStore.getState().state.phase;
-    if (currentPhase === 'IDLE' || currentPhase === 'ANALYZING') return;
+    (async () => {
+      try {
+        // Cancel any unrelated in-flight narration so the streamed answer
+        // takes the floor cleanly. New AbortController lives for the
+        // whole drain.
+        if (abortRef.current) abortRef.current.abort();
+        const controller = new AbortController();
+        abortRef.current = controller;
+        activeRunRef.current = '';
 
-    silenceTimerRef.current = setTimeout(() => {
-      // Canned response - no API call
-      const phase = useSessionStore.getState().state.phase;
-      if (phase !== 'IDLE' && phase !== 'ANALYZING') {
-        speak("Want to keep exploring, or shall I continue the walkthrough?");
+        while (true) {
+          const next = useSessionStore.getState().consumeStreamChunk();
+          if (!next) break;
+          if (controller.signal.aborted) return;
+          await speak(next.text, controller.signal);
+          if (controller.signal.aborted) return;
+        }
+      } finally {
+        streamPlayingRef.current = false;
       }
-    }, 20000);
-  }, [speak]);
-
-  // Reset silence timer on any user interaction
-  useEffect(() => {
-    const handleInteraction = () => resetSilenceTimer();
-    window.addEventListener('keydown', handleInteraction);
-    window.addEventListener('click', handleInteraction);
-    window.addEventListener('touchstart', handleInteraction);
-
-    return () => {
-      window.removeEventListener('keydown', handleInteraction);
-      window.removeEventListener('click', handleInteraction);
-      window.removeEventListener('touchstart', handleInteraction);
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-    };
-  }, [resetSilenceTimer]);
-
-  // Also reset when phase changes (new narration started)
-  useEffect(() => {
-    resetSilenceTimer();
-  }, [state.phase, state.areaIndex, state.segmentIndex, resetSilenceTimer]);
+    })();
+  }, [streamChunks, state.paused, modes.narration, speak]);
 
   // Speak greeting/answer whenever it changes — but COALESCE rapid-fire
   // greetings so we don't cut ourselves off mid-word. Pattern: two greetings
@@ -514,10 +512,6 @@ export function useSessionOrchestrator() {
         abortRef.current.abort();
         abortRef.current = null;
       }
-      if (silenceTimerRef.current) {
-        clearTimeout(silenceTimerRef.current);
-        silenceTimerRef.current = null;
-      }
       if (postAnswerTimerRef.current) {
         clearTimeout(postAnswerTimerRef.current);
         postAnswerTimerRef.current = null;
@@ -541,9 +535,6 @@ export function useSessionOrchestrator() {
       }
       if (abortRef.current) {
         abortRef.current.abort();
-      }
-      if (silenceTimerRef.current) {
-        clearTimeout(silenceTimerRef.current);
       }
       if (postAnswerTimerRef.current) {
         clearTimeout(postAnswerTimerRef.current);

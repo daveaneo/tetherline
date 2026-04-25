@@ -67,15 +67,54 @@ function matchCommand(text: string): VoiceCommand | null {
   return null;
 }
 
+/** Whisper hallucinates fixed phrases when fed silence or background noise.
+ *  These phrases are NOT what the user said — dropping them prevents the
+ *  "I'm here and ready to help!" filler reply storm during quiet moments. */
+const WHISPER_HALLUCINATIONS = new Set([
+  'you', '.', 'thanks for watching', 'thanks for watching!',
+  'thank you', 'thank you.', 'thank you!', 'thanks', 'thanks.',
+  'bye', 'bye.', 'bye!', 'goodbye', 'goodbye.',
+  'subscribe', 'please subscribe', 'subscribe!',
+  'silence', '[silence]', 'background noise', '[music]',
+  'um', 'uh', 'mm', 'mhm', 'hm', 'oh',
+]);
+
+function isLikelyNoiseArtifact(text: string): boolean {
+  const cleaned = text.trim().toLowerCase().replace(/[.!?,]+$/, '');
+  if (cleaned.length < 3) return true;
+  if (WHISPER_HALLUCINATIONS.has(cleaned)) return true;
+  // Single-word transcripts that aren't navigation phrases are usually noise.
+  // Real user utterances during a code review are almost always >1 word.
+  if (!/\s/.test(cleaned) && cleaned.length < 6) return true;
+  return false;
+}
+
 function handleTranscript(text: string) {
+  // Drop transcripts that arrived while the AI was speaking — those are
+  // echo from speakers bleeding into the mic, not a user utterance.
+  // Without this guard the AI would "hear" itself and trigger another
+  // Q&A round, producing the self-interrupt loop the user reported.
+  // PTT (hold space) is the explicit way to talk over the AI.
+  if (useAudioStore.getState().isPlaying) {
+    return;
+  }
+
+  // Check for navigation commands FIRST so legitimate single-word commands
+  // like "next" / "skip" / "pause" aren't mistaken for noise.
+  const command = matchCommand(text);
+
+  if (!command && isLikelyNoiseArtifact(text)) {
+    // Drop silently — don't even toast. The user didn't speak; we shouldn't
+    // pretend they did or generate a filler reply.
+    return;
+  }
+
   const audioStore = useAudioStore.getState();
   audioStore.addSpeechToast(text);
 
   // Record in conversation history
   useSessionStore.getState().addConversation('you', text);
 
-  // Check for navigation commands
-  const command = matchCommand(text);
   if (command) {
     audioStore.setVoiceState('processing');
     COMMAND_TO_EVENT[command]?.();
@@ -154,26 +193,23 @@ export function useVoiceInput() {
     }
 
     if (mode === 'whisper') {
-      // Use AudioCapture with echo cancellation + Whisper
+      // Use AudioCapture with echo cancellation + Whisper.
+      // Voice barge-in is INTENTIONALLY disabled — the AI's own audio
+      // bleeds into the mic and triggers self-interrupt. Push-to-talk
+      // (hold space) is the deliberate interrupt gesture; see the PTT
+      // useEffect above.
       const capture = new AudioCapture({
         onSpeechStart: () => {
-          const audioStore = useAudioStore.getState();
-          audioStore.setVoiceState('hearing');
-          // Hard-flush current playback + drop queued segments. The backend's
-          // floor-control gate will also start suppressing new narration once
-          // we send user:speaking_started below.
-          audioStore.flushOnInterrupt();
-          sendEvent({ type: 'user:speaking_started' });
-          if (audioStore.isPlaying) {
-            sendEvent({ type: 'command:pause' });
-          }
+          // UI-only feedback: orb shows we're hearing something. We do
+          // NOT flush AI playback or signal speaking_started — that path
+          // belongs to PTT now.
+          useAudioStore.getState().setVoiceState('hearing');
         },
         onSpeechEnd: () => {
           const audioStore = useAudioStore.getState();
           if (audioStore.voiceState === 'hearing') {
             audioStore.setVoiceState('processing');
           }
-          sendEvent({ type: 'user:speaking_stopped' });
         },
         onTranscript: (text) => {
           handleTranscript(text);
@@ -220,6 +256,109 @@ export function useVoiceInput() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
 
+  // ─── Push-to-talk (hold space) ──────────────────────────────────────
+  // Hold spacebar → mic hot, AI speech aborted, backend told user is
+  // speaking. Release → mic off (if it wasn't on before), backend told
+  // user stopped. A SHORT tap (< HOLD_THRESHOLD_MS) instead toggles
+  // pause/resume so the existing keyboard muscle memory still works.
+  //
+  // Hold/tap state lives in refs so that calling `startListening()` (which
+  // triggers `setListening(true)` and re-runs this effect's deps) doesn't
+  // wipe `holdActive` mid-hold. Without this, the keyup that follows a
+  // genuine hold is misclassified as a tap and pause/resume fires.
+  const ptHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ptHoldActiveRef = useRef(false);
+  const ptMicWasListeningRef = useRef(false);
+  const listeningRef = useRef(listening);
+  useEffect(() => { listeningRef.current = listening; }, [listening]);
+
+  useEffect(() => {
+    const HOLD_THRESHOLD_MS = 150;
+
+    const isTypingTarget = (t: EventTarget | null): boolean => {
+      if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) return true;
+      if (t instanceof HTMLElement && t.isContentEditable) return true;
+      return false;
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code !== 'Space') return;
+      if (e.repeat) { e.preventDefault(); return; }
+      if (isTypingTarget(e.target)) return;
+      e.preventDefault();
+      const phaseNow = useSessionStore.getState().state.phase;
+      if (phaseNow === 'IDLE') return;
+      if (ptHoldActiveRef.current || ptHoldTimerRef.current) return;
+      ptHoldTimerRef.current = setTimeout(() => {
+        ptHoldTimerRef.current = null;
+        ptHoldActiveRef.current = true;
+        const audioStore = useAudioStore.getState();
+        ptMicWasListeningRef.current = listeningRef.current;
+        audioStore.setVoiceState('hearing');
+        audioStore.flushOnInterrupt();
+        sendEvent({ type: 'user:speaking_started' });
+        if (!listeningRef.current) startListening();
+      }, HOLD_THRESHOLD_MS);
+    };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.code !== 'Space') return;
+      if (isTypingTarget(e.target)) return;
+      e.preventDefault();
+      if (ptHoldActiveRef.current) {
+        ptHoldActiveRef.current = false;
+        sendEvent({ type: 'user:speaking_stopped' });
+        if (!ptMicWasListeningRef.current) {
+          captureRef.current?.stop();
+          captureRef.current = null;
+          recognizerRef.current?.stop();
+          setListening(false);
+          if (useAudioStore.getState().voiceState === 'hearing') {
+            useAudioStore.getState().setVoiceState('listening');
+          }
+        }
+      } else if (ptHoldTimerRef.current) {
+        clearTimeout(ptHoldTimerRef.current);
+        ptHoldTimerRef.current = null;
+        const paused = useSessionStore.getState().state.paused;
+        sendEvent(paused ? { type: 'command:resume' } : { type: 'command:pause' });
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      if (ptHoldTimerRef.current) clearTimeout(ptHoldTimerRef.current);
+    };
+    // No deps that change mid-session — this effect mounts once. State that
+    // changes (listening) is read through `listeningRef`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startListening]);
+
+  // Pause = full mic stop. Resume restarts the mic iff it was listening
+  // before the pause. `wasListeningBeforePauseRef` remembers that intent so
+  // the user doesn't have to click Unmute after every pause/resume cycle.
+  const paused = useSessionStore(s => s.state.paused);
+  const wasListeningBeforePauseRef = useRef(false);
+  useEffect(() => {
+    if (paused) {
+      if (listening) {
+        wasListeningBeforePauseRef.current = true;
+        captureRef.current?.stop();
+        captureRef.current = null;
+        recognizerRef.current?.stop();
+        setListening(false);
+        useAudioStore.getState().addSpeechToast('[Mic: paused]');
+      }
+    } else if (wasListeningBeforePauseRef.current) {
+      wasListeningBeforePauseRef.current = false;
+      startListening();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paused]);
+
   const toggleListening = useCallback(() => {
     if (listening) {
       captureRef.current?.stop();
@@ -236,15 +375,13 @@ export function useVoiceInput() {
 
 /** Wire callbacks for the Web Speech API fallback */
 function wireWebSpeechCallbacks(recognizer: VoiceCommandRecognizer) {
+  // Voice barge-in is disabled — see the AudioCapture branch above for the
+  // rationale. Hold space to interrupt the AI; the recognizer here is only
+  // for transcribing what the user actually says.
   recognizer.onSpeechStart = () => {
     const audioStore = useAudioStore.getState();
     audioStore.setVoiceState('hearing');
     audioStore.addSpeechToast('[hearing...]');
-    audioStore.flushOnInterrupt();
-    sendEvent({ type: 'user:speaking_started' });
-    if (audioStore.isPlaying) {
-      sendEvent({ type: 'command:pause' });
-    }
   };
 
   recognizer.onSpeechEnd = () => {
@@ -252,7 +389,6 @@ function wireWebSpeechCallbacks(recognizer: VoiceCommandRecognizer) {
     if (audioStore.voiceState === 'hearing') {
       audioStore.setVoiceState('processing');
     }
-    sendEvent({ type: 'user:speaking_stopped' });
   };
 
   recognizer.onCommand = (command) => {

@@ -81,6 +81,11 @@ export class SessionManager {
    *  of the last briefing being delivered. Prevents idle "got it, I need
    *  coffee" from false-positive-confirming. */
   private readonly CONFIRMATION_WINDOW_MS = 60_000;
+  /** Rolling Q&A history threaded into the system prompt for follow-up
+   *  coherence ("what about it?" needs to know what "it" was). Capped to
+   *  the last few turns so prompt size stays small. */
+  private qaTurns: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+  private readonly QA_HISTORY_MAX = 6;
   /** Cooldown per comprehension item — same item can only transition once every
    *  30s, protects against chatty transcripts double-counting. */
   private readonly COMPREHENSION_COOLDOWN_MS = 30_000;
@@ -289,6 +294,21 @@ export class SessionManager {
         type: 'narration:greeting',
         payload: { text: greetingText },
       });
+
+      // Cross-session recall: surface up to 5 distinct questions the user
+      // asked in prior sessions. Lets the lobby/gaps-panel say "last time
+      // you wanted to know about X — pick up where you left off."
+      try {
+        const priorQuestions = this.db.getQAHistoryRepo().recentQuestions(effectivePath, {
+          excludeSessionId: sessionId,
+          limit: 5,
+        });
+        if (priorQuestions.length > 0) {
+          this.emit({ type: 'session:recall', payload: { questions: priorQuestions } });
+        }
+      } catch (err: any) {
+        console.warn('Failed to fetch recall questions:', err.message);
+      }
 
       // Instant opener: if we have a cached project briefing from a prior
       // session, deliver it NOW (before the long ANALYZING block). User hears
@@ -1233,33 +1253,97 @@ export class SessionManager {
     // Voice-first: answer inline via narration, don't transition to QA modal.
     // The answer is spoken aloud and shown in the narration bar.
 
+    // Defense-in-depth: if the transcript is empty / a Whisper hallucination,
+    // stay silent. The frontend filter catches most of these — this guards
+    // anything that slipped through (other input paths, integration tests,
+    // direct WS clients). No reply, no LLM call, no qaTurns mutation.
+    if (isLikelyTranscriptionNoise(question)) return;
+
+    const repoPath = this.activeRepoPath || this.config.repoPath;
+
     const answerAndNarrate = async (answer: string) => {
-      // Emit only narration:greeting — the store records it as conversation and the orchestrator speaks it
-      this.emit({ type: 'narration:greeting', payload: { text: answer } });
+      this.qaTurns.push({ role: 'user', content: question });
+      this.qaTurns.push({ role: 'assistant', content: answer });
+      if (this.qaTurns.length > this.QA_HISTORY_MAX) {
+        this.qaTurns = this.qaTurns.slice(-this.QA_HISTORY_MAX);
+      }
+      // Persist for cross-session recall. Best-effort — DB hiccups shouldn't
+      // block the spoken reply.
+      try {
+        const qaHistory = this.db.getQAHistoryRepo();
+        qaHistory.record({ repoPath, sessionId: this.context.sessionId, role: 'user', content: question });
+        qaHistory.record({ repoPath, sessionId: this.context.sessionId, role: 'assistant', content: answer });
+      } catch (err: any) {
+        console.warn('Failed to persist QA turn:', err.message);
+      }
+      // Stream the answer in sentence-sized chunks. The frontend queues
+      // each chunk's TTS clip so early sentences play while later ones are
+      // still being TTS-generated — perceived first-word time drops a lot
+      // on long answers. Short answers (1 chunk) behave identically to the
+      // pre-streaming flow.
+      const { chunkAnswerForStreaming } = await import('../intelligence/sentence-chunker.js');
+      const chunks = chunkAnswerForStreaming(answer);
+      const streamId = `qa-${Date.now()}`;
+      if (chunks.length <= 1) {
+        // Trivial answer: keep the legacy greeting path so existing
+        // integration tests / UI flows that listen for `narration:greeting`
+        // continue to fire.
+        this.emit({ type: 'narration:greeting', payload: { text: answer } });
+        return;
+      }
+      for (let i = 0; i < chunks.length; i++) {
+        this.emit({
+          type: 'narration:stream_chunk',
+          payload: {
+            streamId,
+            seq: i,
+            text: chunks[i],
+            isFinal: i === chunks.length - 1,
+          },
+        });
+      }
+      // Note: NOT emitting narration:greeting here — that would cause the
+      // frontend orchestrator to ALSO speak the full answer, producing a
+      // double-voice. The frontend's stream_chunk handler appends to the
+      // conversation history itself.
     };
 
-    // Try the active analyzer first
-    if (this.activeAnalyzer) {
-      try {
-        const currentArea = this.state.areaIndex !== undefined ? this.areas[this.state.areaIndex] : undefined;
-        const context = `Current area: ${currentArea?.name ?? 'none'}. ${currentArea?.description ?? ''}`;
-        const answer = await this.activeAnalyzer.answerQuestion(question, context);
-        await answerAndNarrate(answer);
-        return;
-      } catch (err: any) {
-        console.error('Q&A error:', err.message);
-      }
-    }
+    const currentArea = this.state.areaIndex !== undefined ? this.areas[this.state.areaIndex] : undefined;
+    const currentLocation = currentArea
+      ? `Phase: ${this.state.phase}. Area: ${currentArea.name}. ${currentArea.description}`
+      : `Phase: ${this.state.phase}.`;
 
-    // Try to create a client on-the-fly
+    // Build the cached scaffold once — same input both paths. Recent turns
+    // include both this session's qaTurns AND prior-session highlights so
+    // follow-ups like "what about it?" carry over across days.
+    const { buildQAContext } = await import('../intelligence/qa-context.js');
+    const priorTurns = this.db.getQAHistoryRepo().recent(repoPath, {
+      excludeSessionId: this.context.sessionId,
+      limit: 6,
+    });
+    const recentTurns: Array<{ role: 'user' | 'assistant'; content: string }> = [
+      ...priorTurns.map(t => ({ role: t.role, content: t.content })),
+      ...this.qaTurns,
+    ];
+    const baseSystem = (agenticTools: boolean) => buildQAContext(
+      this.db.getContextCacheRepo(),
+      repoPath,
+      {
+        currentLocation,
+        agenticTools,
+        recentTurns,
+      },
+    );
+
     try {
       const mode = this.config.intelligenceMode;
       if (mode === 'local' || mode === 'auto') {
         const { ClaudeCodeClient } = await import('../intelligence/claude-code-client.js');
         if (await ClaudeCodeClient.isAvailable()) {
-          const client = new ClaudeCodeClient('sonnet', this.activeRepoPath ?? this.config.repoPath);
+          // Local CLI has built-in read/grep/glob tools — give it permission to use them.
+          const client = new ClaudeCodeClient('sonnet', repoPath);
           const answer = await client.streamText({
-            system: `You are helping a developer understand the codebase "${path.basename(this.activeRepoPath ?? this.config.repoPath)}" at ${this.activeRepoPath ?? this.config.repoPath}. When they say "the project" they mean this repo. Answer concisely and conversationally — this will be spoken aloud.`,
+            system: baseSystem(true),
             messages: [{ role: 'user' as const, content: question }],
           });
           await answerAndNarrate(answer);
@@ -1270,7 +1354,7 @@ export class SessionManager {
         const { ClaudeClient } = await import('../intelligence/claude-client.js');
         const client = new ClaudeClient(this.config.anthropicApiKey);
         const answer = await client.streamText({
-          system: 'You are helping a developer understand their codebase during an interactive review session. Answer concisely and conversationally — this will be spoken aloud.',
+          system: baseSystem(false),
           messages: [{ role: 'user' as const, content: question }],
         });
         await answerAndNarrate(answer);
@@ -2345,4 +2429,25 @@ export class SessionManager {
       });
     }
   }
+}
+
+/** Whisper / browser STT commonly hallucinates these short fragments on
+ *  silence or background noise. Treating them as questions makes the AI
+ *  generate "I'm here, ready to help!" filler — which the user explicitly
+ *  asked us to never do during quiet moments. Backend filter mirrors the
+ *  frontend one in `useVoiceInput.ts` (defense in depth). */
+const TRANSCRIPTION_NOISE_PHRASES = new Set([
+  'you', '.', 'thanks for watching', 'thanks for watching!',
+  'thank you', 'thank you.', 'thank you!', 'thanks', 'thanks.',
+  'bye', 'bye.', 'bye!', 'goodbye', 'goodbye.',
+  'subscribe', 'please subscribe', 'subscribe!',
+  'silence', '[silence]', 'background noise', '[music]',
+  'um', 'uh', 'mm', 'mhm', 'hm', 'oh',
+]);
+
+export function isLikelyTranscriptionNoise(text: string): boolean {
+  const cleaned = (text ?? '').trim().toLowerCase().replace(/[.!?,]+$/, '');
+  if (cleaned.length < 3) return true;
+  if (TRANSCRIPTION_NOISE_PHRASES.has(cleaned)) return true;
+  return false;
 }

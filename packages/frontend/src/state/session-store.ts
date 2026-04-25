@@ -72,6 +72,18 @@ interface SessionStore {
     topFiles: Array<{ path: string; touches: number }>;
   } | null;
   streamedNarratives: Map<string, { areaId: string; narrativeText: string; segments: NarrationSegment[] }>;
+  /** Cross-session recall: distinct user questions from prior sessions on
+   *  this repo. Surfaced in the GapsPanel so the user can pick up where
+   *  they left off last time. */
+  recallQuestions: string[];
+  /** Active streamed answer chunks. Each entry is a complete sentence/group
+   *  the orchestrator plays sequentially via TTS. The orchestrator removes
+   *  entries via `consumeStreamChunk` once it starts speaking that chunk —
+   *  so the queue length tracks unspoken backlog. `streamingFinal` flips on
+   *  the last chunk so the orchestrator knows when to stop the player. */
+  streamChunks: Array<{ streamId: string; seq: number; text: string }>;
+  streamingFinal: boolean;
+  consumeStreamChunk: () => { streamId: string; seq: number; text: string } | null;
   showComprehensionOverlay: boolean;
   toggleComprehensionOverlay: () => void;
 
@@ -112,6 +124,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   comprehensionMap: new Map(),
   quickPreview: null,
   streamedNarratives: new Map(),
+  recallQuestions: [],
+  streamChunks: [],
+  streamingFinal: false,
+  consumeStreamChunk: () => {
+    const chunks = get().streamChunks;
+    if (chunks.length === 0) return null;
+    const [head, ...rest] = chunks;
+    set({ streamChunks: rest });
+    return head;
+  },
   showComprehensionOverlay: false,
 
   toggleComprehensionOverlay: () => set(s => ({ showComprehensionOverlay: !s.showComprehensionOverlay })),
@@ -152,6 +174,16 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     comprehensionMap: new Map(),
     quickPreview: null,
     streamedNarratives: new Map(),
+    recallQuestions: [],
+  streamChunks: [],
+  streamingFinal: false,
+  consumeStreamChunk: () => {
+    const chunks = get().streamChunks;
+    if (chunks.length === 0) return null;
+    const [head, ...rest] = chunks;
+    set({ streamChunks: rest });
+    return head;
+  },
     showComprehensionOverlay: false,
   }),
 
@@ -199,6 +231,39 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       case 'session:recap':
         set({ previousSession: event.payload.previousSession, recap: event.payload.narrative });
         break;
+
+      case 'session:recall':
+        set({ recallQuestions: event.payload.questions });
+        break;
+
+      case 'narration:stream_chunk': {
+        // Streamed answer chunks queue up for sequential TTS playback —
+        // chunk N starts speaking while chunk N+1 is still TTS-generating,
+        // dropping perceived first-word time on long answers.
+        const { streamId, seq, text, isFinal } = event.payload;
+        set(s => {
+          // First chunk of a new stream resets the prior queue + final flag.
+          const isNewStream = s.streamChunks.length === 0
+            || s.streamChunks[0].streamId !== streamId;
+          const queue = isNewStream
+            ? [{ streamId, seq, text }]
+            : [...s.streamChunks, { streamId, seq, text }];
+          const updates: Partial<SessionStore> = {
+            streamChunks: queue,
+            streamingFinal: isFinal,
+          };
+          if (isFinal) {
+            // Conversation transcript: log the full assembled answer.
+            const fullText = queue.map(c => c.text).join(' ');
+            updates.conversationHistory = [
+              ...s.conversationHistory.slice(-49),
+              { speaker: 'ai', text: fullText, timestamp: Date.now() },
+            ];
+          }
+          return updates;
+        });
+        break;
+      }
 
       case 'session:proposal': {
         const proposalPayload = event.payload as ProposalData & { conceptualSteps?: ConceptualStep[] };

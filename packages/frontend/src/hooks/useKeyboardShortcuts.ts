@@ -20,8 +20,9 @@ export function useKeyboardShortcuts() {
           sendEvent({ type: 'command:previous' });
           break;
         case ' ':
-          e.preventDefault();
-          sendEvent(state.paused ? { type: 'command:resume' } : { type: 'command:pause' });
+          // Spacebar is owned by the push-to-talk handler in useVoiceInput.
+          // A short tap there sends pause/resume; a hold engages the mic.
+          // Don't double-handle here.
           break;
         case 'd':
         case 'D':

@@ -84,6 +84,20 @@ export type ServerEvent =
     } }
   | { type: 'session:state_changed'; payload: { state: SessionState; context: StateContext } }
   | { type: 'session:recap'; payload: { previousSession: SessionSummary; narrative: string } }
+  | { type: 'session:recall'; payload: { questions: string[] } }
+  | {
+      /** Streamed chunk of an AI answer. Frontend appends chunks to its
+       *  audio queue and plays them sequentially as each TTS clip is ready,
+       *  so early sentences play while later sentences are still being
+       *  TTS-generated — cuts perceived latency for long answers. */
+      type: 'narration:stream_chunk';
+      payload: {
+        streamId: string;
+        seq: number;
+        text: string;
+        isFinal: boolean;
+      };
+    }
   | { type: 'session:heatmap'; payload: { heatmap: HeatmapData } }
   | { type: 'narration:segment_ready'; payload: { segment: NarrationSegment } }
   | { type: 'narration:text'; payload: { segmentId: string; text: string } }
