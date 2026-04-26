@@ -89,14 +89,15 @@ request:
         (component)
   maxTokens: 200
 response:
-  text: This module owns the React frontend for an interactive code review system
-    that uses voice input and real-time collaboration. The non-obvious detail is
-    that it's built around "sessions" and "gaps" - suggesting code reviews
-    happen in structured sessions where reviewers identify and fill knowledge
-    gaps rather than just making traditional comments. The file doing the
-    heaviest lifting is `useSessionOrchestrator.ts`, which coordinates the
-    complex dance between voice input, WebSocket communication, and the various
-    state stores that track sessions, audio, and identified gaps.
+  text: The frontend module creates an interactive code review experience where
+    participants can explore codebases together through voice and visual
+    interfaces. The surprise here is that it's built around real-time session
+    orchestration rather than traditional code review workflows - participants
+    join "rooms" and navigate code collaboratively with voice input as a
+    first-class interaction method. The `useSessionOrchestrator.ts` hook does
+    the heaviest lifting, coordinating between voice input, WebSocket
+    connections, and multiple state stores to keep all participants synchronized
+    as they move through the codebase together.
   usage:
     inputTokens: 661
-    outputTokens: 112
+    outputTokens: 116

@@ -29,6 +29,7 @@ export function GapsPanel() {
   const areaIndex = useSessionStore(s => s.state.areaIndex);
   const comprehensionMap = useSessionStore(s => s.comprehensionMap);
   const recallQuestions = useSessionStore(s => s.recallQuestions);
+  const recallItems = useSessionStore(s => s.recallItems);
 
   const gaps = useMemo<Gap[]>(() => {
     const out: Gap[] = [];
@@ -123,6 +124,64 @@ export function GapsPanel() {
         </header>
 
         <div className="flex-1 overflow-y-auto" style={{ padding: '12px 16px 24px' }}>
+          {recallItems.length > 0 && (
+            <section style={{ marginBottom: 16 }} data-testid="recall-items">
+              <div
+                className="font-mono"
+                style={{
+                  fontSize: 9, letterSpacing: '0.18em', textTransform: 'uppercase',
+                  color: 'var(--cream-500)', opacity: 0.8, padding: '4px 8px 8px',
+                }}
+              >
+                Pick up where you left off
+              </div>
+              <ul className="flex flex-col gap-1.5" style={{ listStyle: 'none', padding: 0 }}>
+                {recallItems.map(item => {
+                  const utterance = `tell me about ${prettyRecallLabel(item)}`;
+                  const driftHint = item.commitsSinceLastTouch > 0
+                    ? `${item.commitsSinceLastTouch} commit${item.commitsSinceLastTouch === 1 ? '' : 's'} touched it since`
+                    : 'nothing has changed since';
+                  return (
+                    <li key={item.itemId}>
+                      <button
+                        type="button"
+                        onClick={() => onPick({ id: `recall-item:${item.itemId}`, label: item.label, reason: '', utterance })}
+                        className="w-full text-left"
+                        style={{
+                          padding: '10px 12px',
+                          borderRadius: 8,
+                          border: '1px solid oklch(1 0 0 / 0.06)',
+                          background: 'color-mix(in oklch, var(--amber-400) 10%, var(--ink-100) 70%)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <div className="flex items-baseline justify-between gap-3">
+                          <span style={{ fontSize: 13, color: 'var(--cream-100)', fontWeight: 500 }}>
+                            {item.label}
+                          </span>
+                          <span
+                            className="font-mono flex-none"
+                            style={{
+                              fontSize: 9, letterSpacing: '0.16em', textTransform: 'uppercase',
+                              color: levelColor(item.level),
+                            }}
+                          >
+                            {item.level}
+                          </span>
+                        </div>
+                        <p
+                          className="narration"
+                          style={{ fontSize: 11.5, color: 'var(--cream-500)', marginTop: 4, fontStyle: 'italic' }}
+                        >
+                          {driftHint}
+                        </p>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          )}
           {recallQuestions.length > 0 && (
             <section style={{ marginBottom: 16 }}>
               <div
@@ -217,6 +276,23 @@ export function GapsPanel() {
       </aside>
     </>
   );
+}
+
+function prettyRecallLabel(item: { itemId: string; label: string }): string {
+  // Strip layer prefix from itemId for spoken-form addressing.
+  if (item.itemId.startsWith('module/')) return item.itemId.slice('module/'.length);
+  if (item.itemId.startsWith('file/'))   return item.itemId.slice('file/'.length);
+  if (item.itemId.startsWith('code/'))   return item.itemId.slice('code/'.length).split(':')[0];
+  return item.label || item.itemId;
+}
+
+function levelColor(level: ComprehensionLevel): string {
+  switch (level) {
+    case 'confirmed': return 'var(--sig-okay)';
+    case 'explained': return 'var(--amber-400)';
+    case 'engaged':   return 'var(--cream-300, var(--cream-500))';
+    default:          return 'var(--cream-500)';
+  }
 }
 
 function levelReason(level: ComprehensionLevel, layer: string): string {

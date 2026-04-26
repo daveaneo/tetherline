@@ -82,14 +82,15 @@ request:
         - packages/shared/tsconfig.json (config)
   maxTokens: 200
 response:
-  text: This module owns the type contracts and constants that ensure frontend and
-    backend speak the same language in the interactive code review system. The
-    non-obvious constraint here is that these types define a real-time
-    collaborative session - notice how ws-events.ts handles WebSocket message
-    typing, meaning any change here ripples through both client and server
-    WebSocket handlers. The heaviest lifting happens in ws-events.ts, which owns
-    the complete message protocol for real-time events like cursor movements,
-    selection changes, and collaborative annotations between reviewers.
+  text: This module defines the shared type system and constants that create a
+    contract between the frontend and backend of the interactive code reviewer.
+    The types are surprisingly granular — there are separate type definitions
+    for concepts like "understanding," "comprehension," and "concerns,"
+    suggesting the system models developer cognition with more nuance than you'd
+    expect from a typical code review tool. The **index.ts** file acts as the
+    single source of truth, exporting all these domain types so both sides of
+    the application speak the same language about code analysis sessions, visual
+    overlays, and user skill tracking.
   usage:
     inputTokens: 563
-    outputTokens: 110
+    outputTokens: 120

@@ -1,4 +1,4 @@
-key: 809d0f8ac38d5f2c
+key: 995742b858ed23b8
 request:
   model: claude-sonnet-4-20250514
   system: You are analyzing the codebase "interactive-reviewer". Summarize this
@@ -51,21 +51,21 @@ request:
 
         - test/integration/voice-measurement/scenarios.ts (test)
 
-        - test/cassettes/hermes-self-on-self/3715b5c078b40840.yaml (test)
+        - test/cassettes/hermes-self-on-self/2a5e95ea4a9a46ee.yaml (test)
 
         - test/cassettes/hermes-self-on-self/6923419bb9a13c6a.yaml (test)
 
         - test/cassettes/hermes-self-on-self/6fd8786658336eaa.yaml (test)
+
+        - test/cassettes/hermes-self-on-self/809d0f8ac38d5f2c.yaml (test)
+
+        - test/cassettes/hermes-self-on-self/96ffa1de7b6de9e5.yaml (test)
 
         - test/cassettes/hermes-self-on-self/9d94916715564244.yaml (test)
 
         - test/cassettes/hermes-self-on-self/cb7f790542f401ce.yaml (test)
 
         - test/cassettes/hermes-self-on-self/f4bed6973a7aa427.yaml (test)
-
-        - test/cassettes/hermes-self-on-self/f79a982bf5f345f4.yaml (test)
-
-        - test/cassettes/hermes-self-on-self/fbcf17d785b67d20.yaml (test)
 
         - test/e2e/explore-mode-no-blank-screen.spec.ts (test)
 
@@ -86,15 +86,15 @@ request:
         - test/frontend/lobby-renders.test.tsx (test)
   maxTokens: 200
 response:
-  text: This module owns the testing infrastructure for the interactive code
-    reviewer, spanning unit tests, end-to-end browser automation, and
-    performance measurement. The cassettes directory reveals this system uses
-    VCR-style HTTP recording for deterministic API testing—those cryptic YAML
-    filenames are hashed request signatures that let tests replay exact API
-    interactions without hitting live services. The heaviest architectural work
-    happens in `test/harness/server.ts`, which orchestrates the test server
-    setup that powers both integration scenarios and the browser-based e2e
-    suite.
+  text: This module contains the complete testing infrastructure for the
+    interactive code review system, spanning unit tests, end-to-end browser
+    automation, and API integration tests. The surprise here is the extensive
+    use of VCR-style cassettes under `hermes-self-on-self` — these are recorded
+    HTTP interactions that let the system test against real API responses
+    without hitting live services during CI. The heavyweight is
+    `test/harness/server.ts`, which orchestrates the full application stack for
+    integration testing, managing database setup, server lifecycle, and test
+    isolation.
   usage:
-    inputTokens: 715
-    outputTokens: 115
+    inputTokens: 722
+    outputTokens: 117

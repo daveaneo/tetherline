@@ -70,14 +70,12 @@ request:
         - docs/vision.md (other)
   maxTokens: 200
 response:
-  text: This module houses the product vision and development roadmap for the
-    interactive reviewer system. The surprise here is that it's heavily focused
-    on "voice" documentation—multiple files tracking how the AI's communication
-    style should evolve before and after fixes, suggesting this tool cares as
-    much about *how* it talks to developers as what it actually does. The
-    **VISION-MASTERPLAN.md** file carries the architectural weight, defining the
-    core product direction that drives all the implementation planning scattered
-    across the other docs.
+  text: The docs module captures the evolution and voice calibration of an
+    interactive code reviewer system. The surprise here is that most files track
+    voice and tone experiments—comparing "before" and "after" conversational
+    styles to nail down how the AI should sound when giving feedback. The
+    heaviest lifting happens in VISION-MASTERPLAN.md, which owns the core
+    product direction and feature roadmap that everything else builds toward.
   usage:
     inputTokens: 437
-    outputTokens: 106
+    outputTokens: 87

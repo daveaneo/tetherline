@@ -1,0 +1,134 @@
+key: ab2626746c935b2a
+request:
+  model: claude-sonnet-4-20250514
+  system: Synthesize a concise project summary. One paragraph. Spoken aloud via TTS.
+  messages:
+    - role: user
+      content: >-
+        Write the project briefing a senior engineer would want before they
+        touch this codebase. The briefing will be spoken aloud as the first
+        thing the user hears.
+
+
+        REQUIRED — your summary must include:
+
+        1. What the product DOES, in one sentence — phrased so a non-team-member
+        instantly gets it.
+
+        2. The architectural shape — the 2–3 worlds (e.g. "backend, frontend,
+        shared types") and what each one owns.
+
+        3. The thing that's NOT obvious from the file tree — a constraint, a
+        design choice with consequences, the gravity (where activity
+        concentrates), the "watch out for…" detail. This is the line that makes
+        the briefing feel like a real human guide, not a directory listing.
+
+
+        Forbidden:
+
+        - "This is a project that…" or any other filler opener.
+
+        - Listing modules without saying what they own.
+
+        - Marketing language.
+
+        - Generic descriptors that could apply to any codebase ("modular
+        architecture", "robust logging").
+
+
+        Length: 4–6 sentences. Conversational tone (spoken aloud).
+
+
+        Project: interactive-reviewer
+
+        README says: **Stay tethered to your codebase.**
+
+
+        Tech stack: @testing-library/jest-dom, @vitejs/plugin-react, vitest
+
+
+        Modules:
+
+        backend: This backend orchestrates AI-powered code review sessions by
+        composing contextual briefings from cached workspace analysis and
+        delivering them through text-to-speech. The surprising constraint is
+        that everything flows through a sophisticated caching layer that
+        pre-digests workspace context to avoid expensive re-analysis during live
+        review sessions. The `briefing/composer.ts` file does the heavy lifting
+        here, taking cached workspace understanding and generating the actual
+        review narratives that get spoken to developers.
+
+
+        tetherline: Tetherline manages the CLI entry point and application
+        launcher for the interactive reviewer system. The surprise here is that
+        despite being called "tetherline," this isn't actually a communication
+        or tethering module—it's purely about bootstrapping the command-line
+        interface. The `launcher.ts` file owns the core application
+        initialization logic that gets everything running once the CLI is
+        invoked.
+
+
+        frontend: The frontend module creates an interactive code review
+        experience where participants can explore codebases together through
+        voice and visual interfaces. The surprise here is that it's built around
+        real-time session orchestration rather than traditional code review
+        workflows - participants join "rooms" and navigate code collaboratively
+        with voice input as a first-class interaction method. The
+        `NANOID_PLACEHOLDER.ts` hook does the heaviest lifting, coordinating
+        between voice input, WebSocket connections, and multiple state stores to
+        keep all participants synchronized as they move through the codebase
+        together.
+
+
+        shared: This module defines the shared type system and constants that
+        create a contract between the frontend and backend of the interactive
+        code reviewer. The types are surprisingly granular — there are separate
+        type definitions for concepts like "understanding," "comprehension," and
+        "concerns," suggesting the system models developer cognition with more
+        nuance than you'd expect from a typical code review tool. The
+        **index.ts** file acts as the single source of truth, exporting all
+        these domain types so both sides of the application speak the same
+        language about code analysis sessions, visual overlays, and user skill
+        tracking.
+
+
+        docs: The docs module captures the evolution and voice calibration of an
+        interactive code reviewer system. The surprise here is that most files
+        track voice and tone experiments—comparing "before" and "after"
+        conversational styles to nail down how the AI should sound when giving
+        feedback. The heaviest lifting happens in VISION-MASTERPLAN.md, which
+        owns the core product direction and feature roadmap that everything else
+        builds toward.
+
+
+        test: This module contains the complete testing infrastructure for the
+        interactive code review system, spanning unit tests, end-to-end browser
+        automation, and API integration tests. The surprise here is the
+        extensive use of VCR-style cassettes under `hermes-self-on-self` — these
+        are recorded HTTP interactions that let the system test against real API
+        responses without hitting live services during CI. The heavyweight is
+        `test/harness/server.ts`, which orchestrates the full application stack
+        for integration testing, managing database setup, server lifecycle, and
+        test isolation.
+  maxTokens: 300
+response:
+  text: 'Interactive Reviewer creates AI-powered code review sessions where teams
+    explore codebases together through voice and visual interfaces in shared
+    rooms. The architecture splits into three main worlds: a backend that
+    pre-composes contextual briefings from cached workspace analysis and
+    delivers them via text-to-speech, a frontend built around real-time session
+    orchestration where voice input is a first-class interaction method, and
+    shared types that model developer cognition with surprising
+    granularity—separate definitions for "understanding," "comprehension," and
+    "concerns." The non-obvious constraint is that everything flows through a
+    sophisticated caching layer that pre-digests workspace context to avoid
+    expensive re-analysis during live sessions. Most of the architectural
+    complexity lives in the session orchestration and voice interaction
+    coordination rather than traditional code review workflows. The gravity
+    centers around `briefing/composer.ts` in the backend and
+    `useSessionOrchestrator.ts` in the frontend, which handle the heaviest
+    lifting for contextual narrative generation and real-time participant
+    synchronization respectively.'
+  usage:
+    inputTokens: 940
+    outputTokens: 215

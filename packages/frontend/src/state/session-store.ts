@@ -76,6 +76,17 @@ interface SessionStore {
    *  this repo. Surfaced in the GapsPanel so the user can pick up where
    *  they left off last time. */
   recallQuestions: string[];
+  /** Comprehension items the user previously engaged with — used for
+   *  the GapsPanel "Pick up where you left off" section. Each entry
+   *  carries the prior level + commits-since-last-touch so the user
+   *  knows whether the code has drifted while they were away. */
+  recallItems: Array<{
+    itemId: string;
+    label: string;
+    layer: string;
+    level: ComprehensionLevel;
+    commitsSinceLastTouch: number;
+  }>;
   /** Active streamed answer chunks. Each entry is a complete sentence/group
    *  the orchestrator plays sequentially via TTS. The orchestrator removes
    *  entries via `consumeStreamChunk` once it starts speaking that chunk —
@@ -125,6 +136,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   quickPreview: null,
   streamedNarratives: new Map(),
   recallQuestions: [],
+  recallItems: [],
   streamChunks: [],
   streamingFinal: false,
   consumeStreamChunk: () => {
@@ -175,6 +187,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     quickPreview: null,
     streamedNarratives: new Map(),
     recallQuestions: [],
+  recallItems: [],
   streamChunks: [],
   streamingFinal: false,
   consumeStreamChunk: () => {
@@ -233,7 +246,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         break;
 
       case 'session:recall':
-        set({ recallQuestions: event.payload.questions });
+        set({
+          recallQuestions: event.payload.questions,
+          recallItems: event.payload.items ?? [],
+        });
         break;
 
       case 'narration:stream_chunk': {

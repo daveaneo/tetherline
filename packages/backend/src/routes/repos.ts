@@ -137,6 +137,38 @@ export function createRepoRoutes(db: Database, config: AppConfig): Router {
     res.json({ repo, newCommits, contributors, recentSessions: sessions });
   });
 
+  /**
+   * Read-only file content endpoint for the code-layer briefing UI.
+   * Looks up the repo by path (frontend already knows activeRepoPath)
+   * and serves the requested file if it lives inside a registered repo.
+   *
+   * Capped at 200KB. Path traversal is rejected.
+   */
+  router.get('/file', async (req, res) => {
+    const fs = await import('fs');
+    const path = await import('path');
+    const repoPath = String(req.query.repoPath ?? '').trim();
+    const rel = String(req.query.path ?? '').trim();
+    if (!repoPath || !rel) {
+      res.status(400).json({ error: 'repoPath + path query params required' });
+      return;
+    }
+    const repo = db.getRepoRepo().getByPath(repoPath);
+    if (!repo) { res.status(404).json({ error: 'repo not registered' }); return; }
+    const resolved = path.resolve(repo.path, rel);
+    if (!resolved.startsWith(path.resolve(repo.path) + path.sep)) {
+      res.status(400).json({ error: 'path escapes repo' });
+      return;
+    }
+    let stat: import('fs').Stats;
+    try { stat = fs.statSync(resolved); }
+    catch { res.status(404).json({ error: 'file not found' }); return; }
+    if (!stat.isFile()) { res.status(400).json({ error: 'not a file' }); return; }
+    if (stat.size > 200_000) { res.status(413).json({ error: 'file too large (>200KB)' }); return; }
+    const content = fs.readFileSync(resolved, 'utf8');
+    res.json({ path: rel, content, sizeBytes: stat.size });
+  });
+
   // Remove a repo
   router.delete('/:id', (req, res) => {
     db.getRepoRepo().remove(req.params.id);
