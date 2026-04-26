@@ -1,4 +1,4 @@
-key: 14d107beac1053d2
+key: f4bed6973a7aa427
 request:
   model: claude-sonnet-4-20250514
   system: You are analyzing the codebase "interactive-reviewer". Summarize this
@@ -75,6 +75,8 @@ request:
 
         - packages/backend/src/cache/hash-utils.ts (utility)
 
+        - packages/backend/src/cache/workspace-detector.ts (other)
+
         - packages/backend/src/db/repositories/briefing-repo.ts (other)
 
         - packages/backend/src/db/repositories/comprehension-repo.ts (other)
@@ -82,19 +84,16 @@ request:
         - packages/backend/src/db/repositories/heatmap-repo.ts (other)
 
         - packages/backend/src/digest/generator.ts (other)
-
-        - packages/backend/src/digest/scheduler.ts (other)
   maxTokens: 200
 response:
-  text: This module orchestrates the AI-powered code review experience by
-    coordinating LLM intelligence, text-to-speech generation, and session
-    management to deliver spoken code briefings. The surprising constraint is
-    that everything flows through a comprehensive caching layer that hashes not
-    just code content but also the specific AI model configurations and TTS
-    settings, since changing any of these invalidates previously generated
-    briefings. The `server.ts` file serves as the main orchestrator, wiring
-    together the intelligence pipeline, session handling, and delivery
-    mechanisms that transform static code into interactive spoken reviews.
+  text: This backend orchestrates AI-powered code review sessions by composing
+    contextual briefings from cached workspace analysis and delivering them
+    through text-to-speech. The surprising constraint is that it heavily caches
+    workspace context and analysis results to avoid expensive recomputation, but
+    must detect when files change to invalidate those caches appropriately. The
+    `briefing/composer.ts` file does the core work of synthesizing code context,
+    AI analysis, and session state into the spoken briefings that guide
+    developers through their code.
   usage:
-    inputTokens: 634
-    outputTokens: 119
+    inputTokens: 636
+    outputTokens: 108

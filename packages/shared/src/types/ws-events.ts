@@ -50,7 +50,7 @@ export type ServerEvent =
   | { type: 'narration:quick_answer'; payload: { question: string; answer: string; source: string } }
   | { type: 'narration:briefing'; payload: {
       briefingId: string;
-      layer: 'project' | 'architecture' | 'module' | 'file' | 'concept';
+      layer: 'project' | 'architecture' | 'module' | 'file' | 'concept' | 'code';
       title: string;
       text: string;                      // the opener (TTS-ready)
       estimatedSeconds: number;

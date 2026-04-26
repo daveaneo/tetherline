@@ -54,13 +54,13 @@ request:
         - packages/cli/tsconfig.json (config)
   maxTokens: 200
 response:
-  text: The tetherline module manages the command-line interface that launches and
-    coordinates the interactive code review process. The CLI acts as a bridge
-    between the user's terminal and the underlying review engine, but it's
-    designed to hand off control quickly rather than managing the review session
-    itself. The `launcher.ts` file owns the core orchestration logic, handling
-    process spawning and inter-process communication setup that gets the review
-    environment running.
+  text: Tetherline provides a command-line interface for launching and managing
+    the interactive code review system. The surprise here is that it's designed
+    as a lightweight launcher rather than embedding the full application
+    logic—the CLI acts more like a smart bootstrap that delegates to the core
+    packages rather than reimplementing functionality. The `launcher.ts` file
+    owns the actual orchestration logic, handling process management and
+    coordination between the CLI surface and the underlying review engine.
   usage:
     inputTokens: 331
-    outputTokens: 89
+    outputTokens: 93

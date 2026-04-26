@@ -1,4 +1,4 @@
-key: fce6db6005af8aa2
+key: fbcf17d785b67d20
 request:
   model: claude-sonnet-4-20250514
   system: >-
@@ -60,7 +60,7 @@ request:
 
     Period: 2026-03-27 to 2026-04-26
 
-    Total commits: 66
+    Total commits: 67
 
 
 
@@ -68,90 +68,97 @@ request:
 
     ## Project: **Stay tethered to your codebase.**
 
-    Interactive Reviewer transforms any codebase into a spoken AI briefing that
-    explains what the code does and how it's structured. The system has three
-    main worlds: backend handles AI analysis and text-to-speech generation,
-    frontend provides a real-time collaborative interface for multiple
-    reviewers, and shared defines the type contracts between them. The
-    non-obvious constraint is that everything flows through an aggressive
-    caching layer that hashes not just your code, but also the AI model settings
-    and voice configurations—change any of these and all your cached briefings
-    become invalid. What's surprising is the frontend's focus on "gaps"—it
-    actively tracks what each participant doesn't understand yet rather than
-    just displaying code. The system is designed around the belief that code
-    review should be conversational and collaborative, not just a static diff
-    inspection.
+    Interactive Reviewer lets developers get AI-powered code reviews delivered
+    through voice, keeping them connected to their codebase without breaking
+    flow. The system has three main worlds: a backend that caches workspace
+    analysis and synthesizes spoken briefings, a voice-first frontend built
+    around real-time conversation rather than text chat, and shared types that
+    define the websocket protocol connecting them. The non-obvious constraint is
+    that everything revolves around expensive workspace analysis that gets
+    heavily cached—the system assumes you're working in the same codebase for
+    extended periods, so it optimizes for that scenario but has to carefully
+    detect when your files change to invalidate those caches. The frontend
+    treats voice as primary and text as secondary, which is backwards from most
+    code tools, and the backend spends most of its energy avoiding recomputation
+    of context that takes seconds to generate fresh.
 
 
     ### backend
 
-    This module orchestrates the AI-powered code review experience by
-    coordinating LLM intelligence, text-to-speech generation, and session
-    management to deliver spoken code briefings. The surprising constraint is
-    that everything flows through a comprehensive caching layer that hashes not
-    just code content but also the specific AI model configurations and TTS
-    settings, since changing any of these invalidates previously generated
-    briefings. The `server.ts` file serves as the main orchestrator, wiring
-    together the intelligence pipeline, session handling, and delivery
-    mechanisms that transform static code into interactive spoken reviews.
+    This backend orchestrates AI-powered code review sessions by composing
+    contextual briefings from cached workspace analysis and delivering them
+    through text-to-speech. The surprising constraint is that it heavily caches
+    workspace context and analysis results to avoid expensive recomputation, but
+    must detect when files change to invalidate those caches appropriately. The
+    `briefing/composer.ts` file does the core work of synthesizing code context,
+    AI analysis, and session state into the spoken briefings that guide
+    developers through their code.
 
 
     ### tetherline
 
-    The tetherline module manages the command-line interface that launches and
-    coordinates the interactive code review process. The CLI acts as a bridge
-    between the user's terminal and the underlying review engine, but it's
-    designed to hand off control quickly rather than managing the review session
-    itself. The `launcher.ts` file owns the core orchestration logic, handling
-    process spawning and inter-process communication setup that gets the review
-    environment running.
+    Tetherline provides a command-line interface for launching and managing the
+    interactive code review system. The surprise here is that it's designed as a
+    lightweight launcher rather than embedding the full application logic—the
+    CLI acts more like a smart bootstrap that delegates to the core packages
+    rather than reimplementing functionality. The `launcher.ts` file owns the
+    actual orchestration logic, handling process management and coordination
+    between the CLI surface and the underlying review engine.
 
 
     ### frontend
 
-    The frontend module builds a real-time collaborative code review interface
-    that connects multiple participants through voice and visual feedback. The
-    surprising constraint here is that everything revolves around "gaps" in
-    understanding—the system doesn't just show code, it actively tracks and
-    visualizes what each participant doesn't understand yet. The
-    `NANOID_PLACEHOLDER.ts` file does the heaviest lifting, coordinating the
-    complex dance between voice input, WebSocket synchronization, and the
-    gap-tracking state that drives the entire collaborative experience.
+    The frontend module orchestrates real-time collaborative code review
+    sessions through voice and visual interfaces. The twist here is that it's
+    built around voice-first interactions—notice the VoiceOrb component and
+    voice input hooks—treating traditional text chat as secondary to spoken
+    conversation. The `NANOID_PLACEHOLDER.ts` file does the heavy coordination
+    work, managing the complex state synchronization between voice input,
+    WebSocket connections, and the various visual components like diff views and
+    understanding heatmaps.
 
 
     ### shared
 
-    The shared module defines the type system and contracts that coordinate
-    communication between the frontend, backend, and any other components in the
-    interactive reviewer system. What's surprising is that this isn't just basic
-    data types — it includes sophisticated event schemas for real-time WebSocket
-    communication and complex analysis structures that suggest the system does
-    live code comprehension tracking. The heaviest lifting happens in
-    `ws-events.ts`, which owns the bidirectional event protocol that keeps the
-    reviewer interface synchronized with backend analysis processes.
+    The shared module defines the type contracts and constants that keep the
+    frontend and backend speaking the same language across websocket events,
+    analysis data, and UI state.
+
+
+    The surprise here is how granular the type definitions get - there are
+    separate type files for highly specific concepts like heatmaps, visual
+    layers, and comprehension states, suggesting this isn't just basic data
+    models but a sophisticated domain with nuanced interactions.
+
+
+    The ws-events.ts file does the critical work of defining the websocket
+    message protocol that coordinates real-time communication between the client
+    and server during code review sessions.
 
 
     ### docs
 
-    This module contains the project's strategic documentation and planning
-    artifacts that guide development decisions. The non-obvious detail is that
-    most files are "VOICE" comparisons showing before/after examples of how the
-    AI reviewer should communicate, suggesting this tool underwent significant
-    tone refinement. The heaviest lifting happens in **VISION-MASTERPLAN.md**,
-    which likely serves as the north star document defining what this
-    interactive reviewer is actually trying to become.
+    This module owns the project's planning documents and design specifications,
+    capturing both current implementation strategy and future roadmap. The
+    surprise here is the heavy focus on "voice" documentation—four separate
+    files tracking how the AI reviewer's communication style should evolve,
+    suggesting voice consistency is a core product concern rather than an
+    afterthought. VISION-MASTERPLAN.md does the heaviest lifting as the central
+    design document that likely defines the product's core philosophy and
+    technical direction.
 
 
     ### test
 
-    This module owns the complete testing strategy for the interactive reviewer,
-    covering everything from unit tests to end-to-end scenarios. The surprise
-    here is the "cassettes" directory containing YAML files—these are HTTP
-    interaction recordings that let tests replay actual API responses
-    deterministically, avoiding flaky network calls during testing. The
-    `test/harness/server.ts` file does the heaviest lifting by providing a
-    configurable test server that can simulate different backend states and API
-    responses for consistent test execution.
+    This module owns the complete testing strategy for the interactive code
+    review system, spanning unit tests, integration tests, and end-to-end
+    browser automation. The cassettes directory reveals that the system records
+    and replays HTTP interactions for deterministic testing—those cryptic
+    filenames are actually hashes of request signatures used for
+    "hermes-self-on-self" scenarios where the system reviews its own codebase.
+    The file `test/harness/server.ts` does the heaviest lifting by providing the
+    foundational test server infrastructure that all other tests depend on,
+    managing both the backend API and serving test fixtures.
 
 
     If the codebase uses programming languages the user may not be familiar
@@ -160,7 +167,7 @@ request:
   messages:
     - role: user
       content: >-
-        Group these 66 commits into logical areas of change (features, bug
+        Group these 67 commits into logical areas of change (features, bug
         fixes, refactors, infrastructure, etc.).
 
 
@@ -191,6 +198,34 @@ request:
         Commits:
 
         [
+          {
+            "hash": "643fe5ed",
+            "message": "R2: workspace awareness, gravity-ordered satellites, responsive depth",
+            "author": "david ring iii",
+            "files": [
+              "packages/backend/src/briefing/composer.ts",
+              "packages/backend/src/cache/warmer.ts",
+              "packages/backend/src/cache/workspace-detector.ts",
+              "packages/backend/src/db/database.ts",
+              "packages/backend/src/db/repositories/context-cache-repo.ts",
+              "packages/backend/src/intelligence/depth-modifiers.ts",
+              "packages/backend/src/intelligence/qa-context.ts",
+              "packages/backend/src/session/manager.ts",
+              "test/cassettes/hermes-self-on-self/14d107beac1053d2.yaml",
+              "test/cassettes/hermes-self-on-self/61175a770ffde0cd.yaml",
+              "test/cassettes/hermes-self-on-self/634ae639b8508a16.yaml",
+              "test/cassettes/hermes-self-on-self/6923419bb9a13c6a.yaml",
+              "test/cassettes/hermes-self-on-self/6fd8786658336eaa.yaml",
+              "test/cassettes/hermes-self-on-self/9d94916715564244.yaml",
+              "test/cassettes/hermes-self-on-self/a7b2c75ec5290161.yaml",
+              "test/cassettes/hermes-self-on-self/cb7f790542f401ce.yaml",
+              "test/cassettes/hermes-self-on-self/fce6db6005af8aa2.yaml",
+              "test/unit/briefing-composer.test.ts",
+              "test/unit/depth-modifiers.test.ts",
+              "test/unit/workspace-detector.test.ts"
+            ],
+            "linesChanged": 1869
+          },
           {
             "hash": "ef3b064d",
             "message": "Record self-on-self cassette: Hermes summarizes Tetherline well",
@@ -1340,210 +1375,191 @@ response:
   text: ""
   toolInput:
     areas:
-      - name: Voice interaction system foundation
-        description: This establishes the core voice-first architecture that makes
-          Interactive Reviewer conversational. The work spans from basic speech
-          recognition to sophisticated interrupt handling with sub-20ms
-          latencies, push-to-talk mechanics, and intelligent floor control. The
-          goal was creating a natural conversational flow where users can speak
-          freely and interrupt the AI seamlessly, making code review feel like
-          talking to a colleague rather than typing commands.
+      - name: Vision and Project Foundation
+        description: The foundational work establishing the project's core vision,
+          mission, and strategic direction. This includes the master vision
+          document that defines the product philosophy, comprehensive
+          implementation plans that map out the technical roadmap, and the
+          project rename from Interactive Reviewer to Tetherline. These
+          documents and decisions shaped all subsequent development and
+          established the voice-first AI code review paradigm that drives the
+          entire system architecture.
         commitHashes:
+          - 0bb9087b
+          - e447f29b
+          - 43fe3e17
+          - 27dc8817
+          - 0f19c102
+          - 875d2390
+        significance: major
+        theme: Documentation
+      - name: Voice System Architecture
+        description: The complete development of the voice-first interaction system that
+          forms the core of Tetherline's user experience. This encompasses
+          everything from basic speech recognition and text-to-speech
+          integration to sophisticated voice floor control with sub-20ms
+          interrupt capabilities. The work includes local audio pipeline
+          implementation with Whisper STT, Kokoro TTS integration, multi-layered
+          interrupt systems, push-to-talk functionality, and comprehensive voice
+          activity detection. These commits establish voice as the primary
+          interface rather than a secondary feature.
+        commitHashes:
+          - f7320e91
+          - da53b091
+          - 8f003016
+          - 6c8d98c1
+          - f081c89e
+          - 92e65a4c
+          - 99dca9f1
           - ba11f1b8
           - 6e8ba9cb
           - c25a19e0
           - b4aca860
-          - f081c89e
-          - 92e65a4c
-          - 99dca9f1
-          - b52f09fb
+          - 374c6634
           - c2edad9b
+          - b52f09fb
+          - aa6cafe8
           - 143eae0c
           - ba618d37
-          - 99cac43f
-          - da53b091
-          - f7320e91
-          - de75d225
         significance: major
         theme: UI/UX
-      - name: Hermes intelligence pipeline
-        description: This creates the AI-powered analysis engine that transforms
-          codebases into spoken briefings. The pipeline includes sophisticated
-          prompt engineering, context caching, streaming narratives, and
-          quiz-based comprehension tracking. What makes this special is the
-          focus on spoken delivery rather than text output—everything is
-          optimized for being heard, not read, with careful attention to pacing,
-          clarity, and engagement when explaining code concepts verbally.
+      - name: Intelligent Analysis Engine
+        description: The development of Tetherline's AI-powered code analysis
+          capabilities, including the sophisticated briefing composer system,
+          depth modifiers for contextual analysis, Q&A systems, and
+          workspace-aware intelligence. This includes the creation of prompt
+          engineering systems for different analysis types, the integration of
+          both local Claude Code CLI and cloud-based intelligence modes, and the
+          development of smart caching strategies to avoid expensive
+          recomputation. The system learns to stay focused on target
+          repositories and provides contextually appropriate responses based on
+          code understanding.
         commitHashes:
-          - ef3b064d
+          - 643fe5ed
           - "768e9693"
           - 7e92e7b3
-          - 914b8031
-          - 67f5f562
           - 5bf807ba
-          - 0dd5a2a1
+          - 914b8031
+          - 42cf76aa
+          - b3a8fbb5
+          - 99f4bc5b
+          - 2ae99f9d
+          - f774f687
+          - 67f5f562
         significance: major
         theme: API
-      - name: Vision system and collaborative briefings
-        description: This implements the sophisticated visual layer that accompanies the
-          voice interface, including progressive zoom through five abstraction
-          levels, briefing cards, comprehension overlays, and real-time
-          collaboration features. The system tracks what participants understand
-          and surfaces gaps visually while coordinating multiple reviewers in
-          the same session. It's designed around the principle that code review
-          should be both heard and seen, with visuals that enhance rather than
-          compete with the spoken narrative.
-        commitHashes:
-          - 5bf807ba
-          - 0dd5a2a1
-          - f4e86b8f
-          - f5e48b3f
-        significance: major
-        theme: UI/UX
-      - name: Context caching and performance optimization
-        description: This builds a comprehensive caching layer that hashes not just code
-          content but also AI model settings and TTS configurations, since
-          changing any of these invalidates cached briefings. The system
-          includes three-level summaries with incremental updates, README
-          parsing, and import analysis to minimize cold-start LLM calls. The
-          goal is making repeated reviews instant while maintaining accuracy
-          when the underlying codebase or configuration changes.
+      - name: Context Cache System
+        description: A sophisticated three-level caching system designed to dramatically
+          reduce the computational cost of workspace analysis. The system
+          implements incremental updates, intelligent cache invalidation based
+          on file changes, and workspace detection to maintain contextual
+          awareness across sessions. This includes README-first analysis
+          strategies, hash-based change detection, and repository manifest
+          parsing to build comprehensive project understanding without requiring
+          expensive LLM calls on every interaction.
         commitHashes:
           - 0ceb7c42
           - 08e3a24a
           - 03bbe921
         significance: major
         theme: Performance
-      - name: Testing infrastructure and quality assurance
-        description: This establishes a comprehensive testing strategy covering unit
-          tests, integration scenarios, end-to-end flows, and voice interaction
-          testing. The surprise here is the cassette system that records HTTP
-          interactions for deterministic test replays, plus specialized testing
-          for voice latency, interruption handling, and collaborative scenarios.
-          The framework supports both automated testing and human evaluation of
-          the voice experience quality.
+      - name: User Interface and Visual Design
+        description: The complete redesign and refinement of Tetherline's user
+          interface, transitioning from a traditional code review tool to a
+          voice-first, visually stunning application. This includes the
+          ember/espresso design system implementation, full-bleed minimal UI
+          design, progressive zoom visual layers, and comprehensive UX
+          improvements like conversation history, processing feedback, and
+          auto-resume functionality. The design prioritizes voice interaction
+          while providing rich visual context through diagrams, heatmaps, and
+          code views.
         commitHashes:
-          - f6dfddc1
-          - 6c8d98c1
-          - 8f003016
-          - 34d452ed
-          - "71012514"
-          - 9afddf31
-          - 3a8d4709
-          - 2cb63e6a
+          - 15f0d4a5
+          - 71f6fde9
+          - e1d7918d
+          - bbcc0934
+          - 0dd5a2a1
         significance: major
-        theme: Testing
-      - name: Progressive development phases
-        description: "This represents the systematic implementation of Interactive
-          Reviewer's core features through five planned phases: progressive zoom
-          visual layers, five-layer understanding model, skills-based intent
-          classification, deviation tracking with tour planning, and visual
-          enhancements with diff viewing. Each phase builds on the previous one,
-          creating a cohesive experience that transforms static code into an
-          interactive, conversational review session."
+        theme: UI/UX
+      - name: Progressive Understanding System
+        description: Implementation of Tetherline's five-layer understanding model that
+          guides users through progressive exploration of codebases. This
+          includes entry modes for different types of code review sessions,
+          skills-based interaction systems with intent classification, and
+          comprehensive tracking of user comprehension and deviation from
+          planned exploration paths. The system adapts to user needs and
+          provides structured guidance through complex codebases.
         commitHashes:
-          - 1d98bb92
           - 154a71a9
           - 09941ab1
           - 9e440c96
+          - 1d98bb92
+          - ffaccbb6
+          - 3f3a3e38
+          - f44f1888
+        significance: major
+        theme: Data model
+      - name: Testing Infrastructure
+        description: Comprehensive testing framework development including unit tests,
+          integration tests, end-to-end browser automation with Playwright, and
+          sophisticated test harness infrastructure. The system includes
+          cassette-based recording for deterministic testing, voice measurement
+          scenarios, self-on-self testing where Tetherline reviews its own
+          codebase, and extensive coverage of all user interaction flows. The
+          testing strategy ensures reliability across the complex voice-first
+          interaction model.
+        commitHashes:
+          - f6dfddc1
+          - ef3b064d
+          - 9afddf31
+          - "71012514"
+          - 34d452ed
           - cce81bc8
+          - 2cb63e6a
+        significance: major
+        theme: Testing
+      - name: Session Management and Real-time Communication
+        description: The development of Tetherline's session orchestration system that
+          manages real-time collaborative code review sessions through WebSocket
+          connections. This includes session state management, room layouts,
+          entrance flows, and the coordination between voice input, AI
+          processing, and visual feedback. The system handles session
+          resumption, cross-session memory, and the complex state
+          synchronization required for seamless voice-first interactions.
+        commitHashes:
+          - d708bff8
+          - 720318fe
+          - 22b54220
         significance: major
         theme: API
-      - name: Intelligence modes and client integration
-        description: This implements dual intelligence backends allowing users to choose
-          between local Claude Code CLI and cloud API integration. The system
-          gracefully handles both modes with fallback logic, letting users work
-          with or without API keys while maintaining the same conversational
-          interface. This flexibility makes the tool accessible regardless of
-          whether users have cloud AI access or prefer keeping everything local.
+      - name: Critical Bug Fixes and Stability
+        description: Essential fixes that resolved critical issues affecting user
+          experience and system stability. These include resolving infinite
+          render loops in React components, fixing database path migration
+          issues that caused blank screens, addressing AI response duplication,
+          preventing voice barge-in problems, and ensuring proper transcription
+          pipeline functionality. Each fix addressed specific user-blocking
+          issues and improved overall system reliability.
         commitHashes:
-          - 42cf76aa
-          - b3a8fbb5
-          - f774f687
-        significance: minor
-        theme: API
-      - name: Audio pipeline and TTS improvements
-        description: This optimizes the text-to-speech delivery with local Kokoro TTS,
-          improved audio server handling, and WebM transcription processing. The
-          focus is on reducing latency and improving audio quality for the
-          spoken briefings, since the entire user experience depends on clear,
-          natural-sounding AI narration. The work includes echo cancellation and
-          proper audio format handling for reliable voice interaction.
-        commitHashes:
-          - 374c6634
-          - 143eae0c
-          - aa6cafe8
-        significance: minor
-        theme: Performance
-      - name: User experience and interface refinement
-        description: This polishes the frontend experience with ember/espresso design
-          system, full-bleed minimal UI, improved lobby flow, and better session
-          management. The work includes conversation history, voice help
-          systems, processing feedback, and auto-resume functionality. The goal
-          is making Interactive Reviewer feel polished and professional while
-          maintaining the focus on voice-first interaction patterns.
-        commitHashes:
-          - 15f0d4a5
-          - e1d7918d
-          - 71f6fde9
-          - bbcc0934
-          - 2ae99f9d
-          - 99f4bc5b
-          - f44f1888
-          - 720318fe
-        significance: minor
-        theme: UI/UX
-      - name: Advanced features and extensibility
-        description: This adds sophisticated capabilities like onboarding mode for new
-          team members, Monday digest generation, smart update tracking, and
-          action layers for creating GitHub issues. These features extend
-          Interactive Reviewer beyond basic code review into team productivity
-          tools, helping with knowledge transfer, progress tracking, and
-          actionable follow-ups from review sessions.
-        commitHashes:
-          - 3f3a3e38
-          - ffaccbb6
-          - 0f19c102
-        significance: minor
-        theme: API
-      - name: Project infrastructure and tooling
-        description: This handles the foundational project setup including the
-          Tetherline rebrand, comprehensive documentation, development tooling,
-          and deployment configurations. The work ensures the project is
-          well-documented, properly branded, and has the necessary tooling for
-          development and testing. This includes README updates, version
-          display, and various configuration improvements.
-        commitHashes:
-          - 27dc8817
-          - 5f412960
-          - 44c4b901
+          - f4e86b8f
+          - f5e48b3f
+          - de75d225
           - fd586507
-        significance: maintenance
-        theme: DevOps
-      - name: Documentation and planning
-        description: This creates the strategic vision documents and implementation
-          planning that guide the project's development. The documentation
-          includes voice comparison examples, testing strategy, feature
-          roadmaps, and the master vision document. These artifacts serve as the
-          north star for development decisions and help maintain consistency
-          across the complex voice-first interface.
+          - 99cac43f
+        significance: minor
+        theme: Security
+      - name: DevOps and Project Infrastructure
+        description: Essential project infrastructure work including gitignore updates
+          for test artifacts, version display implementation, dependency
+          management, and overall project configuration. This foundational work
+          supports the development workflow and ensures proper project hygiene
+          without directly impacting user-facing features.
         commitHashes:
-          - 0bb9087b
-          - e447f29b
-          - 43fe3e17
-          - 22b54220
-        significance: maintenance
-        theme: Documentation
-      - name: Initial project setup
-        description: This represents the foundational commit that established the
-          Interactive Reviewer codebase structure and basic architecture. While
-          it shows zero lines changed, this commit likely set up the initial
-          repository structure, build configuration, and basic project
-          scaffolding that everything else builds upon.
-        commitHashes:
-          - 875d2390
+          - 3a8d4709
+          - 44c4b901
+          - 5f412960
         significance: maintenance
         theme: DevOps
   usage:
-    inputTokens: 16016
-    outputTokens: 2088
+    inputTokens: 16572
+    outputTokens: 1811

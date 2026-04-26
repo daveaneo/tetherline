@@ -1,4 +1,4 @@
-export type BriefingLayer = 'project' | 'architecture' | 'module' | 'file' | 'concept';
+export type BriefingLayer = 'project' | 'architecture' | 'module' | 'file' | 'concept' | 'code';
 
 export interface Briefing {
   /** Stable id. Format: <layer>/<path-or-name>. Examples:
@@ -7,6 +7,8 @@ export interface Briefing {
    *  - module/payments
    *  - file/src/core/capture.ts
    *  - concept/idempotency
+   *  - code/src/core/capture.ts:capture       (whole symbol)
+   *  - code/src/core/capture.ts:42-58         (line range)
    */
   id: string;
   repoPath: string;

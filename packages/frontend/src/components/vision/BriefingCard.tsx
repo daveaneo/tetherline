@@ -31,7 +31,8 @@ export function BriefingCard() {
              briefing.layer === 'architecture' ? 'Architecture' :
              briefing.layer === 'module' ? 'Module' :
              briefing.layer === 'concept' ? 'Concept' :
-             briefing.layer === 'file' ? 'File' : 'Briefing'}
+             briefing.layer === 'file' ? 'File' :
+             briefing.layer === 'code' ? 'Code walk' : 'Briefing'}
           </div>
           <h2
             className="font-serif mt-2"

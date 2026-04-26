@@ -1755,6 +1755,41 @@ export class SessionManager {
         return true;
       }
 
+      case 'push_code': {
+        const target = op.target;
+        // Stop-list: "walk me through the architecture" / "walk me
+        // through the project" sound like code drills but they're nav
+        // intents — defer to handleBriefingQuery so the architecture or
+        // project briefing fires instead.
+        const NAV_RESERVED = new Set([
+          'architecture', 'project', 'overview', 'top', 'home',
+          'structure', 'layout', 'codebase', 'repo', 'app',
+        ]);
+        if (NAV_RESERVED.has(target.toLowerCase())) return false;
+
+        // Code drill is async (file IO + composer) — the navigator op
+        // handler is sync, so we kick off the work and return true to
+        // signal "I've taken this utterance." Errors get swallowed —
+        // worst case the user just hears the existing briefing reread.
+        (async () => {
+          try {
+            const resolved = await this.resolveCodeTarget(repoPath, target);
+            if (!resolved) return;
+            const { composeCodeBriefing } = await import('../briefing/code-composer.js');
+            const result = composeCodeBriefing({
+              repoPath,
+              filePath: resolved.filePath,
+              symbol: resolved.symbol,
+            });
+            if (!result) return;
+            this.deliverBriefing(result.briefing, 'user_asked');
+          } catch (err) {
+            // best-effort — fall through silently
+          }
+        })();
+        return true;
+      }
+
       case 'dive_deeper': {
         const current = this.navigator.peek();
         if (!current) return false;
@@ -1857,6 +1892,63 @@ export class SessionManager {
   // ─────────────────────────────────────────────────────────────
 
   /** Derive a comprehension layer from a briefing id. */
+  /** Resolve a code-drill target ("capture", "manager.ts", "handleQuestion")
+   *  to a concrete file + optional symbol. Strategy:
+   *   1. Direct file path (contains a slash or has a known extension) →
+   *      use as-is, let composer pick the first symbol.
+   *   2. Symbol name (no path separator) → grep cached file list for
+   *      `function symbol`, `class symbol`, `const symbol =` etc.
+   *   3. Bare filename (e.g. "manager.ts") → match by basename.
+   */
+  private async resolveCodeTarget(
+    repoPath: string,
+    target: string,
+  ): Promise<{ filePath: string; symbol?: string } | null> {
+    const fs = await import('fs');
+    const path = await import('path');
+
+    // 1. Direct path? (contains "/" or a known code extension at the end)
+    const looksLikePath = target.includes('/') || /\.(ts|tsx|js|jsx|py|go|rs|java|kt)$/.test(target);
+    if (looksLikePath) {
+      const full = path.join(repoPath, target);
+      if (fs.existsSync(full) && fs.statSync(full).isFile()) {
+        return { filePath: target };
+      }
+    }
+
+    // 2 + 3. Search the cached file list. Cheap because it's already in DB.
+    const cachedFiles = this.db.getContextCacheRepo().getFilesForRepo(repoPath);
+    if (cachedFiles.length === 0) return null;
+
+    // 3. Bare filename match (e.g. "manager.ts" → "packages/backend/src/session/manager.ts").
+    const byBasename = cachedFiles.find(f => path.basename(f.filePath) === target);
+    if (byBasename) return { filePath: byBasename.filePath };
+
+    // 2. Symbol grep. We avoid reading every file — only check candidates
+    // whose role looks code-like (entry, route, component, model, utility).
+    const candidates = cachedFiles
+      .filter(f => /\.(ts|tsx|js|jsx|py|go|rs)$/.test(f.filePath))
+      .sort((a, b) => (b.connectivity ?? 0) - (a.connectivity ?? 0))
+      .slice(0, 80); // bound the IO
+
+    // Case-insensitive — voice utterances normalize casing; the
+    // composer also matches case-insensitively when extracting the
+    // symbol from the source.
+    const symbolRe = new RegExp(
+      `(?:function|class|interface|type|const|def|func|fn)\\s+${escapeForRegex(target)}\\b`,
+      'i',
+    );
+    for (const cand of candidates) {
+      try {
+        const content = fs.readFileSync(path.join(repoPath, cand.filePath), 'utf8');
+        if (symbolRe.test(content)) {
+          return { filePath: cand.filePath, symbol: target };
+        }
+      } catch { /* skip unreadable */ }
+    }
+    return null;
+  }
+
   private layerFromBriefingId(briefingId: string): ComprehensionItemLayer {
     if (briefingId === 'project') return 'project';
     if (briefingId === 'arch/root' || briefingId.startsWith('arch/')) return 'architecture';
@@ -2620,4 +2712,8 @@ export function isLikelyTranscriptionNoise(text: string): boolean {
   if (cleaned.length < 3) return true;
   if (TRANSCRIPTION_NOISE_PHRASES.has(cleaned)) return true;
   return false;
+}
+
+function escapeForRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

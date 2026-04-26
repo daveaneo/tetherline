@@ -13,6 +13,7 @@ export type NavOp =
   | { kind: 'pop' }
   | { kind: 'pop_to_project' }
   | { kind: 'push_named'; target: string }        // e.g. "tell me about payments" → target="payments"
+  | { kind: 'push_code'; target: string }         // e.g. "walk me through capture" / "show me the handleQuestion function"
   | { kind: 'dive_deeper' }
   | { kind: 'breadcrumb' }
   | { kind: 'resume' }
@@ -34,6 +35,16 @@ const RULES: Rule[] = [
   // --- Pop (up one level) ---
   { pattern: /\b(back up|go up|step up|one level up|up a level|go back up)\b/, produce: () => ({ kind: 'pop' }) },
   { pattern: /^(go back|back|take me back)\s*\.?\s*$/, produce: () => ({ kind: 'pop' }) },
+
+  // --- Code-layer drill ("walk me through capture", "show me the handleQuestion function") ---
+  // Always check this BEFORE the generic named drill so "walk me through capture"
+  // doesn't get routed to module/capture when the user actually wants the code.
+  // Note: "explain X function" is intentionally NOT here — it's a more
+  // natural fit for the explain skill, which the intent classifier owns.
+  { pattern: /^(?:walk me through|step (?:me )?through|trace through|line[ -]by[ -]line(?:\s+through)?) (?:the )?([\w./-]{2,})(?:\s+(?:function|method|class|file|code))?[\s?.!]*$/,
+    produce: (m) => ({ kind: 'push_code', target: m[1] }) },
+  { pattern: /^(?:show me|let'?s see|open) (?:the )?(?:code (?:for|of)\s+)?([\w./-]+)\s+(?:function|method|class)[\s?.!]*$/,
+    produce: (m) => ({ kind: 'push_code', target: m[1] }) },
 
   // --- Named drill-down ---
   // "tell me about payments", "show me ledger", "look at webhooks", "let's look at webhooks", "let's talk about payments"

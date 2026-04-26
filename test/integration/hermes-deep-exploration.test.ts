@@ -312,6 +312,45 @@ describe('Hermes — deep exploration arc', () => {
     expect(payments.opener).toMatch(/\.ts/);
   });
 
+  it('drill from project all the way to code: project → arch → module → file → code', async () => {
+    const { devSessionId } = await h.client.startSession({
+      repoPath: FIXTURE,
+      entryMode: 'explore',
+      sinceDays: 30,
+    });
+    await settle(devSessionId);
+
+    // Drill into auth (module layer).
+    await h.client.utter(devSessionId, 'tell me about auth');
+    await new Promise(r => setTimeout(r, 150));
+    let nav = await h.client.navigator(devSessionId);
+    expect(nav.frames.at(-1)?.briefingId).toBe('module/auth');
+
+    // Now ask for the code itself. The fixture's auth module has a
+    // jwt.ts file with `issueToken` and `rotateKey`. Walking through
+    // issueToken should push a code-layer briefing.
+    let startIdx = (await h.client.events(devSessionId)).events.length;
+    await h.client.utter(devSessionId, 'walk me through issueToken');
+    await new Promise(r => setTimeout(r, 250));
+    let evs = (await h.client.events(devSessionId)).events.slice(startIdx);
+    const codeBriefing = lastBriefing(evs);
+    expect(codeBriefing, 'code-layer briefing emitted').toBeTruthy();
+    expect(codeBriefing.layer).toBe('code');
+    expect(codeBriefing.briefingId).toMatch(/^code\//);
+    // The visual cue carries the file path so a code-panel UI can render.
+    expect(codeBriefing.text).toMatch(/issueToken/i);
+
+    nav = await h.client.navigator(devSessionId);
+    expect(nav.frames.at(-1)?.briefingId).toMatch(/^code\//);
+
+    // Climb back up: pop returns to whatever was below the code briefing.
+    startIdx = (await h.client.events(devSessionId)).events.length;
+    await h.client.command(devSessionId, 'level_up');
+    await new Promise(r => setTimeout(r, 150));
+    nav = await h.client.navigator(devSessionId);
+    expect(nav.frames.at(-1)?.briefingId).not.toMatch(/^code\//);
+  }, 90_000);
+
   it('drill-by-voice and drill-by-click converge on identical navigator state', async () => {
     // Click path: send the same utterance you'd send if a chip was clicked.
     const a = await h.client.startSession({ repoPath: FIXTURE, entryMode: 'explore', sinceDays: 30 });

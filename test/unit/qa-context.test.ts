@@ -12,8 +12,9 @@ function fakeCacheRepo(state: {
     summary: m.summary,
     source: 'llm' as const,
     keyFiles: [],
-    dependencies: [],
+    imports: [] as string[],
     confidence: m.confidence ?? 0.9,
+    impactScore: 0,
     generatedAt: new Date().toISOString(),
   }));
   return {
@@ -100,6 +101,52 @@ describe('buildQAContext', () => {
     // Even with no cached summary, the LLM gets the basename so it can ground itself.
     expect(prompt).toMatch(/myproject/);
     expect(prompt).toMatch(/spoken aloud/);
+  });
+
+  it('emits module-to-module dependency edges so connection questions can be answered structurally', () => {
+    // module/auth imports from module/utils; module/payments imports auth.
+    // The QA scaffold should surface these edges so "how does payments
+    // connect to auth" or "if I add rate limiting, where?" answers are
+    // grounded in the actual import graph, not guessed.
+    const repo = fakeCacheRepo({
+      project: { repoPath, summary: 'X.', purpose: '', techStack: [], moduleMap: {}, triggerHashes: {}, confidence: 0.9 },
+      modules: [
+        { modulePath: 'auth',     summary: 'Token issuance.' },
+        { modulePath: 'utils',    summary: 'Helpers.' },
+        { modulePath: 'payments', summary: 'Money movement.' },
+      ],
+    });
+    // Patch in import edges (the fake cache repo doesn't simulate them
+    // by default — drive directly on the underlying module list).
+    const modules = repo.getModulesForRepo(repoPath);
+    (modules.find(m => m.modulePath === 'auth') as any).imports = ['utils'];
+    (modules.find(m => m.modulePath === 'payments') as any).imports = ['auth', 'utils'];
+    const prompt = buildQAContext(repo, repoPath);
+
+    expect(prompt).toMatch(/Module connections/);
+    expect(prompt).toMatch(/`auth`\s+imports from\s+`utils`/);
+    expect(prompt).toMatch(/`payments`\s+imports from\s+`auth`/);
+  });
+
+  it('orders modules in the scaffold by impactScore (gravity) when present', () => {
+    const repo = fakeCacheRepo({
+      project: { repoPath, summary: 'X.', purpose: '', techStack: [], moduleMap: {}, triggerHashes: {}, confidence: 0.9 },
+      modules: [
+        { modulePath: 'aardvark', summary: 'Quiet.' },
+        { modulePath: 'busy',     summary: 'Hot.' },
+      ],
+    });
+    const modules = repo.getModulesForRepo(repoPath);
+    (modules.find(m => m.modulePath === 'aardvark') as any).impactScore = 5;
+    (modules.find(m => m.modulePath === 'busy') as any).impactScore = 200;
+    const prompt = buildQAContext(repo, repoPath);
+
+    const busyIdx = prompt.indexOf('`busy`');
+    const aardvarkIdx = prompt.indexOf('`aardvark`');
+    expect(busyIdx).toBeGreaterThan(0);
+    expect(aardvarkIdx).toBeGreaterThan(0);
+    // High-impact `busy` must appear before `aardvark` in the scaffold.
+    expect(busyIdx).toBeLessThan(aardvarkIdx);
   });
 
   it('caps module list to keep prompt size bounded', () => {

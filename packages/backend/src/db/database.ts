@@ -269,6 +269,8 @@ export class Database {
       CREATE TABLE IF NOT EXISTS briefings (
         id TEXT NOT NULL,
         repo_path TEXT NOT NULL,
+        -- 'code' layer briefings are NOT persisted (composed on-demand
+        -- from live file content), so they're absent here intentionally.
         layer TEXT NOT NULL CHECK (layer IN ('project', 'architecture', 'module', 'file', 'concept')),
         title TEXT NOT NULL,
         opener TEXT NOT NULL,

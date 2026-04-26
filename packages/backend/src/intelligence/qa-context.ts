@@ -66,10 +66,32 @@ export function buildQAContext(
   }
 
   if (modules.length > 0) {
+    // Order modules by gravity so the most-active ones show up first.
+    // The LLM's working memory is finite — front-loading the modules
+    // worth knowing about pays off on questions like "where would I
+    // add X?" since the answer is usually in a module the user has
+    // recently touched.
+    const orderedModules = [...modules].sort(
+      (a, b) => ((b as any).impactScore ?? 0) - ((a as any).impactScore ?? 0),
+    );
     lines.push('', '## Modules');
-    for (const m of modules) {
+    for (const m of orderedModules) {
       const oneLiner = firstSentence(m.summary).slice(0, 200);
       lines.push(`- \`${m.modulePath}\` — ${oneLiner}`);
+    }
+
+    // Connection-aware section: dependency edges between modules so
+    // questions like "how does auth connect to payments?" or "if I
+    // wanted to add rate limiting, which module would I touch?" can be
+    // answered structurally, not by guessing. We only emit edges where
+    // both endpoints are real modules (skips noise from third-party
+    // imports). Bounded to the top 30 edges so the prompt stays tight.
+    const edges = collectModuleEdges(modules);
+    if (edges.length > 0) {
+      lines.push('', '## Module connections (dependency edges)');
+      for (const edge of edges.slice(0, 30)) {
+        lines.push(`- \`${edge.from}\` imports from \`${edge.to}\``);
+      }
     }
   }
 
@@ -104,6 +126,24 @@ function extractProjectName(summary: string, repoPath: string): string {
   const m = summary.match(/^([A-Z][\w-]*(?:\s+[A-Z][\w-]*)?)\s+(?:is|—|-)/);
   if (m && m[1].length < 40) return m[1].trim();
   return path.basename(repoPath);
+}
+
+/** Extract module-to-module dependency edges from the imports each
+ *  module declares. Each module's `imports` field holds module names
+ *  (not file paths) — we only emit edges where both ends are known
+ *  modules in the cache, filtering out noise from npm packages and
+ *  in-module relative imports. */
+function collectModuleEdges(modules: Array<{ modulePath: string; imports?: string[] }>): Array<{ from: string; to: string }> {
+  const knownModules = new Set(modules.map(m => m.modulePath));
+  const edges: Array<{ from: string; to: string }> = [];
+  for (const m of modules) {
+    for (const imp of m.imports ?? []) {
+      if (imp === m.modulePath) continue;
+      if (!knownModules.has(imp)) continue;
+      edges.push({ from: m.modulePath, to: imp });
+    }
+  }
+  return edges;
 }
 
 function firstSentence(text: string): string {

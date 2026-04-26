@@ -22,6 +22,32 @@ describe('resolveNavOp — canonical phrase coverage', () => {
     expect(resolveNavOp('   Go Back  ').kind).toBe('pop');
     expect(resolveNavOp('BACK TO THE OVERVIEW').kind).toBe('pop_to_project');
   });
+
+  // ─── Code-layer drill (Round 3) ────────────────────────────────────
+  // resolveNavOp lowercases input before matching, so the captured target
+  // is lowercase here. Downstream symbol resolution is case-insensitive,
+  // so this isn't a problem — the composer matches `handleQuestion` from
+  // a target of `handlequestion`.
+  it.each([
+    ['walk me through capture',           'capture'],
+    ['step through handleQuestion',       'handlequestion'],
+    ['line by line through manager.ts',   'manager.ts'],
+    ['line-by-line through navigator',    'navigator'],
+    ['show me the issueToken function',   'issuetoken'],
+  ])('routes "%s" → push_code with target "%s"', (phrase, target) => {
+    const op = resolveNavOp(phrase);
+    expect(op.kind).toBe('push_code');
+    if (op.kind === 'push_code') expect(op.target).toBe(target);
+  });
+
+  it('keeps "tell me about X" → push_named (module), not push_code', () => {
+    // Discriminating between "drill into the auth module" and "walk me
+    // through the auth code" is the whole point of the new code-layer
+    // routes — make sure the module-level path still wins for the
+    // generic "tell me about" phrasing.
+    const op = resolveNavOp('tell me about auth');
+    expect(op.kind).toBe('push_named');
+  });
 });
 
 describe('Navigator stack', () => {

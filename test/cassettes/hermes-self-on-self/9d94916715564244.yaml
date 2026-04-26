@@ -70,13 +70,14 @@ request:
         - docs/vision.md (other)
   maxTokens: 200
 response:
-  text: This module contains the project's strategic documentation and planning
-    artifacts that guide development decisions. The non-obvious detail is that
-    most files are "VOICE" comparisons showing before/after examples of how the
-    AI reviewer should communicate, suggesting this tool underwent significant
-    tone refinement. The heaviest lifting happens in **VISION-MASTERPLAN.md**,
-    which likely serves as the north star document defining what this
-    interactive reviewer is actually trying to become.
+  text: This module owns the project's planning documents and design
+    specifications, capturing both current implementation strategy and future
+    roadmap. The surprise here is the heavy focus on "voice" documentation—four
+    separate files tracking how the AI reviewer's communication style should
+    evolve, suggesting voice consistency is a core product concern rather than
+    an afterthought. VISION-MASTERPLAN.md does the heaviest lifting as the
+    central design document that likely defines the product's core philosophy
+    and technical direction.
   usage:
     inputTokens: 437
-    outputTokens: 92
+    outputTokens: 98

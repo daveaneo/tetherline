@@ -89,14 +89,14 @@ request:
         (component)
   maxTokens: 200
 response:
-  text: The frontend module builds a real-time collaborative code review interface
-    that connects multiple participants through voice and visual feedback. The
-    surprising constraint here is that everything revolves around "gaps" in
-    understanding—the system doesn't just show code, it actively tracks and
-    visualizes what each participant doesn't understand yet. The
-    `useSessionOrchestrator.ts` file does the heaviest lifting, coordinating the
-    complex dance between voice input, WebSocket synchronization, and the
-    gap-tracking state that drives the entire collaborative experience.
+  text: The frontend module orchestrates real-time collaborative code review
+    sessions through voice and visual interfaces. The twist here is that it's
+    built around voice-first interactions—notice the VoiceOrb component and
+    voice input hooks—treating traditional text chat as secondary to spoken
+    conversation. The `useSessionOrchestrator.ts` file does the heavy
+    coordination work, managing the complex state synchronization between voice
+    input, WebSocket connections, and the various visual components like diff
+    views and understanding heatmaps.
   usage:
     inputTokens: 661
-    outputTokens: 108
+    outputTokens: 105

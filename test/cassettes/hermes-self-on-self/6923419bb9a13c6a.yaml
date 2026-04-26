@@ -82,14 +82,21 @@ request:
         - packages/shared/tsconfig.json (config)
   maxTokens: 200
 response:
-  text: The shared module defines the type system and contracts that coordinate
-    communication between the frontend, backend, and any other components in the
-    interactive reviewer system. What's surprising is that this isn't just basic
-    data types — it includes sophisticated event schemas for real-time WebSocket
-    communication and complex analysis structures that suggest the system does
-    live code comprehension tracking. The heaviest lifting happens in
-    `ws-events.ts`, which owns the bidirectional event protocol that keeps the
-    reviewer interface synchronized with backend analysis processes.
+  text: >-
+    The shared module defines the type contracts and constants that keep the
+    frontend and backend speaking the same language across websocket events,
+    analysis data, and UI state.
+
+
+    The surprise here is how granular the type definitions get - there are
+    separate type files for highly specific concepts like heatmaps, visual
+    layers, and comprehension states, suggesting this isn't just basic data
+    models but a sophisticated domain with nuanced interactions.
+
+
+    The ws-events.ts file does the critical work of defining the websocket
+    message protocol that coordinates real-time communication between the client
+    and server during code review sessions.
   usage:
     inputTokens: 563
-    outputTokens: 103
+    outputTokens: 122

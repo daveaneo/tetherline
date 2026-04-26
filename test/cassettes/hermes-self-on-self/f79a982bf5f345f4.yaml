@@ -1,4 +1,4 @@
-key: 61175a770ffde0cd
+key: f79a982bf5f345f4
 request:
   model: claude-sonnet-4-20250514
   system: You are analyzing the codebase "interactive-reviewer". Summarize this
@@ -51,15 +51,21 @@ request:
 
         - test/integration/voice-measurement/scenarios.ts (test)
 
-        - test/cassettes/hermes-self-on-self/69ffa8484932dfbe.yaml (test)
+        - test/cassettes/hermes-self-on-self/14d107beac1053d2.yaml (test)
 
-        - test/cassettes/hermes-self-on-self/939bf3d3bd1e80c8.yaml (test)
+        - test/cassettes/hermes-self-on-self/61175a770ffde0cd.yaml (test)
+
+        - test/cassettes/hermes-self-on-self/634ae639b8508a16.yaml (test)
+
+        - test/cassettes/hermes-self-on-self/6923419bb9a13c6a.yaml (test)
+
+        - test/cassettes/hermes-self-on-self/6fd8786658336eaa.yaml (test)
 
         - test/cassettes/hermes-self-on-self/9d94916715564244.yaml (test)
 
-        - test/cassettes/hermes-self-on-self/a7b2c75ec5290161.yaml (test)
+        - test/cassettes/hermes-self-on-self/cb7f790542f401ce.yaml (test)
 
-        - test/cassettes/hermes-self-on-self/ee2771f6fd6a9ca0.yaml (test)
+        - test/cassettes/hermes-self-on-self/fce6db6005af8aa2.yaml (test)
 
         - test/e2e/explore-mode-no-blank-screen.spec.ts (test)
 
@@ -78,22 +84,17 @@ request:
         - test/frontend/deep-link-handling.test.tsx (test)
 
         - test/frontend/lobby-renders.test.tsx (test)
-
-        - test/frontend/no-voice-barge-in.test.tsx (test)
-
-        - test/frontend/orchestrator-no-self-interrupt.test.tsx (test)
-
-        - test/frontend/pause-stops-mic.test.tsx (test)
   maxTokens: 200
 response:
-  text: This module owns the complete testing strategy for the interactive
-    reviewer, covering everything from unit tests to end-to-end scenarios. The
-    surprise here is the "cassettes" directory containing YAML files—these are
-    HTTP interaction recordings that let tests replay actual API responses
-    deterministically, avoiding flaky network calls during testing. The
-    `test/harness/server.ts` file does the heaviest lifting by providing a
-    configurable test server that can simulate different backend states and API
-    responses for consistent test execution.
+  text: This module owns the complete testing strategy for the interactive code
+    review system, spanning unit tests, integration tests, and end-to-end
+    browser automation. The cassettes directory reveals that the system records
+    and replays HTTP interactions for deterministic testing—those cryptic
+    filenames are actually hashes of request signatures used for
+    "hermes-self-on-self" scenarios where the system reviews its own codebase.
+    The file `test/harness/server.ts` does the heaviest lifting by providing the
+    foundational test server infrastructure that all other tests depend on,
+    managing both the backend API and serving test fixtures.
   usage:
-    inputTokens: 688
-    outputTokens: 104
+    inputTokens: 712
+    outputTokens: 129
