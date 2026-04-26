@@ -15,6 +15,9 @@ import { createSettingsRoutes } from './routes/settings.js';
 import { createHealthRoutes } from './routes/health.js';
 import { createAudioRoutes } from './routes/audio.js';
 import { createRepoRoutes } from './routes/repos.js';
+import { createTicketRoutes } from './routes/ticket.js';
+import { GitHubTicketProvider } from './integrations/github-provider.js';
+import { setTicketProvider } from './integrations/ticket-provider.js';
 import { createOnboardingRoutes } from './routes/onboarding.js';
 import { createDigestRoutes } from './routes/digest.js';
 import { createDevRoutes } from './routes/dev.js';
@@ -51,6 +54,13 @@ export async function createServer(overrides: { port?: number; repoPath?: string
   router.use('/settings', createSettingsRoutes(db));
   router.use('/audio', createAudioRoutes(db, config));
   router.use('/repos', createRepoRoutes(db, config));
+
+  // Ticket integration: dry-run by default unless TETHERLINE_TICKETS_LIVE=1.
+  // Avoids creating real GitHub issues from local dev experimentation.
+  setTicketProvider(new GitHubTicketProvider({
+    dryRun: process.env.TETHERLINE_TICKETS_LIVE !== '1',
+  }));
+  router.use('/ticket', createTicketRoutes(db));
   router.use('/onboarding', createOnboardingRoutes(db, config));
   const digestScheduler = new DigestScheduler(db, config);
   router.use('/digest', createDigestRoutes(db, config, digestScheduler));

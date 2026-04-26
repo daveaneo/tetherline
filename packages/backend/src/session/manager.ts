@@ -1327,23 +1327,26 @@ export class SessionManager {
       // on long answers. Short answers (1 chunk) behave identically to the
       // pre-streaming flow.
       const { chunkAnswerForStreaming } = await import('../intelligence/sentence-chunker.js');
-      const chunks = chunkAnswerForStreaming(answer);
+      const answerChunks = chunkAnswerForStreaming(answer);
+      // Prepend the depth-change ack as a leading chunk so it plays
+      // before the answer (greetings coalesce; stream chunks queue).
+      const allChunks = depthAck ? [depthAck, ...answerChunks] : answerChunks;
       const streamId = `qa-${Date.now()}`;
-      if (chunks.length <= 1) {
+      if (allChunks.length <= 1) {
         // Trivial answer: keep the legacy greeting path so existing
         // integration tests / UI flows that listen for `narration:greeting`
         // continue to fire.
         this.emit({ type: 'narration:greeting', payload: { text: answer } });
         return;
       }
-      for (let i = 0; i < chunks.length; i++) {
+      for (let i = 0; i < allChunks.length; i++) {
         this.emit({
           type: 'narration:stream_chunk',
           payload: {
             streamId,
             seq: i,
-            text: chunks[i],
-            isFinal: i === chunks.length - 1,
+            text: allChunks[i],
+            isFinal: i === allChunks.length - 1,
           },
         });
       }
@@ -1367,6 +1370,16 @@ export class SessionManager {
     // scaffold's length guidance matches what the user just asked for.
     const depthSignal = detectDepth(question, this.depthTier);
     this.depthTier = depthSignal.tier;
+    // When the tier just changed, prepend a brief verbal ack to the
+    // reply via the stream_chunk pipeline (greeting would coalesce
+    // with the answer's own greeting and silently get dropped).
+    const depthAck = depthSignal.changed
+      ? (depthSignal.tier === 'tldr'
+          ? "Got it — I'll keep it short."
+          : depthSignal.tier === 'deep'
+            ? 'Sure, going deeper.'
+            : '')
+      : '';
 
     const priorTurns = this.db.getQAHistoryRepo().recent(repoPath, {
       excludeSessionId: this.context.sessionId,
@@ -1809,6 +1822,28 @@ export class SessionManager {
             });
             if (!result) return;
             this.deliverBriefing(result.briefing, 'user_asked');
+
+            // Stream the code chunks WITH their line ranges so the
+            // CodePanel can advance the highlight as Hermes speaks
+            // each one. Without this, the panel just shows the file —
+            // the "walk line by line" promise wouldn't be visible.
+            if (result.chunks.length > 0) {
+              const streamId = `code-${Date.now()}`;
+              for (let i = 0; i < result.chunks.length; i++) {
+                const c = result.chunks[i];
+                this.emit({
+                  type: 'narration:stream_chunk',
+                  payload: {
+                    streamId,
+                    seq: i,
+                    text: c.voiceLine,
+                    isFinal: i === result.chunks.length - 1,
+                    range: c.range,
+                    filePath: resolved.filePath,
+                  },
+                });
+              }
+            }
           } catch (err) {
             // best-effort — fall through silently
           }

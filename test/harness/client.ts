@@ -84,6 +84,11 @@ export class DevClient {
     return this.req('POST', '/quiz/answer', { devSessionId, questionId, answer });
   }
 
+  /** Bypass the intent classifier — fire handleQuestion directly. */
+  async ask(devSessionId: string, question: string): Promise<UtterResponse> {
+    return this.req('POST', '/ask', { devSessionId, question });
+  }
+
   async toggleMode(devSessionId: string, key: ModeKey, enabled: boolean): Promise<void> {
     await this.req('POST', '/mode', { devSessionId, key, enabled });
   }

@@ -1,9 +1,11 @@
 /**
  * Hermes — self-on-self truth test.
  *
- * Points the analyzer at THIS repo (interactive-reviewer / Tetherline)
- * and asserts that Hermes can summarize his own home well. If we can't
- * pass this, we can't pass anyone else's codebase.
+ * Points the analyzer at a SYNTHETIC mirror of Tetherline's structure
+ * (test/fixtures/create-tetherline-mirror.sh) and asserts that Hermes
+ * summarizes the architecture meaningfully. The fixture is frozen, so
+ * the cassette stays valid across commits to the live codebase — the
+ * R4-era pain of "every commit invalidates the cassette" is gone.
  *
  * Quality bar — the project briefing must:
  *  • name "Hermes" or the AI guide concept
@@ -14,13 +16,10 @@
  *    concepts that ARE the texture of this codebase
  *
  * The module briefings must:
- *  • name a real file (anything matching `*.ts`)
+ *  • name a real file (anything matching `*.ts` / `.tsx` / `.md`)
  *  • not be empty / placeholder
  *
  * ─── HERMETICITY ────────────────────────────────────────────────────
- *
- * Real LLM calls are non-deterministic + expensive. We use the
- * existing CassetteLLMAdapter to replay recorded responses.
  *
  * First run (record):
  *   ANTHROPIC_API_KEY=sk-... RECORD=1 \
@@ -29,16 +28,17 @@
  * Subsequent runs (replay): no env vars needed — cassettes are committed
  * under test/cassettes/hermes-self-on-self/.
  *
- * If no cassette exists AND no API key is present, the suite skips with
- * a one-line instruction. CI without keys stays green; truth checks run
- * locally + in pre-release.
+ * Because the fixture is stable, you only re-record when you change
+ * the FIXTURE — not when you change live code in packages/.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { execSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import { tetherline, type TetherlineHarness } from '../harness/index.js';
 
 const REPO_ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
+const FIXTURE_PATH = '/tmp/tetherline-mirror';
 const CASSETTE_NAMESPACE = 'hermes-self-on-self';
 const CASSETTE_DIR = path.join(REPO_ROOT, 'test/cassettes', CASSETTE_NAMESPACE);
 
@@ -50,6 +50,8 @@ let h: TetherlineHarness;
 
 beforeAll(async () => {
   if (!CAN_RUN) return;
+  // Build the synthetic mirror fixture. Cheap (~50ms).
+  execSync(path.resolve('test/fixtures/create-tetherline-mirror.sh') + ' ' + FIXTURE_PATH, { stdio: 'inherit' });
   h = await tetherline.start({ cassette: CASSETTE_NAMESPACE });
 }, 60_000);
 
@@ -60,7 +62,7 @@ afterAll(async () => {
 describe.skipIf(!CAN_RUN)('Hermes — self-on-self truth check', () => {
   it('warms briefings against THIS repo and produces a substantive project briefing', async () => {
     const { devSessionId } = await h.client.startSession({
-      repoPath: REPO_ROOT,
+      repoPath: FIXTURE_PATH,
       entryMode: 'updates',
       sinceDays: 30,
     });
@@ -72,7 +74,7 @@ describe.skipIf(!CAN_RUN)('Hermes — self-on-self truth check', () => {
       300_000,
     );
 
-    const project = (await h.client.briefing(REPO_ROOT, 'project')).briefing;
+    const project = (await h.client.briefing(FIXTURE_PATH, 'project')).briefing;
     expect(project, 'project briefing exists').toBeTruthy();
 
     // Quality bar — substance check.
@@ -92,10 +94,10 @@ describe.skipIf(!CAN_RUN)('Hermes — self-on-self truth check', () => {
   }, 360_000);
 
   it('every module briefing names a real file', async () => {
-    const summaries = await h.client.briefings(REPO_ROOT, 'module');
+    const summaries = await h.client.briefings(FIXTURE_PATH, 'module');
     expect(summaries.briefings.length).toBeGreaterThan(0);
     for (const summary of summaries.briefings) {
-      const full = (await h.client.briefing(REPO_ROOT, summary.id)).briefing;
+      const full = (await h.client.briefing(FIXTURE_PATH, summary.id)).briefing;
       expect(full.opener.length).toBeGreaterThan(40);
       // Anchor in real artifact: at least one filename (any extension) or
       // directory reference. A docs/ module legitimately names .md files,

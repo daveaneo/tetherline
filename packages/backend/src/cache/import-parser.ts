@@ -94,21 +94,32 @@ function parseRustImports(content: string): string[] {
 /** Build connectivity map: file -> number of files that import it */
 export function buildConnectivityMap(files: string[], repoPath: string): Map<string, number> {
   const importCount = new Map<string, number>();
+  for (const [, targets] of buildImportEdges(files, repoPath)) {
+    for (const target of targets) {
+      importCount.set(target, (importCount.get(target) ?? 0) + 1);
+    }
+  }
+  return importCount;
+}
 
-  // Only parse a subset for performance (top files by size/importance)
+/** Per-file import edges: source file → set of repo-relative target
+ *  files it imports from. Used by the warmer to aggregate cross-module
+ *  dependencies for the radial map's "Module connections" section in
+ *  the Q&A scaffold. */
+export function buildImportEdges(files: string[], repoPath: string): Map<string, Set<string>> {
+  const edges = new Map<string, Set<string>>();
+  // Only parse a subset for performance (top files by size/importance).
   const filesToParse = files.slice(0, 300);
-
   for (const file of filesToParse) {
     const fullPath = path.join(repoPath, file);
     const imports = parseImports(fullPath, repoPath);
+    if (imports.length === 0) continue;
+    const targets = new Set<string>();
     for (const imp of imports) {
-      // Find the actual file this import resolves to
       const match = files.find(f => f.replace(/\.[^.]+$/, '') === imp || f === imp);
-      if (match) {
-        importCount.set(match, (importCount.get(match) ?? 0) + 1);
-      }
+      if (match && match !== file) targets.add(match);
     }
+    if (targets.size > 0) edges.set(file, targets);
   }
-
-  return importCount;
+  return edges;
 }

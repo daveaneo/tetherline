@@ -138,6 +138,34 @@ export function createDevRoutes(db: Database, config: AppConfig): Router {
     }
   });
 
+  /** POST /api/dev/ask { devSessionId, question } — bypass the intent
+   *  classifier and route directly to handleQuestion. Used by tests
+   *  that want to assert on Q&A behavior (depth modifiers, length,
+   *  scaffold contents) without skill dispatch interfering. */
+  router.post('/ask', (req, res) => {
+    try {
+      const { devSessionId, question } = req.body ?? {};
+      if (!devSessionId || typeof question !== 'string') {
+        res.status(400).json({ error: 'devSessionId + question required' });
+        return;
+      }
+      const eventsBefore = registry.getEvents(devSessionId).length;
+      registry.sendEvent(devSessionId, {
+        type: 'command:ask',
+        payload: { question },
+      } as ClientEvent);
+      setTimeout(() => {
+        res.json({
+          ok: true,
+          newEvents: registry.getEvents(devSessionId, eventsBefore),
+          state: registry.getState(devSessionId),
+        });
+      }, 100);
+    } catch (err) {
+      sendErr(res, err);
+    }
+  });
+
   /** POST /api/dev/quiz/answer { devSessionId, questionId, answer } */
   router.post('/quiz/answer', (req, res) => {
     try {

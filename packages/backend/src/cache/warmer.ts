@@ -2,7 +2,7 @@ import path from 'path';
 import simpleGit from 'simple-git';
 import { parseReadme, parseModuleReadme } from './readme-parser.js';
 import { parseManifest } from './manifest-parser.js';
-import { buildConnectivityMap } from './import-parser.js';
+import { buildConnectivityMap, buildImportEdges } from './import-parser.js';
 import { hashFile, hashString } from './hash-utils.js';
 import { detectChanges } from './diff-detector.js';
 import { detectWorkspaces, type DetectedWorkspace } from './workspace-detector.js';
@@ -90,6 +90,7 @@ export class ContextCacheWarmer {
 
     this.onProgress?.('Analyzing imports and structure...');
     const connectivity = buildConnectivityMap(allFiles, repoPath);
+    const fileEdges = buildImportEdges(allFiles, repoPath);
 
     // Compute per-file commit churn over the last 90 days. Used as the
     // "recent activity" half of each module's gravity score — modules
@@ -134,6 +135,30 @@ export class ContextCacheWarmer {
       ...topDirs.map(d => ({ name: d, pathPrefix: d, isWorkspace: false })),
     ];
 
+    // Map every repo-relative file to the module that owns it. Used to
+    // turn per-file import edges into per-module dependency edges below.
+    const fileToModule = new Map<string, string>();
+    for (const spec of dirs) {
+      for (const f of allFiles) {
+        if (f.startsWith(spec.pathPrefix + '/')) fileToModule.set(f, spec.name);
+      }
+    }
+    // Compute outgoing imports per module — set of OTHER module names
+    // that this module's files reach into. Drives the QA scaffold's
+    // "Module connections" section, which previously had nothing to
+    // emit in real usage (the audit's findings #1).
+    const moduleImports = new Map<string, Set<string>>();
+    for (const [src, targets] of fileEdges) {
+      const srcMod = fileToModule.get(src);
+      if (!srcMod) continue;
+      for (const tgt of targets) {
+        const tgtMod = fileToModule.get(tgt);
+        if (!tgtMod || tgtMod === srcMod) continue;
+        if (!moduleImports.has(srcMod)) moduleImports.set(srcMod, new Set());
+        moduleImports.get(srcMod)!.add(tgtMod);
+      }
+    }
+
     // Try README-based module detection first
     for (const spec of dirs) {
       const readmeMention = readme.moduleMentions.get(spec.name);
@@ -159,12 +184,16 @@ export class ContextCacheWarmer {
         .sort((a, b) => (connectivity.get(b) ?? 0) - (connectivity.get(a) ?? 0))
         .slice(0, 5);
 
+      // Real cross-module imports (sorted for stable hashing). Empty
+      // for leaf modules with no outgoing edges.
+      const importsForModule = [...(moduleImports.get(spec.name) ?? new Set<string>())].sort();
+
       if (summary) {
         moduleSummaries.push({ name: spec.name, summary, source: 'readme' });
         this.repo.upsertModule({
           repoPath, modulePath: spec.name, summary, source: 'readme',
           keyFiles: sortedKeyFiles,
-          imports: [], confidence: baseConfidence, impactScore,
+          imports: importsForModule, confidence: baseConfidence, impactScore,
         });
       } else {
         moduleSummaries.push({ name: spec.name, summary: heuristicSummary, source: 'heuristic' });
@@ -172,7 +201,7 @@ export class ContextCacheWarmer {
           repoPath, modulePath: spec.name, summary: heuristicSummary,
           source: 'heuristic',
           keyFiles: sortedKeyFiles,
-          imports: [], confidence: heuristicConfidence, impactScore,
+          imports: importsForModule, confidence: heuristicConfidence, impactScore,
         });
       }
     }
@@ -197,13 +226,14 @@ export class ContextCacheWarmer {
               maxTokens: 200,
             });
 
-            // Preserve the impact score we computed earlier — the LLM
-            // pass enriches the summary, not the gravity ranking.
+            // Preserve the impact score AND the imports edges we
+            // computed earlier — the LLM pass enriches the summary,
+            // not the structural metadata.
             const existing = this.repo.getModule(repoPath, mod.name);
             this.repo.upsertModule({
               repoPath, modulePath: mod.name, summary: summary.trim(),
               source: 'llm', keyFiles: filesInMod.sort((a, b) => (connectivity.get(b) ?? 0) - (connectivity.get(a) ?? 0)).slice(0, 5),
-              imports: [], confidence: 0.9,
+              imports: existing?.imports ?? [], confidence: 0.9,
               impactScore: existing?.impactScore ?? 0,
             });
             mod.summary = summary.trim();

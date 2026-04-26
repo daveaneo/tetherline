@@ -112,6 +112,15 @@ export type ServerEvent =
       };
     }
   | {
+      type: 'ticket:created';
+      payload: {
+        provider: string;
+        url: string;
+        externalId: string;
+        title: string;
+      };
+    }
+  | {
       type: 'quiz:result';
       payload: {
         briefingId: string;
@@ -132,6 +141,13 @@ export type ServerEvent =
         seq: number;
         text: string;
         isFinal: boolean;
+        /** For code-layer streams: the line range (1-indexed,
+         *  inclusive) the chunk is walking through. Frontend
+         *  CodePanel highlights this range while the chunk plays. */
+        range?: [number, number];
+        /** For code-layer streams: the file the range applies to,
+         *  used when the panel needs to scroll into view. */
+        filePath?: string;
       };
     }
   | { type: 'session:heatmap'; payload: { heatmap: HeatmapData } }

@@ -168,20 +168,23 @@ function templateQuestions(briefing: Briefing): QuizQuestion[] {
   return out;
 }
 
-/** Lenient scoring: case-insensitive substring or word-overlap.
- *  Goal is "got the gist?" not "exact phrase". */
+/** Substring scoring (either direction), with a minimum-length floor
+ *  on the answer so that single-letter / 2-char strings don't game it.
+ *  Stricter than the original draft (which had a 50%-word-overlap
+ *  fallback that let generic answers pass) but less brittle than
+ *  pure-equality (the user's terser "auth" should still match the
+ *  canonical "the auth module"). */
 export function scoreQuizAnswer(answer: string, expected: string): boolean {
   const a = normalize(answer);
   const e = normalize(expected);
   if (!a || !e) return false;
-  // Direct substring (either direction) → correct.
-  if (a.includes(e) || e.includes(a)) return true;
-  // Word-overlap fallback: ≥50% of expected words appear in answer.
-  const eWords = e.split(/\s+/).filter(w => w.length > 2);
-  if (eWords.length === 0) return false;
-  const aWords = new Set(a.split(/\s+/));
-  const overlap = eWords.filter(w => aWords.has(w)).length;
-  return overlap / eWords.length >= 0.5;
+  // Floor on the answer's length: a 1- or 2-char answer matching
+  // anything is gameable. Below 3 normalized chars, hard reject unless
+  // it's exact equality.
+  if (a.length < 3) return a === e;
+  if (a.includes(e)) return true;
+  if (e.includes(a)) return true;
+  return false;
 }
 
 function normalize(s: string): string {

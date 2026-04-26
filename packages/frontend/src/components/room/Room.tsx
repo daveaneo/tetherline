@@ -30,7 +30,11 @@ import { VERSION } from '../../version.js';
 export function Room() {
   useSession();
   const [showEntrance, setShowEntrance] = useState(true);
-  const hasBriefing = useSessionStore(s => !!s.currentBriefing);
+  // Code-layer briefings get the dedicated CodePanel UI; the briefing
+  // card overlay would just sit on top creating a visual collision, so
+  // suppress it for layer === 'code'.
+  const briefingLayer = useSessionStore(s => s.currentBriefing?.layer ?? null);
+  const hasBriefing = briefingLayer !== null && briefingLayer !== 'code';
   const phase = useSessionStore(s => s.state.phase);
   const showContentPanel = phase !== 'IDLE';
 

@@ -92,9 +92,13 @@ interface SessionStore {
    *  entries via `consumeStreamChunk` once it starts speaking that chunk —
    *  so the queue length tracks unspoken backlog. `streamingFinal` flips on
    *  the last chunk so the orchestrator knows when to stop the player. */
-  streamChunks: Array<{ streamId: string; seq: number; text: string }>;
+  streamChunks: Array<{ streamId: string; seq: number; text: string; range?: [number, number]; filePath?: string }>;
   streamingFinal: boolean;
-  consumeStreamChunk: () => { streamId: string; seq: number; text: string } | null;
+  /** The chunk currently being spoken. Written by the orchestrator's
+   *  stream player — `consumeStreamChunk` returns the head AND records
+   *  it here so the CodePanel can highlight the live line range. */
+  currentStreamChunk: { streamId: string; seq: number; text: string; range?: [number, number]; filePath?: string } | null;
+  consumeStreamChunk: () => { streamId: string; seq: number; text: string; range?: [number, number]; filePath?: string } | null;
   showComprehensionOverlay: boolean;
   toggleComprehensionOverlay: () => void;
 
@@ -139,11 +143,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   recallItems: [],
   streamChunks: [],
   streamingFinal: false,
+  currentStreamChunk: null,
   consumeStreamChunk: () => {
     const chunks = get().streamChunks;
     if (chunks.length === 0) return null;
     const [head, ...rest] = chunks;
-    set({ streamChunks: rest });
+    set({ streamChunks: rest, currentStreamChunk: head });
     return head;
   },
   showComprehensionOverlay: false,
@@ -190,11 +195,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   recallItems: [],
   streamChunks: [],
   streamingFinal: false,
+  currentStreamChunk: null,
   consumeStreamChunk: () => {
     const chunks = get().streamChunks;
     if (chunks.length === 0) return null;
     const [head, ...rest] = chunks;
-    set({ streamChunks: rest });
+    set({ streamChunks: rest, currentStreamChunk: head });
     return head;
   },
     showComprehensionOverlay: false,
@@ -255,15 +261,17 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       case 'narration:stream_chunk': {
         // Streamed answer chunks queue up for sequential TTS playback —
         // chunk N starts speaking while chunk N+1 is still TTS-generating,
-        // dropping perceived first-word time on long answers.
-        const { streamId, seq, text, isFinal } = event.payload;
+        // dropping perceived first-word time on long answers. Code-layer
+        // chunks also carry the line range + filePath so the CodePanel
+        // can advance the highlight live as Hermes walks each one.
+        const { streamId, seq, text, isFinal, range, filePath } = event.payload;
         set(s => {
           // First chunk of a new stream resets the prior queue + final flag.
           const isNewStream = s.streamChunks.length === 0
             || s.streamChunks[0].streamId !== streamId;
           const queue = isNewStream
-            ? [{ streamId, seq, text }]
-            : [...s.streamChunks, { streamId, seq, text }];
+            ? [{ streamId, seq, text, range, filePath }]
+            : [...s.streamChunks, { streamId, seq, text, range, filePath }];
           const updates: Partial<SessionStore> = {
             streamChunks: queue,
             streamingFinal: isFinal,

@@ -1,0 +1,105 @@
+key: c0fa66030d2d2951
+request:
+  model: claude-sonnet-4-20250514
+  system: Synthesize a concise project summary. One paragraph. Spoken aloud via TTS.
+  messages:
+    - role: user
+      content: >-
+        Write the project briefing a senior engineer would want before they
+        touch this codebase. The briefing will be spoken aloud as the first
+        thing the user hears.
+
+
+        REQUIRED — your summary must include:
+
+        1. What the product DOES, in one sentence — phrased so a non-team-member
+        instantly gets it.
+
+        2. The architectural shape — the 2–3 worlds (e.g. "backend, frontend,
+        shared types") and what each one owns.
+
+        3. The thing that's NOT obvious from the file tree — a constraint, a
+        design choice with consequences, the gravity (where activity
+        concentrates), the "watch out for…" detail. This is the line that makes
+        the briefing feel like a real human guide, not a directory listing.
+
+
+        Forbidden:
+
+        - "This is a project that…" or any other filler opener.
+
+        - Listing modules without saying what they own.
+
+        - Marketing language.
+
+        - Generic descriptors that could apply to any codebase ("modular
+        architecture", "robust logging").
+
+
+        Length: 4–6 sentences. Conversational tone (spoken aloud).
+
+
+        Project: tetherline-mirror
+
+        README says: Voice-led AI code review. Hermes — the in-session guide —
+        narrates
+
+        spoken briefings about a codebase, tracks what the user has actually
+
+        engaged with via a layered comprehension model, and surfaces what's
+
+        drifted since last time.
+
+
+        Tech stack: unknown
+
+
+        Modules:
+
+        backend: The analysis pipeline + Hermes the AI guide. Owns the
+        SessionManager
+
+        state machine and the LLM intelligence layer.
+
+
+        frontend: React + Vite. Renders the radial diagram and the BriefingCard,
+
+        manages voice input via push-to-talk (hold space), and runs a
+
+        NANOID_PLACEHOLDER hook that drains streamed answer chunks
+
+        sequentially through TTS.
+
+
+        shared: Type contracts shared between backend and frontend. WebSocket
+        event
+
+        schemas (ClientEvent / ServerEvent), Briefing / Comprehension /
+
+        SessionState types. No runtime code.
+
+
+        docs: Vision and testing master plans. Where the *why* lives.
+
+
+        test: End-to-end test harness — boots the real backend, drives sessions
+
+        over the dev API, asserts comprehension truth.
+  maxTokens: 300
+response:
+  text: "Voice-led AI code review tool where you speak questions about a codebase
+    and get narrated explanations back. Three worlds: backend runs the analysis
+    pipeline and Hermes AI guide with session state management, frontend is
+    React with radial visualizations and push-to-talk voice input that streams
+    TTS responses, and shared defines the WebSocket contracts between them. The
+    gravity lives in the session orchestration—everything flows through a
+    comprehension tracking model that remembers what you've actually engaged
+    with, so the real complexity is in how backend and frontend coordinate to
+    maintain that layered understanding state. Watch out for the streaming TTS
+    pipeline in the frontend hook—it's sequentially draining answer chunks, so
+    any hiccup in the WebSocket flow will break the voice experience. The
+    session state machine in backend is doing heavy lifting to track
+    comprehension drift between visits."
+  usage:
+    inputTokens: 528
+    outputTokens: 180

@@ -101,15 +101,17 @@ describe('Hermes — drift detection + cross-session recall', () => {
       result = ev.events.slice(startEvents).find(e => e.type === 'quiz:result');
       if (!result) await new Promise(r => setTimeout(r, 30));
     }
-    // The exact level depends on how many of our derived "expected"
-    // answers fuzzy-match the templated questions. We need at least
-    // 'explained' so the drift regression to 'heard' is observable.
-    expect(['explained', 'confirmed']).toContain(result?.payload.newLevel);
+    // The auth fixture has one keyFile (auth/jwt.ts), so the quiz
+    // template's Q2 falls back to a `keyPhrase`-derived expected from
+    // the talking points (NOT a simple childLabels[1] match). The
+    // test's answer for Q2 won't match that → 2/3 deterministic →
+    // 'explained'. That's still a meaningful elevation above 'heard',
+    // and any subsequent regression to 'heard' is plenty observable.
+    expect(result?.payload.newLevel).toBe('explained');
 
-    // Verify auth is at explained-or-better before drift.
     let map = new Map<string, string>();
     for (const it of (await h.client.comprehension(FIXTURE)).items) map.set(it.itemId, it.level);
-    expect(['explained', 'confirmed']).toContain(map.get('module/auth'));
+    expect(map.get('module/auth')).toBe('explained');
     const preDriftLevel = map.get('module/auth');
 
     // ── Simulate a real code edit + commit on auth/jwt.ts ───────────
@@ -145,33 +147,52 @@ describe('Hermes — drift detection + cross-session recall', () => {
     expect(postDriftLevel).not.toBe(preDriftLevel);
   }, 180_000);
 
-  it('recall: session start emits session:recall with items the user previously engaged with', async () => {
-    // Build on the previous test's state: the DB has comprehension on
-    // module/auth (level=heard after the drift). Start a fresh session
-    // and inspect session:recall.
+  it('recall: session start MUST emit session:recall with the prior-engagement item + drift count', async () => {
+    // Set up state explicitly so recall has to fire — bypass the
+    // quiz path and just write a comprehension item at 'engaged' (the
+    // threshold for inclusion). Then start a fresh session and assert
+    // the recall payload carries this exact item with a sensible
+    // commitsSinceLastTouch.
+    const compRepo = h.server.db.getComprehensionRepo();
+    // Touch a couple commits AFTER our backdated lastTouchedAt so the
+    // commit-since count > 0.
+    const lastTouchedAt = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    compRepo.upsert({
+      repoPath: FIXTURE,
+      itemId: 'module/payments',
+      layer: 'module',
+      label: 'payments',
+      level: 'engaged',
+      narrationSecondsHeard: 10,
+      questionsAsked: 0,
+      lastTouchedAt,
+      lastSessionId: 'prior-session-id',
+    });
+    // Add a fresh commit so the per-module git log finds something.
+    fs.writeFileSync(
+      path.join(FIXTURE, 'payments/ledger.ts'),
+      fs.readFileSync(path.join(FIXTURE, 'payments/ledger.ts'), 'utf8') + '\n// follow-up commit\n',
+    );
+    execSync('git -C "' + FIXTURE + '" add payments/ledger.ts && git -C "' + FIXTURE + '" -c user.email=t@t -c user.name=t commit -q -m "tweak ledger"');
+
     const session3 = await h.client.startSession({
       repoPath: FIXTURE, entryMode: 'updates', sinceDays: 30,
     });
-    // Recall fires near the beginning — give it a moment + event scan.
-    await new Promise(r => setTimeout(r, 300));
+    // Recall fires synchronously near startSession — give it a beat.
+    await new Promise(r => setTimeout(r, 400));
     const events = (await h.client.events(session3.devSessionId)).events;
     const recall = events.find(e => e.type === 'session:recall');
 
-    // Two acceptable outcomes:
-    //   (a) recall fires with `items` carrying any prior engagements that
-    //       are still at engaged-or-better, OR
-    //   (b) recall doesn't fire because nothing crossed the threshold.
-    // Both are correct — the assertion is "if it fires, the new
-    // structured shape is in place," not "it must fire."
-    if (recall) {
-      const payload = (recall as any).payload;
-      expect(Array.isArray(payload.items)).toBe(true);
-      // Each item, if present, has the shape we promised the frontend.
-      for (const item of payload.items) {
-        expect(typeof item.itemId).toBe('string');
-        expect(typeof item.level).toBe('string');
-        expect(typeof item.commitsSinceLastTouch).toBe('number');
-      }
-    }
+    // STRICT — recall MUST fire because we set up engaged state.
+    expect(recall, 'session:recall must fire when prior engaged items exist').toBeTruthy();
+    const payload = (recall as any).payload;
+    expect(Array.isArray(payload.items)).toBe(true);
+
+    const paymentsItem = payload.items.find((it: any) => it.itemId === 'module/payments');
+    expect(paymentsItem, 'payments item present in recall').toBeTruthy();
+    expect(paymentsItem.level).toBe('engaged');
+    expect(paymentsItem.label).toBe('payments');
+    expect(paymentsItem.layer).toBe('module');
+    expect(paymentsItem.commitsSinceLastTouch).toBeGreaterThanOrEqual(1);
   }, 90_000);
 });

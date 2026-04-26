@@ -12,7 +12,7 @@
  * highlight changes are pure re-render. Files >200KB are rejected by
  * the backend; we render an empty-state with the file path.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSessionStore } from '../../state/session-store.js';
 import { sendEvent } from '../../lib/ws-client.js';
 import { API_PREFIX } from '@tetherline/shared';
@@ -41,13 +41,28 @@ export function CodePanel() {
     return stripped.slice(0, colonIdx);
   }, [briefing, isCodeBriefing]);
 
-  // Active line range: derived from the briefing's first talking point's
-  // chunk reference. Composer doesn't expose chunks in the WS payload
-  // directly, so we infer from the talking point text. For a richer
-  // experience, the WS payload could carry chunks explicitly — punted
-  // for now; the panel still renders the whole file with a soft-focus
-  // hint at the top.
-  const [activeRange] = useState<[number, number] | null>(null);
+  // Active line range follows the currently-spoken stream chunk. The
+  // backend emits each code-layer chunk with `range` + `filePath`; the
+  // orchestrator sets `currentStreamChunk` while it's speaking. This
+  // gives the user a live highlight that walks the file as Hermes
+  // narrates — the missing R3 piece the audit flagged.
+  const [ticketStatus, setTicketStatus] = useState<string | null>(null);
+  const currentChunk = useSessionStore(s => s.currentStreamChunk);
+  const activeRange = useMemo<[number, number] | null>(() => {
+    if (!currentChunk?.range) return null;
+    if (currentChunk.filePath && currentChunk.filePath !== filePath) return null;
+    return currentChunk.range;
+  }, [currentChunk, filePath]);
+
+  // Auto-scroll the active range into view when it changes.
+  const sourceRef = useRef<HTMLTableElement | null>(null);
+  useEffect(() => {
+    if (!activeRange) return;
+    const el = sourceRef.current?.querySelector(`tr[data-line="${activeRange[0]}"]`);
+    if (el && 'scrollIntoView' in el) {
+      (el as HTMLElement).scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  }, [activeRange]);
 
   useEffect(() => {
     if (!isCodeBriefing || !filePath || !repoPath) {
@@ -115,17 +130,46 @@ export function CodePanel() {
             {filePath}
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => sendEvent({ type: 'command:level_up' })}
-          className="btn btn-ghost"
-          style={{ padding: '6px 10px', fontSize: 12 }}
-          aria-label="Close code panel and go up one level"
-          data-testid="code-panel-close"
-        >
-          ↑ Up
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => createTicketFromBriefing(briefing.briefingId, repoPath, briefing.title, setTicketStatus)}
+            className="btn btn-ghost"
+            style={{ padding: '6px 10px', fontSize: 12 }}
+            aria-label="Create a ticket from this briefing"
+            data-testid="code-panel-create-ticket"
+            disabled={ticketStatus === 'sending'}
+          >
+            {ticketStatus === 'sending' ? 'Sending…' : '+ Ticket'}
+          </button>
+          <button
+            type="button"
+            onClick={() => sendEvent({ type: 'command:level_up' })}
+            className="btn btn-ghost"
+            style={{ padding: '6px 10px', fontSize: 12 }}
+            aria-label="Close code panel and go up one level"
+            data-testid="code-panel-close"
+          >
+            ↑ Up
+          </button>
+        </div>
       </header>
+      {ticketStatus && ticketStatus !== 'sending' && (
+        <div
+          data-testid="ticket-status"
+          style={{
+            padding: '8px 24px', fontSize: 11, fontFamily: 'var(--mono)',
+            color: ticketStatus.startsWith('error')
+              ? 'var(--sig-warn)'
+              : ticketStatus.startsWith('dry')
+                ? 'var(--cream-500)'
+                : 'var(--sig-okay)',
+            borderBottom: '1px solid oklch(1 0 0 / 0.05)',
+          }}
+        >
+          {ticketStatus}
+        </div>
+      )}
 
       <div
         className="flex-1 overflow-auto font-mono"
@@ -140,7 +184,7 @@ export function CodePanel() {
           </div>
         )}
         {file?.content && (
-          <table cellPadding={0} cellSpacing={0} style={{ borderCollapse: 'collapse', width: '100%' }} data-testid="code-panel-source">
+          <table ref={sourceRef} cellPadding={0} cellSpacing={0} style={{ borderCollapse: 'collapse', width: '100%' }} data-testid="code-panel-source">
             <tbody>
               {file.content.split('\n').map((line, idx) => {
                 const lineNum = idx + 1;
@@ -178,4 +222,42 @@ export function CodePanel() {
       </div>
     </aside>
   );
+}
+
+/** POST to /api/ticket/create with the current briefing as context.
+ *  projectRef is best-effort: looks for a `git remote get-url origin`-
+ *  shaped ref in the URL bar param, then falls back to the repo's
+ *  basename. The dry-run provider accepts anything; the real GitHub
+ *  adapter wants "owner/repo". */
+async function createTicketFromBriefing(
+  briefingId: string,
+  repoPath: string,
+  title: string,
+  setStatus: (s: string) => void,
+): Promise<void> {
+  setStatus('sending');
+  try {
+    // projectRef heuristic: pull from the active repo's name. Real
+    // implementation will want a settings field; for now just send
+    // the repo path's basename and let the dry-run provider absorb it.
+    const projectRef = repoPath.split('/').filter(Boolean).pop() ?? 'unknown/repo';
+    const res = await fetch('/api/ticket/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repoPath, briefingId, projectRef, title }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setStatus(`error: ${body.error ?? res.status}`);
+      return;
+    }
+    const { provider, url, externalId } = await res.json();
+    if (provider === 'github-dryrun') {
+      setStatus(`dry-run ticket created (${externalId}) — set TETHERLINE_TICKETS_LIVE=1 to write for real`);
+    } else {
+      setStatus(`created ${url}`);
+    }
+  } catch (err: any) {
+    setStatus(`error: ${err.message}`);
+  }
 }
