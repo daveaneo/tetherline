@@ -89,14 +89,14 @@ request:
         (component)
   maxTokens: 200
 response:
-  text: The frontend module orchestrates real-time collaborative code review
-    sessions through voice and visual interfaces. The twist here is that it's
-    built around voice-first interactions—notice the VoiceOrb component and
-    voice input hooks—treating traditional text chat as secondary to spoken
-    conversation. The `useSessionOrchestrator.ts` file does the heavy
-    coordination work, managing the complex state synchronization between voice
-    input, WebSocket connections, and the various visual components like diff
-    views and understanding heatmaps.
+  text: This module owns the React frontend for an interactive code review system
+    that uses voice input and real-time collaboration. The non-obvious detail is
+    that it's built around "sessions" and "gaps" - suggesting code reviews
+    happen in structured sessions where reviewers identify and fill knowledge
+    gaps rather than just making traditional comments. The file doing the
+    heaviest lifting is `useSessionOrchestrator.ts`, which coordinates the
+    complex dance between voice input, WebSocket communication, and the various
+    state stores that track sessions, audio, and identified gaps.
   usage:
     inputTokens: 661
-    outputTokens: 105
+    outputTokens: 112

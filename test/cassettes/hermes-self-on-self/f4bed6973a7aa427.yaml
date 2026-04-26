@@ -86,14 +86,15 @@ request:
         - packages/backend/src/digest/generator.ts (other)
   maxTokens: 200
 response:
-  text: This backend orchestrates AI-powered code review sessions by composing
+  text: This module orchestrates AI-powered code review sessions by composing
     contextual briefings from cached workspace analysis and delivering them
-    through text-to-speech. The surprising constraint is that it heavily caches
-    workspace context and analysis results to avoid expensive recomputation, but
-    must detect when files change to invalidate those caches appropriately. The
-    `briefing/composer.ts` file does the core work of synthesizing code context,
-    AI analysis, and session state into the spoken briefings that guide
-    developers through their code.
+    through text-to-speech. The surprise here is that it heavily caches not just
+    the raw code analysis but the *composed briefings themselves* - there's a
+    whole repository layer (`briefing-repo.ts`) dedicated to persisting these
+    generated explanations, suggesting the AI processing is expensive enough to
+    warrant aggressive memoization. The `briefing/composer.ts` file does the
+    core work of transforming analyzed code context into coherent, spoken
+    explanations that guide developers through their codebase.
   usage:
     inputTokens: 636
-    outputTokens: 108
+    outputTokens: 131

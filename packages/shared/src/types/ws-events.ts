@@ -87,7 +87,21 @@ export type ServerEvent =
     } }
   | { type: 'session:state_changed'; payload: { state: SessionState; context: StateContext } }
   | { type: 'session:recap'; payload: { previousSession: SessionSummary; narrative: string } }
-  | { type: 'session:recall'; payload: { questions: string[] } }
+  | { type: 'session:recall'; payload: {
+      /** Distinct user questions from prior sessions for the chip list. */
+      questions: string[];
+      /** Comprehension items the user previously engaged with — surfaced
+       *  in the GapsPanel as "pick up where you left off." Each carries
+       *  the prior level + commits-since-last-touch so the user knows
+       *  if anything's drifted. */
+      items?: Array<{
+        itemId: string;
+        label: string;
+        layer: string;
+        level: 'unknown'|'mentioned'|'heard'|'engaged'|'explained'|'confirmed';
+        commitsSinceLastTouch: number;
+      }>;
+    } }
   | {
       type: 'quiz:question';
       payload: {

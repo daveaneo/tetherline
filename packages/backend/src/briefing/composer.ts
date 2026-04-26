@@ -132,7 +132,16 @@ export class BriefingComposer {
     if (!mod?.summary) return null;
 
     const opener = this.buildModuleOpener(modulePath, mod.summary, mod.keyFiles);
-    const sourceHash = this.hash([mod.summary, ...(mod.keyFiles ?? [])]);
+    // Include each key file's contentHash in the source hash so a code
+    // edit (even one that doesn't change the summary) drifts the
+    // briefing — drives drift detection. Without this, edits to
+    // jwt.ts wouldn't move the auth briefing's hash and comprehension
+    // would silently stay at 'confirmed' even after the code changed.
+    const fileHashes: string[] = (mod.keyFiles ?? []).map(f => {
+      const fileRow = this.cacheRepo.getFile(this.repoPath, f);
+      return `${f}:${fileRow?.contentHash ?? ''}`;
+    });
+    const sourceHash = this.hash([mod.summary, ...fileHashes]);
     const children = (mod.keyFiles ?? []).slice(0, 6).map(f => `file/${f}`);
 
     return {

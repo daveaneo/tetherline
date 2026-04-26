@@ -315,18 +315,24 @@ export class SessionManager {
       });
 
       // Cross-session recall: surface up to 5 distinct questions the user
-      // asked in prior sessions. Lets the lobby/gaps-panel say "last time
-      // you wanted to know about X — pick up where you left off."
+      // asked in prior sessions PLUS the comprehension items they got
+      // somewhere meaningful with last time, annotated with commits-
+      // since so they can see if anything's drifted. Frontend renders
+      // these in the GapsPanel "pick up where you left off" section.
       try {
         const priorQuestions = this.db.getQAHistoryRepo().recentQuestions(effectivePath, {
           excludeSessionId: sessionId,
           limit: 5,
         });
-        if (priorQuestions.length > 0) {
-          this.emit({ type: 'session:recall', payload: { questions: priorQuestions } });
+        const recallItems = await this.collectRecallItems(effectivePath, sessionId);
+        if (priorQuestions.length > 0 || recallItems.length > 0) {
+          this.emit({
+            type: 'session:recall',
+            payload: { questions: priorQuestions, items: recallItems },
+          });
         }
       } catch (err: any) {
-        console.warn('Failed to fetch recall questions:', err.message);
+        console.warn('Failed to fetch recall context:', err.message);
       }
 
       // Instant opener: if we have a cached project briefing from a prior
@@ -711,6 +717,26 @@ export class SessionManager {
             architectureNodes: JSON.stringify(architecture.nodes),
             architectureEdges: JSON.stringify(architecture.edges),
           });
+        }
+
+        // Surface-level code observations (TODO clusters, long files,
+        // untested modules). Cheap regex pass over the file list — no
+        // LLM. Gives the user a curated set of "things worth looking at"
+        // alongside the LLM-detected concerns.
+        try {
+          const { observeCode } = await import('../intelligence/code-observations.js');
+          const cachedFiles = this.db.getContextCacheRepo().getFilesForRepo(effectivePath);
+          const cachedModules = this.db.getContextCacheRepo().getModulesForRepo(effectivePath);
+          const observed = observeCode({
+            repoPath: effectivePath,
+            allFiles: cachedFiles.map(f => f.filePath),
+            modules: cachedModules.map(m => ({ name: m.modulePath, pathPrefix: m.modulePath })),
+            max: 8,
+          });
+          for (const c of observed) c.sessionId = sessionId;
+          concerns = [...concerns, ...observed];
+        } catch {
+          // Non-critical
         }
 
         // Store concerns in DB
@@ -1892,6 +1918,73 @@ export class SessionManager {
   // ─────────────────────────────────────────────────────────────
 
   /** Derive a comprehension layer from a briefing id. */
+  /** Pull comprehension items the user got to engaged-or-better in prior
+   *  sessions, annotated with commits-since-last-touch so the user can
+   *  see what's drifted. Used for the "pick up where you left off"
+   *  surface on session start. */
+  private async collectRecallItems(repoPath: string, currentSessionId: string): Promise<Array<{
+    itemId: string;
+    label: string;
+    layer: string;
+    level: 'unknown'|'mentioned'|'heard'|'engaged'|'explained'|'confirmed';
+    commitsSinceLastTouch: number;
+  }>> {
+    try {
+      const items = this.db.getComprehensionRepo().getAll(repoPath);
+      const RICH_LEVELS = new Set(['engaged', 'explained', 'confirmed']);
+      const candidates = items
+        .filter((it: any) => RICH_LEVELS.has(it.level))
+        .filter((it: any) => it.lastSessionId && it.lastSessionId !== currentSessionId)
+        .slice(0, 5);
+      if (candidates.length === 0) return [];
+
+      // For each item, count commits that touched its module/file since
+      // last touch. One git log call per item — bounded by the slice cap.
+      const simpleGit = (await import('simple-git')).default;
+      const git = simpleGit(repoPath);
+      const out: Array<{ itemId: string; label: string; layer: string; level: any; commitsSinceLastTouch: number }> = [];
+      for (const it of candidates) {
+        const since = it.lastTouchedAt;
+        const filter = this.itemPathFilter(it.itemId, repoPath);
+        let commits = 0;
+        try {
+          const log = await git.raw([
+            'log', `--since=${since}`, '--pretty=format:%H',
+            ...(filter ? ['--', filter] : []),
+          ]);
+          commits = log.split('\n').filter(Boolean).length;
+        } catch { /* graceful zero */ }
+        out.push({
+          itemId: it.itemId, label: it.label, layer: it.layer,
+          level: it.level, commitsSinceLastTouch: commits,
+        });
+      }
+      return out;
+    } catch {
+      return [];
+    }
+  }
+
+  /** Map a comprehension item id to a git path filter so we can count
+   *  commits scoped to its area. Returns null for items that cover the
+   *  whole repo (project / arch). */
+  private itemPathFilter(itemId: string, _repoPath: string): string | null {
+    if (itemId === 'project' || itemId === 'arch/root') return null;
+    if (itemId.startsWith('module/')) {
+      const modName = itemId.slice('module/'.length);
+      // Best-effort: a module named "auth" → filter on "auth/" path.
+      // For workspace-style modules under packages/* we'd need the full
+      // prefix — fall back to no filter rather than mis-count.
+      return modName.includes('/') ? modName : `${modName}/`;
+    }
+    if (itemId.startsWith('file/')) return itemId.slice('file/'.length);
+    if (itemId.startsWith('code/')) {
+      const filePath = itemId.slice('code/'.length).split(':')[0];
+      return filePath;
+    }
+    return null;
+  }
+
   /** Resolve a code-drill target ("capture", "manager.ts", "handleQuestion")
    *  to a concrete file + optional symbol. Strategy:
    *   1. Direct file path (contains a slash or has a known extension) →

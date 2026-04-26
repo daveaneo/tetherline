@@ -1,4 +1,4 @@
-key: f79a982bf5f345f4
+key: 809d0f8ac38d5f2c
 request:
   model: claude-sonnet-4-20250514
   system: You are analyzing the codebase "interactive-reviewer". Summarize this
@@ -51,11 +51,7 @@ request:
 
         - test/integration/voice-measurement/scenarios.ts (test)
 
-        - test/cassettes/hermes-self-on-self/14d107beac1053d2.yaml (test)
-
-        - test/cassettes/hermes-self-on-self/61175a770ffde0cd.yaml (test)
-
-        - test/cassettes/hermes-self-on-self/634ae639b8508a16.yaml (test)
+        - test/cassettes/hermes-self-on-self/3715b5c078b40840.yaml (test)
 
         - test/cassettes/hermes-self-on-self/6923419bb9a13c6a.yaml (test)
 
@@ -65,7 +61,11 @@ request:
 
         - test/cassettes/hermes-self-on-self/cb7f790542f401ce.yaml (test)
 
-        - test/cassettes/hermes-self-on-self/fce6db6005af8aa2.yaml (test)
+        - test/cassettes/hermes-self-on-self/f4bed6973a7aa427.yaml (test)
+
+        - test/cassettes/hermes-self-on-self/f79a982bf5f345f4.yaml (test)
+
+        - test/cassettes/hermes-self-on-self/fbcf17d785b67d20.yaml (test)
 
         - test/e2e/explore-mode-no-blank-screen.spec.ts (test)
 
@@ -86,15 +86,15 @@ request:
         - test/frontend/lobby-renders.test.tsx (test)
   maxTokens: 200
 response:
-  text: This module owns the complete testing strategy for the interactive code
-    review system, spanning unit tests, integration tests, and end-to-end
-    browser automation. The cassettes directory reveals that the system records
-    and replays HTTP interactions for deterministic testing—those cryptic
-    filenames are actually hashes of request signatures used for
-    "hermes-self-on-self" scenarios where the system reviews its own codebase.
-    The file `test/harness/server.ts` does the heaviest lifting by providing the
-    foundational test server infrastructure that all other tests depend on,
-    managing both the backend API and serving test fixtures.
+  text: This module owns the testing infrastructure for the interactive code
+    reviewer, spanning unit tests, end-to-end browser automation, and
+    performance measurement. The cassettes directory reveals this system uses
+    VCR-style HTTP recording for deterministic API testing—those cryptic YAML
+    filenames are hashed request signatures that let tests replay exact API
+    interactions without hitting live services. The heaviest architectural work
+    happens in `test/harness/server.ts`, which orchestrates the test server
+    setup that powers both integration scenarios and the browser-based e2e
+    suite.
   usage:
-    inputTokens: 712
-    outputTokens: 129
+    inputTokens: 715
+    outputTokens: 115
