@@ -1,0 +1,101 @@
+key: a7b2c75ec5290161
+request:
+  model: claude-sonnet-4-20250514
+  system: Synthesize a concise project summary. One paragraph. Spoken aloud via TTS.
+  messages:
+    - role: user
+      content: >-
+        Write the project briefing a senior engineer would want before they
+        touch this codebase. The briefing will be spoken aloud as the first
+        thing the user hears.
+
+
+        REQUIRED — your summary must include:
+
+        1. What the product DOES, in one sentence — phrased so a non-team-member
+        instantly gets it.
+
+        2. The architectural shape — the 2–3 worlds (e.g. "backend, frontend,
+        shared types") and what each one owns.
+
+        3. The thing that's NOT obvious from the file tree — a constraint, a
+        design choice with consequences, the gravity (where activity
+        concentrates), the "watch out for…" detail. This is the line that makes
+        the briefing feel like a real human guide, not a directory listing.
+
+
+        Forbidden:
+
+        - "This is a project that…" or any other filler opener.
+
+        - Listing modules without saying what they own.
+
+        - Marketing language.
+
+        - Generic descriptors that could apply to any codebase ("modular
+        architecture", "robust logging").
+
+
+        Length: 4–6 sentences. Conversational tone (spoken aloud).
+
+
+        Project: interactive-reviewer
+
+        README says: **Stay tethered to your codebase.**
+
+
+        Tech stack: @testing-library/jest-dom, @vitejs/plugin-react, vitest
+
+
+        Modules:
+
+        docs: This module holds the project's strategic documentation and
+        planning artifacts, essentially the "why" and "where we're going" rather
+        than the "how." The surprise here is the heavy focus on voice and tone
+        documentation—there are multiple files tracking how the AI reviewer's
+        communication style should evolve, suggesting this isn't just a
+        technical tool but one where personality and user experience matter
+        deeply. The VISION-MASTERPLAN.md file does the heaviest conceptual
+        lifting, establishing the foundational direction that all the feature
+        plans and implementation docs build from.
+
+
+        packages: This is a monorepo structure where the backend package
+        implements an AI-powered code analysis system that generates spoken
+        briefings and visual heatmaps from repository changes. The surprise here
+        is the heavy emphasis on caching and warming strategies—there are
+        multiple warmer modules and a sophisticated context composition system
+        that suggests this tool pre-computes expensive analysis to deliver
+        real-time insights. The file doing the heaviest conceptual work is
+        `context-composer.ts`, which orchestrates how code changes get
+        transformed into the structured context that feeds the AI briefing
+        generation.
+
+
+        test: This module owns end-to-end testing of the interactive code review
+        system, from voice simulation through complete user workflows. The
+        surprising thing is that it includes shell scripts that generate entire
+        fake repositories as test fixtures—not just mocking data structures, but
+        actually creating Git repos with realistic commit histories. The
+        `test/harness/run-session.ts` file does the heavy lifting by
+        orchestrating full session simulations that can replay recorded
+        interactions through "cassettes," letting you test complex voice-driven
+        review flows without needing real speech recognition during CI.
+  maxTokens: 300
+response:
+  text: "Interactive Reviewer generates AI-powered spoken briefings and visual
+    analysis from your codebase changes to help developers quickly understand
+    what's happening in their repositories. The architecture splits into three
+    worlds: a backend that analyzes code and composes AI briefings, a test
+    harness that simulates complete voice-driven review sessions, and docs that
+    unusually focus heavily on the AI's communication personality. The
+    non-obvious constraint here is that everything revolves around
+    pre-computation and caching—this tool isn't doing analysis on-demand but
+    rather warming expensive AI operations in the background so it can deliver
+    real-time spoken insights when you need them. Watch out for the context
+    composer in the backend packages—it's the orchestration engine that
+    transforms raw code changes into the structured context that feeds all the
+    AI briefing generation, so changes there ripple through the entire system."
+  usage:
+    inputTokens: 664
+    outputTokens: 178

@@ -1,0 +1,100 @@
+key: 69ffa8484932dfbe
+request:
+  model: claude-sonnet-4-20250514
+  system: You are analyzing the codebase "interactive-reviewer". Summarize this
+    module concisely.
+  messages:
+    - role: user
+      content: >-
+        Write a substantive summary of this module that a developer would
+        actually find useful. The summary will be spoken aloud as part of a
+        guided code-review tour.
+
+
+        REQUIRED — your summary must include all three:
+
+        1. The central concept the module owns (one sentence — the thing that,
+        if you understood nothing else, would orient you).
+
+        2. A non-obvious detail or surprise: a constraint, an edge case, a "but
+        actually" that a reader exploring just the directory listing would miss.
+
+        3. A specific file (by name) that does the heaviest lifting and what it
+        owns. Use the actual file name from the list below.
+
+
+        Forbidden:
+
+        - No filler ("This module handles…", "Various utilities for…").
+
+        - No marketing language.
+
+        - Don't enumerate every file. Three at most, only if each does something
+        meaningfully different.
+
+        - Don't end with "…and helpers" or "…and tests" — be specific or omit.
+
+
+        Length: 3–4 sentences total. Conversational tone (it's spoken, not
+        read).
+
+
+        Module: packages
+
+
+
+        Files in this module (with one-line summaries):
+
+        - packages/backend/package.json (other)
+
+        - packages/backend/src/briefing/composer.ts (other)
+
+        - packages/backend/src/briefing/share.ts (other)
+
+        - packages/backend/src/briefing/tts-safety.ts (other)
+
+        - packages/backend/src/briefing/warmer.ts (other)
+
+        - packages/backend/src/cache/context-composer.ts (other)
+
+        - packages/backend/src/cache/diff-detector.ts (other)
+
+        - packages/backend/src/cache/hash-utils.ts (utility)
+
+        - packages/backend/src/cache/import-parser.ts (other)
+
+        - packages/backend/src/cache/manifest-parser.ts (other)
+
+        - packages/backend/src/cache/readme-parser.ts (other)
+
+        - packages/backend/src/cache/warmer.ts (other)
+
+        - packages/backend/src/config.ts (config)
+
+        - packages/backend/src/db/database.ts (other)
+
+        - packages/backend/src/db/repositories/area-repo.ts (other)
+
+        - packages/backend/src/db/repositories/briefing-repo.ts (other)
+
+        - packages/backend/src/db/repositories/comprehension-repo.ts (other)
+
+        - packages/backend/src/db/repositories/context-cache-repo.ts (other)
+
+        - packages/backend/src/db/repositories/heatmap-repo.ts (other)
+
+        - packages/backend/src/db/repositories/onboarding-repo.ts (other)
+  maxTokens: 200
+response:
+  text: This is a monorepo structure where the backend package implements an
+    AI-powered code analysis system that generates spoken briefings and visual
+    heatmaps from repository changes. The surprise here is the heavy emphasis on
+    caching and warming strategies—there are multiple warmer modules and a
+    sophisticated context composition system that suggests this tool
+    pre-computes expensive analysis to deliver real-time insights. The file
+    doing the heaviest conceptual work is `context-composer.ts`, which
+    orchestrates how code changes get transformed into the structured context
+    that feeds the AI briefing generation.
+  usage:
+    inputTokens: 643
+    outputTokens: 117

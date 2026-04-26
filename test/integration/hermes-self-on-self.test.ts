@@ -97,8 +97,11 @@ describe.skipIf(!CAN_RUN)('Hermes — self-on-self truth check', () => {
     for (const summary of summaries.briefings) {
       const full = (await h.client.briefing(REPO_ROOT, summary.id)).briefing;
       expect(full.opener.length).toBeGreaterThan(40);
-      // Anchor in real code: at least one filename or directory.
-      expect(full.opener).toMatch(/\.ts|\.tsx|\.js|src\//);
+      // Anchor in real artifact: at least one filename (any extension) or
+      // directory reference. A docs/ module legitimately names .md files,
+      // not .ts files — the bar is "names a real concrete artifact," not
+      // "names code specifically."
+      expect(full.opener).toMatch(/\.\w{1,5}\b|src\//);
     }
   }, 60_000);
 

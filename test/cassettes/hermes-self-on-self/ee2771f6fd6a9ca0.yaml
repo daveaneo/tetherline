@@ -1,0 +1,1490 @@
+key: ee2771f6fd6a9ca0
+request:
+  model: claude-sonnet-4-20250514
+  system: >-
+    You are a warm, knowledgeable guide leading an interactive code review
+    session for the project "interactive-reviewer". Think of yourself as a
+    senior engineer who genuinely enjoys explaining code — unhurried,
+    thoughtful, and clear.
+
+
+    CRITICAL CONTEXT: You are reviewing the codebase at "FIXTURE".
+
+    - When the user says "the project", "this project", "the code", or "the
+    codebase", they ALWAYS mean interactive-reviewer.
+
+    - You are NOT the Tetherline app. You are a guide reviewing
+    interactive-reviewer.
+
+    - Never ask "which repo?" or "what project?" — you already know. It is
+    interactive-reviewer.
+
+    - Never reference, discuss, or access anything outside of
+    interactive-reviewer. Stay focused on this repo only.
+
+    - All your knowledge, opinions, and analysis are about interactive-reviewer
+    and nothing else.
+
+
+    Your voice:
+
+    - Use natural transitions: "Let me show you...", "This is interesting
+    because...", "One thing to note here..."
+
+    - Pause and breathe. Don't rush through explanations.
+
+    - Reference the visual context: "Over on the left you can see the
+    architecture diagram highlighting...", "If you look at the code panel..."
+
+    - Never use bullet points, markdown formatting, or numbered lists — your
+    words are spoken aloud via text-to-speech.
+
+    - Never say "Here are the key points" or "Let me summarize". Just talk
+    naturally, like you would to a colleague at a whiteboard.
+
+    - When something is complex, acknowledge it: "This part is a bit involved,
+    so let me walk through it step by step."
+
+    - When something is simple, say so: "This is pretty straightforward —" and
+    move quickly.
+
+    - Be opinionated when you have a view: "I think this approach is solid
+    because..." or "Honestly, this could be cleaner."
+
+
+    Project: interactive-reviewer
+
+    Path: FIXTURE
+
+    Language(s): TypeScript, Markdown, JSON, Shell, CSS
+
+    Period: 2026-03-27 to 2026-04-26
+
+    Total commits: 65
+
+
+
+    Project knowledge:
+
+    ## Project: **Stay tethered to your codebase.**
+
+    Interactive Reviewer generates AI-powered spoken briefings and visual
+    analysis from your codebase changes to help developers quickly understand
+    what's happening in their repositories. The architecture splits into three
+    worlds: a backend that analyzes code and composes AI briefings, a test
+    harness that simulates complete voice-driven review sessions, and docs that
+    unusually focus heavily on the AI's communication personality. The
+    non-obvious constraint here is that everything revolves around
+    pre-computation and caching—this tool isn't doing analysis on-demand but
+    rather warming expensive AI operations in the background so it can deliver
+    real-time spoken insights when you need them. Watch out for the context
+    composer in the backend packages—it's the orchestration engine that
+    transforms raw code changes into the structured context that feeds all the
+    AI briefing generation, so changes there ripple through the entire system.
+
+
+    ### docs
+
+    This module holds the project's strategic documentation and planning
+    artifacts, essentially the "why" and "where we're going" rather than the
+    "how." The surprise here is the heavy focus on voice and tone
+    documentation—there are multiple files tracking how the AI reviewer's
+    communication style should evolve, suggesting this isn't just a technical
+    tool but one where personality and user experience matter deeply. The
+    VISION-MASTERPLAN.md file does the heaviest conceptual lifting, establishing
+    the foundational direction that all the feature plans and implementation
+    docs build from.
+
+
+    ### packages
+
+    This is a monorepo structure where the backend package implements an
+    AI-powered code analysis system that generates spoken briefings and visual
+    heatmaps from repository changes. The surprise here is the heavy emphasis on
+    caching and warming strategies—there are multiple warmer modules and a
+    sophisticated context composition system that suggests this tool
+    pre-computes expensive analysis to deliver real-time insights. The file
+    doing the heaviest conceptual work is `context-composer.ts`, which
+    orchestrates how code changes get transformed into the structured context
+    that feeds the AI briefing generation.
+
+
+    ### test
+
+    This module owns end-to-end testing of the interactive code review system,
+    from voice simulation through complete user workflows. The surprising thing
+    is that it includes shell scripts that generate entire fake repositories as
+    test fixtures—not just mocking data structures, but actually creating Git
+    repos with realistic commit histories. The `test/harness/run-session.ts`
+    file does the heavy lifting by orchestrating full session simulations that
+    can replay recorded interactions through "cassettes," letting you test
+    complex voice-driven review flows without needing real speech recognition
+    during CI.
+
+
+    If the codebase uses programming languages the user may not be familiar
+    with, explain language-specific idioms, patterns, and syntax. Don't assume
+    familiarity with any particular language.
+  messages:
+    - role: user
+      content: >-
+        Group these 65 commits into logical areas of change (features, bug
+        fixes, refactors, infrastructure, etc.).
+
+
+        Each area should have:
+
+        - A clear, descriptive name (e.g., "Authentication refactor", "Payment
+        flow bug fixes")
+
+        - A one-paragraph description of what changed and why
+
+        - The list of commit hashes that belong to it
+
+        - A significance rating: "major" (new features, architectural changes),
+        "minor" (enhancements, moderate fixes), or "maintenance" (dependency
+        updates, formatting, small fixes)
+
+
+        For each area, also provide a "theme" — a high-level category like
+        "Security", "Performance", "Data model", "Testing", "DevOps", "UI/UX",
+        "API", or "Documentation".
+
+
+        Commits that touch the same files or relate to the same feature should
+        be grouped together. A commit can belong to multiple areas if it spans
+        concerns, but prefer assigning each commit to its primary area.
+
+
+        Commits:
+
+        [
+          {
+            "hash": "768e9693",
+            "message": "R1: substance + deep-exploration arc + self-on-self skeleton",
+            "author": "david ring iii",
+            "files": [
+              "packages/backend/src/briefing/composer.ts",
+              "packages/backend/src/intelligence/prompts/context-cache.ts",
+              "test/fixtures/create-hermes-fixture.sh",
+              "test/integration/hermes-deep-exploration.test.ts",
+              "test/integration/hermes-self-on-self.test.ts",
+              "test/unit/briefing-composer.test.ts"
+            ],
+            "linesChanged": 689
+          },
+          {
+            "hash": "7e92e7b3",
+            "message": "Hermes: radial-map flow, quiz, depth lock + 7-scenario e2e",
+            "author": "david ring iii",
+            "files": [
+              "docs/VOICE-AFTER-FIX.md",
+              "packages/backend/src/briefing/composer.ts",
+              "packages/backend/src/integrations/ticket-provider.ts",
+              "packages/backend/src/intelligence/qa-context.ts",
+              "packages/backend/src/intelligence/quiz.ts",
+              "packages/backend/src/routes/dev.ts",
+              "packages/backend/src/session/manager.ts",
+              "packages/frontend/src/components/room/LiveTranscript.tsx",
+              "packages/frontend/src/components/room/Room.tsx",
+              "packages/frontend/src/components/vision/BriefingCard.tsx",
+              "packages/shared/src/types/ws-events.ts",
+              "test/fixtures/create-hermes-fixture.sh",
+              "test/harness/client.ts",
+              "test/integration/hermes-flow.test.ts",
+              "test/integration/scenarios/comprehension-tracking.test.ts",
+              "test/unit/qa-context.test.ts"
+            ],
+            "linesChanged": 1154
+          },
+          {
+            "hash": "f7320e91",
+            "message": "Voice UX overhaul: PTT, cross-session memory, chips, gaps panel",
+            "author": "david ring iii",
+            "files": [
+              "packages/backend/src/db/database.ts",
+              "packages/backend/src/db/repositories/qa-history-repo.ts",
+              "packages/backend/src/intelligence/qa-context.ts",
+              "packages/backend/src/intelligence/sentence-chunker.ts",
+              "packages/backend/src/session/manager.ts",
+              "packages/frontend/src/components/room/GapsPanel.tsx",
+              "packages/frontend/src/components/room/NarrationBar.tsx",
+              "packages/frontend/src/components/room/QuickChips.tsx",
+              "packages/frontend/src/components/room/Room.tsx",
+              "packages/frontend/src/hooks/NANOID_PLACEHOLDER.ts",
+              "packages/frontend/src/hooks/NANOID_PLACEHOLDER.ts",
+              "packages/frontend/src/hooks/useVoiceInput.ts",
+              "packages/frontend/src/state/audio-store.ts",
+              "packages/frontend/src/state/gaps-store.ts",
+              "packages/frontend/src/state/session-store.ts",
+              "packages/shared/src/types/ws-events.ts",
+              "test/frontend/no-voice-barge-in.test.tsx",
+              "test/frontend/orchestrator-no-self-interrupt.test.tsx",
+              "test/frontend/pause-stops-mic.test.tsx",
+              "test/frontend/push-to-talk.test.tsx",
+              "test/unit/qa-context.test.ts",
+              "test/unit/sentence-chunker.test.ts",
+              "test/unit/transcription-noise.test.ts"
+            ],
+            "linesChanged": 2332
+          },
+          {
+            "hash": "de75d225",
+            "message": "Three fixes: briefing name, \"Thinking...\" hang, self-interrupt coalesce",
+            "author": "david ring iii",
+            "files": [
+              "docs/VOICE-AFTER-FIX.md",
+              "packages/backend/src/briefing/composer.ts",
+              "packages/frontend/src/hooks/NANOID_PLACEHOLDER.ts",
+              "packages/frontend/src/hooks/useVoiceInput.ts",
+              "test/unit/briefing-composer.test.ts"
+            ],
+            "linesChanged": 277
+          },
+          {
+            "hash": "da53b091",
+            "message": "Voice floor control: wire from frontend VAD to backend (fully functional)",
+            "author": "david ring iii",
+            "files": [
+              "docs/VOICE-AFTER-FIX.md",
+              "packages/backend/src/session/manager.ts",
+              "packages/frontend/src/hooks/useVoiceInput.ts",
+              "packages/frontend/src/state/audio-store.ts",
+              "packages/shared/src/types/ws-events.ts"
+            ],
+            "linesChanged": 118
+          },
+          {
+            "hash": "8f003016",
+            "message": "Voice floor control: stress scenarios + real deltas",
+            "author": "david ring iii",
+            "files": [
+              "docs/VOICE-AFTER-FIX.md",
+              "docs/VOICE-AFTER.md",
+              "docs/VOICE-BEFORE.md",
+              "docs/VOICE-COMPARISON.md",
+              "packages/backend/src/routes/dev.ts",
+              "packages/backend/src/session/manager.ts",
+              "test/integration/voice-measurement/scenarios.ts"
+            ],
+            "linesChanged": 917
+          },
+          {
+            "hash": "6c8d98c1",
+            "message": "Voice floor control: measure, fix, re-measure (objective metrics)",
+            "author": "david ring iii",
+            "files": [
+              "docs/VOICE-AFTER-FIX.md",
+              "docs/VOICE-AFTER.md",
+              "docs/VOICE-BEFORE.md",
+              "docs/VOICE-COMPARISON.md",
+              "packages/backend/src/dev/registry.ts",
+              "packages/backend/src/dev/trace.ts",
+              "packages/backend/src/routes/dev.ts",
+              "packages/backend/src/session/manager.ts",
+              "packages/backend/src/voice/metrics.ts",
+              "test/harness/client.ts",
+              "test/integration/voice-measurement/baseline.test.ts",
+              "test/integration/voice-measurement/scenarios.ts"
+            ],
+            "linesChanged": 1225
+          },
+          {
+            "hash": "f4e86b8f",
+            "message": "Fix: NANOID_PLACEHOLDER infinite render + ungate E2E + robustness tests",
+            "author": "david ring iii",
+            "files": [
+              "packages/frontend/src/components/vision/NANOID_PLACEHOLDER.tsx",
+              "test/e2e/explore-mode-no-blank-screen.spec.ts",
+              "test/integration/stale-data-robustness.test.ts"
+            ],
+            "linesChanged": 216
+          },
+          {
+            "hash": "f5e48b3f",
+            "message": "Fix: explore blank-screen was rename-migration gap",
+            "author": "david ring iii",
+            "files": [
+              "packages/backend/src/db/database.ts",
+              "test/unit/db-path-migration.test.ts"
+            ],
+            "linesChanged": 146
+          },
+          {
+            "hash": "3a8d4709",
+            "message": "gitignore: exclude playwright test-results/ and playwright-report/",
+            "author": "david ring iii",
+            "files": [
+              ".gitignore",
+              "test-results/.last-run.json"
+            ],
+            "linesChanged": 14
+          },
+          {
+            "hash": "9afddf31",
+            "message": "E2E harness: Playwright wired against live dev servers",
+            "author": "david ring iii",
+            "files": [
+              "package.json",
+              "playwright.config.ts",
+              "test-results/.last-run.json",
+              "test/e2e/explore-mode-no-blank-screen.spec.ts"
+            ],
+            "linesChanged": 123
+          },
+          {
+            "hash": "71012514",
+            "message": "Lobby + modes + skills + deep-link + resume — complete flow coverage",
+            "author": "david ring iii",
+            "files": [
+              "test/frontend/deep-link-handling.test.tsx",
+              "test/frontend/lobby-renders.test.tsx",
+              "test/integration/modes/mode-toggle-events.test.ts",
+              "test/integration/session-resume.test.ts",
+              "test/integration/skills/skills-dispatch.test.ts"
+            ],
+            "linesChanged": 451
+          },
+          {
+            "hash": "34d452ed",
+            "message": "Regression guards: ContentPanel was dropped from Room — every phase now tested",
+            "author": "david ring iii",
+            "files": [
+              "package.json",
+              "packages/frontend/src/components/room/Room.tsx",
+              "test/frontend/room-renders-for-every-phase.test.tsx",
+              "test/integration/entry-modes/all-modes-produce-content.test.ts",
+              "vitest.config.ts"
+            ],
+            "linesChanged": 358
+          },
+          {
+            "hash": "67f5f562",
+            "message": "Cap prompt sizes to protect the 200K token ceiling",
+            "author": "david ring iii",
+            "files": [
+              "packages/backend/src/intelligence/analyzer.ts",
+              "packages/backend/src/intelligence/prompts/narrative.ts"
+            ],
+            "linesChanged": 78
+          },
+          {
+            "hash": "0dd5a2a1",
+            "message": "Frontend: wire briefings, navigator breadcrumb, comprehension overlay",
+            "author": "david ring iii",
+            "files": [
+              "packages/frontend/src/components/room/Room.tsx",
+              "packages/frontend/src/components/vision/BreadcrumbStrip.tsx",
+              "packages/frontend/src/components/vision/BriefingCard.tsx",
+              "packages/frontend/src/components/vision/NANOID_PLACEHOLDER.tsx",
+              "packages/frontend/src/state/session-store.ts",
+              "packages/frontend/tsconfig.tsbuildinfo"
+            ],
+            "linesChanged": 553
+          },
+          {
+            "hash": "5bf807ba",
+            "message": "Vision mechanics: Briefing + Navigator + Comprehension",
+            "author": "david ring iii",
+            "files": [
+              "docs/VISION-MASTERPLAN.md",
+              "packages/backend/src/briefing/composer.ts",
+              "packages/backend/src/briefing/share.ts",
+              "packages/backend/src/briefing/tts-safety.ts",
+              "packages/backend/src/briefing/warmer.ts",
+              "packages/backend/src/config.ts",
+              "packages/backend/src/db/database.ts",
+              "packages/backend/src/db/repositories/briefing-repo.ts",
+              "packages/backend/src/db/repositories/comprehension-repo.ts",
+              "packages/backend/src/routes/dev.ts",
+              "packages/backend/src/session/confirmation-phrases.ts",
+              "packages/backend/src/session/manager.ts",
+              "packages/backend/src/session/navigator-vocab.ts",
+              "packages/backend/src/session/navigator.ts",
+              "packages/shared/src/index.ts",
+              "packages/shared/src/types/briefing.ts",
+              "packages/shared/src/types/comprehension.ts",
+              "packages/shared/src/types/ws-events.ts",
+              "test/harness/client.ts",
+              "test/integration/audio/voice-simulate.test.ts",
+              "test/integration/scenarios/briefing-query-routing.test.ts",
+              "test/integration/scenarios/challenge-and-staleness.test.ts",
+              "test/integration/scenarios/comprehension-tracking.test.ts",
+              "test/integration/scenarios/drill-and-pop.test.ts",
+              "test/integration/scenarios/NANOID_PLACEHOLDER.test.ts",
+              "test/integration/scenarios/review-and-share.test.ts",
+              "test/unit/briefing-composer.test.ts",
+              "test/unit/briefing-tts-safety.test.ts",
+              "test/unit/navigator-vocab.test.ts"
+            ],
+            "linesChanged": 3237
+          },
+          {
+            "hash": "914b8031",
+            "message": "Speed up first response: quick_preview + quick_answer + streaming narratives",
+            "author": "david ring iii",
+            "files": [
+              "packages/backend/src/intelligence/claude-code-client.ts",
+              "packages/backend/src/session/manager.ts",
+              "packages/shared/src/types/ws-events.ts"
+            ],
+            "linesChanged": 265
+          },
+          {
+            "hash": "f6dfddc1",
+            "message": "Dev API + testing substrate: close the agent feedback loop",
+            "author": "david ring iii",
+            "files": [
+              ".gitignore",
+              "docs/TESTING-MASTERPLAN.md",
+              "docs/TESTING.md",
+              "package.json",
+              "packages/backend/package.json",
+              "packages/backend/src/dev/guard.ts",
+              "packages/backend/src/dev/registry.ts",
+              "packages/backend/src/dev/trace.ts",
+              "packages/backend/src/intelligence/claude-client.ts",
+              "packages/backend/src/intelligence/llm/anthropic-adapter.ts",
+              "packages/backend/src/intelligence/llm/canonicalize.ts",
+              "packages/backend/src/intelligence/llm/cassette-adapter.ts",
+              "packages/backend/src/intelligence/llm/index.ts",
+              "packages/backend/src/intelligence/llm/mock-adapter.ts",
+              "packages/backend/src/intelligence/llm/types.ts",
+              "packages/backend/src/routes/dev.ts",
+              "packages/backend/src/server.ts",
+              "playwright.config.ts",
+              "test/e2e/lobby.spec.ts",
+              "test/e2e/session-entry.spec.ts",
+              "test/fixtures/create-small-walkthrough.sh",
+              "test/harness/cassettes-audit.ts",
+              "test/harness/client.ts",
+              "test/harness/index.ts",
+              "test/harness/server.ts",
+              "test/integration/commands.test.ts",
+              "test/integration/dev-api-smoke.test.ts",
+              "test/integration/modes.test.ts",
+              "test/integration/session-flow.test.ts",
+              "test/integration/voice-routing.test.ts",
+              "test/unit/canonicalize.test.ts",
+              "test/unit/mock-adapter.test.ts",
+              "test/unit/trace.test.ts",
+              "test/voice/README.md",
+              "test/voice/interrupt-latency.test.ts",
+              "vitest.config.ts"
+            ],
+            "linesChanged": 2672
+          },
+          {
+            "hash": "27dc8817",
+            "message": "Rename project: Interactive Reviewer → Tetherline",
+            "author": "david ring iii",
+            "files": [
+              ".gitignore",
+              "CLAUDE.md",
+              "README.md",
+              "docs/future-features.md",
+              "docs/implementation-plan.md",
+              "docs/vision.md",
+              "package.json",
+              "packages/backend/package.json",
+              "packages/backend/src/config.ts",
+              "packages/backend/src/db/repositories/area-repo.ts",
+              "packages/backend/src/db/repositories/onboarding-repo.ts",
+              "packages/backend/src/db/repositories/session-repo.ts",
+              "packages/backend/src/db/repositories/settings-repo.ts",
+              "packages/backend/src/db/repositories/understanding-repo.ts",
+              "packages/backend/src/digest/generator.ts",
+              "packages/backend/src/export/markdown-generator.ts",
+              "packages/backend/src/export/reveal-generator.ts",
+              "packages/backend/src/git/analyzer.ts",
+              "packages/backend/src/git/clusterer.ts",
+              "packages/backend/src/git/commit-reader.ts",
+              "packages/backend/src/git/diff-parser.ts",
+              "packages/backend/src/git/heatmap.ts",
+              "packages/backend/src/git/types.ts",
+              "packages/backend/src/index.ts",
+              "packages/backend/src/intelligence/analyzer.ts",
+              "packages/backend/src/intelligence/prompts/clustering.ts",
+              "packages/backend/src/intelligence/prompts/concerns.ts",
+              "packages/backend/src/intelligence/prompts/narrative.ts",
+              "packages/backend/src/intelligence/prompts/questions.ts",
+              "packages/backend/src/intelligence/prompts/system.ts",
+              "packages/backend/src/routes/export.ts",
+              "packages/backend/src/routes/onboarding.ts",
+              "packages/backend/src/server.ts",
+              "packages/backend/src/session/manager.ts",
+              "packages/backend/src/skills/annotate.ts",
+              "packages/backend/src/skills/compare.ts",
+              "packages/backend/src/skills/create-issue.ts",
+              "packages/backend/src/skills/critique.ts",
+              "packages/backend/src/skills/explain.ts",
+              "packages/backend/src/skills/intent-classifier.ts",
+              "packages/backend/src/skills/navigate.ts",
+              "packages/backend/src/skills/registry.ts",
+              "packages/backend/src/skills/share.ts",
+              "packages/backend/src/skills/summarize.ts",
+              "packages/backend/src/skills/teach.ts",
+              "packages/backend/src/skills/visualize.ts",
+              "packages/backend/src/tts/prefetcher.ts",
+              "packages/backend/src/ws/events.ts",
+              "packages/backend/src/ws/handler.ts",
+              "packages/cli/package.json",
+              "packages/cli/src/index.ts",
+              "packages/cli/src/launcher.ts",
+              "packages/frontend/index.html",
+              "packages/frontend/package.json",
+              "packages/frontend/src/App.tsx",
+              "packages/frontend/src/components/actions/AnnotationsList.tsx",
+              "packages/frontend/src/components/diagrams/ArchitectureDiagram.tsx",
+              "packages/frontend/src/components/heatmap/UnderstandingMap.tsx",
+              "packages/frontend/src/components/layout/Toolbar.tsx",
+              "packages/frontend/src/components/lobby/Lobby.tsx",
+              "packages/frontend/src/components/room/ContentPanel.tsx",
+              "packages/frontend/src/components/room/DiagramPanel.tsx",
+              "packages/frontend/src/components/room/SessionEntrance.tsx",
+              "packages/frontend/src/components/session/SessionView.tsx",
+              "packages/frontend/src/components/settings/ModeToggles.tsx",
+              "packages/frontend/src/components/settings/SettingsPanel.tsx",
+              "packages/frontend/src/hooks/useAudioPlayback.ts",
+              "packages/frontend/src/hooks/NANOID_PLACEHOLDER.ts",
+              "packages/frontend/src/hooks/useVoiceInput.ts",
+              "packages/frontend/src/hooks/useWebSocket.ts",
+              "packages/frontend/src/lib/api-client.ts",
+              "packages/frontend/src/lib/audio-capture.ts",
+              "packages/frontend/src/lib/ws-client.ts",
+              "packages/frontend/src/state/audio-store.ts",
+              "packages/frontend/src/state/session-store.ts",
+              "packages/frontend/src/state/settings-store.ts",
+              "packages/frontend/src/styles/global.css",
+              "packages/shared/package.json",
+              "packages/shared/src/constants.ts",
+              "test/harness/run-session.ts"
+            ],
+            "linesChanged": 957
+          },
+          {
+            "hash": "15f0d4a5",
+            "message": "Port ember/espresso skin from Claude Design handoff",
+            "author": "david ring iii",
+            "files": [
+              "package.json",
+              "packages/frontend/index.html",
+              "packages/frontend/src/App.tsx",
+              "packages/frontend/src/components/actions/IssueDraftPreview.tsx",
+              "packages/frontend/src/components/actions/SharePanel.tsx",
+              "packages/frontend/src/components/audio/SpeechToasts.tsx",
+              "packages/frontend/src/components/layout/ErrorBanner.tsx",
+              "packages/frontend/src/components/layout/Toolbar.tsx",
+              "packages/frontend/src/components/lobby/Lobby.tsx",
+              "packages/frontend/src/components/primitives/Badge.tsx",
+              "packages/frontend/src/components/primitives/Heatmap.tsx",
+              "packages/frontend/src/components/primitives/Timeline.tsx",
+              "packages/frontend/src/components/primitives/Toggle.tsx",
+              "packages/frontend/src/components/primitives/VoiceOrb.tsx",
+              "packages/frontend/src/components/primitives/index.ts",
+              "packages/frontend/src/components/room/ContentPanel.tsx",
+              "packages/frontend/src/components/room/DiagramPanel.tsx",
+              "packages/frontend/src/components/room/NarrationBar.tsx",
+              "packages/frontend/src/components/room/SessionEntrance.tsx",
+              "packages/frontend/src/components/room/VoiceHelp.tsx",
+              "packages/frontend/src/components/settings/ModeToggles.tsx",
+              "packages/frontend/src/components/settings/SettingsPanel.tsx",
+              "packages/frontend/src/styles/global.css",
+              "packages/frontend/src/styles/primitives.css",
+              "packages/frontend/src/styles/screens.css",
+              "packages/frontend/tsconfig.tsbuildinfo"
+            ],
+            "linesChanged": 2836
+          },
+          {
+            "hash": "0ceb7c42",
+            "message": "Context cache: three-level summaries with incremental updates",
+            "author": "david ring iii",
+            "files": [
+              "packages/backend/src/cache/context-composer.ts",
+              "packages/backend/src/cache/diff-detector.ts",
+              "packages/backend/src/cache/hash-utils.ts",
+              "packages/backend/src/cache/import-parser.ts",
+              "packages/backend/src/cache/manifest-parser.ts",
+              "packages/backend/src/cache/readme-parser.ts",
+              "packages/backend/src/cache/warmer.ts",
+              "packages/backend/src/db/database.ts",
+              "packages/backend/src/db/repositories/context-cache-repo.ts",
+              "packages/backend/src/intelligence/analyzer.ts",
+              "packages/backend/src/intelligence/prompts/context-cache.ts",
+              "packages/backend/src/intelligence/prompts/system.ts",
+              "packages/backend/src/session/manager.ts",
+              "packages/backend/src/skills/registry.ts",
+              "packages/shared/src/types/analysis.ts"
+            ],
+            "linesChanged": 1314
+          },
+          {
+            "hash": "08e3a24a",
+            "message": "Context cache plan v2: READMEs first, zero warm-start LLM calls",
+            "author": "david ring iii",
+            "files": [
+              "docs/context-cache-plan.md"
+            ],
+            "linesChanged": 268
+          },
+          {
+            "hash": "03bbe921",
+            "message": "Add context cache implementation plan",
+            "author": "david ring iii",
+            "files": [
+              "docs/context-cache-plan.md"
+            ],
+            "linesChanged": 97
+          },
+          {
+            "hash": "f774f687",
+            "message": "Fix: AI stays focused on target repo, not Interactive Reviewer itself",
+            "author": "david ring iii",
+            "files": [
+              "packages/backend/src/intelligence/analyzer.ts",
+              "packages/backend/src/intelligence/claude-code-client.ts",
+              "packages/backend/src/intelligence/prompts/system.ts",
+              "packages/backend/src/session/manager.ts"
+            ],
+            "linesChanged": 118
+          },
+          {
+            "hash": "99cac43f",
+            "message": "Add cache-busting headers + verify transcription pipeline",
+            "author": "david ring iii",
+            "files": [
+              "packages/backend/src/server.ts"
+            ],
+            "linesChanged": 19
+          },
+          {
+            "hash": "ba618d37",
+            "message": "Replace MediaRecorder with raw PCM capture for reliable transcription",
+            "author": "david ring iii",
+            "files": [
+              "packages/frontend/src/lib/audio-capture.ts"
+            ],
+            "linesChanged": 304
+          },
+          {
+            "hash": "71f6fde9",
+            "message": "5 UX wow-factor improvements",
+            "author": "david ring iii",
+            "files": [
+              "packages/frontend/src/components/layers/BookJacket.tsx",
+              "packages/frontend/src/components/lobby/Lobby.tsx",
+              "packages/frontend/src/components/room/ContentDrawer.tsx",
+              "packages/frontend/src/components/room/DiagramPanel.tsx",
+              "packages/frontend/src/components/room/LayerNav.tsx",
+              "packages/frontend/src/components/room/NarrationBar.tsx",
+              "packages/frontend/src/components/room/Room.tsx",
+              "packages/frontend/src/components/room/SessionEntrance.tsx",
+              "packages/frontend/src/styles/global.css",
+              "packages/frontend/tsconfig.tsbuildinfo"
+            ],
+            "linesChanged": 361
+          },
+          {
+            "hash": "e1d7918d",
+            "message": "Full-bleed minimal UI redesign",
+            "author": "david ring iii",
+            "files": [
+              "packages/frontend/src/App.tsx",
+              "packages/frontend/src/components/layers/BookJacket.tsx",
+              "packages/frontend/src/components/room/ContentDrawer.tsx",
+              "packages/frontend/src/components/room/DiagramPanel.tsx",
+              "packages/frontend/src/components/room/NarrationBar.tsx",
+              "packages/frontend/src/components/room/Room.tsx",
+              "packages/frontend/tsconfig.tsbuildinfo"
+            ],
+            "linesChanged": 347
+          },
+          {
+            "hash": "143eae0c",
+            "message": "Fix transcription: send WebM directly to Whisper, no client-side decode",
+            "author": "david ring iii",
+            "files": [
+              "packages/backend/src/routes/audio.ts",
+              "packages/backend/src/tts/audio-server.py",
+              "packages/frontend/src/lib/audio-capture.ts"
+            ],
+            "linesChanged": 160
+          },
+          {
+            "hash": "aa6cafe8",
+            "message": "Explore greeting: \"Go ahead.\" — short, then waits for user",
+            "author": "david ring iii",
+            "files": [
+              "packages/backend/src/session/manager.ts"
+            ],
+            "linesChanged": 10
+          },
+          {
+            "hash": "b52f09fb",
+            "message": "Fix pre-buffer: single continuous recorder, no cross-session concat",
+            "author": "david ring iii",
+            "files": [
+              "packages/frontend/src/lib/audio-capture.ts"
+            ],
+            "linesChanged": 258
+          },
+          {
+            "hash": "c2edad9b",
+            "message": "Pre-buffer captures first words of speech (800ms rolling buffer)",
+            "author": "david ring iii",
+            "files": [
+              "packages/frontend/src/lib/audio-capture.ts"
+            ],
+            "linesChanged": 331
+          },
+          {
+            "hash": "f44f1888",
+            "message": "Add Explore mode: self-led free exploration",
+            "author": "david ring iii",
+            "files": [
+              "packages/backend/src/intelligence/analyzer.ts",
+              "packages/backend/src/session/manager.ts",
+              "packages/frontend/src/components/lobby/Lobby.tsx",
+              "packages/frontend/src/hooks/NANOID_PLACEHOLDER.ts",
+              "packages/frontend/src/state/session-store.ts",
+              "packages/shared/src/types/modes.ts"
+            ],
+            "linesChanged": 129
+          },
+          {
+            "hash": "99dca9f1",
+            "message": "Multi-layer interrupt system with backoff",
+            "author": "david ring iii",
+            "files": [
+              "packages/frontend/src/App.tsx",
+              "packages/frontend/src/hooks/useInterrupt.ts",
+              "packages/frontend/src/hooks/NANOID_PLACEHOLDER.ts",
+              "packages/frontend/src/state/audio-store.ts",
+              "packages/frontend/tsconfig.tsbuildinfo"
+            ],
+            "linesChanged": 147
+          },
+          {
+            "hash": "92e65a4c",
+            "message": "Fix double AI responses + harder interrupt",
+            "author": "david ring iii",
+            "files": [
+              "packages/backend/src/session/manager.ts",
+              "packages/frontend/src/lib/audio-capture.ts",
+              "packages/frontend/src/state/audio-store.ts"
+            ],
+            "linesChanged": 64
+          },
+          {
+            "hash": "f081c89e",
+            "message": "Sub-20ms voice interrupt: instant local mute with dynamic thresholds",
+            "author": "david ring iii",
+            "files": [
+              "packages/frontend/src/hooks/NANOID_PLACEHOLDER.ts",
+              "packages/frontend/src/lib/audio-capture.ts",
+              "packages/frontend/src/state/audio-store.ts"
+            ],
+            "linesChanged": 395
+          },
+          {
+            "hash": "fd586507",
+            "message": "Fix all 5 audit issues + dead code cleanup",
+            "author": "david ring iii",
+            "files": [
+              "packages/backend/src/db/database.ts",
+              "packages/backend/src/digest/scheduler.ts",
+              "packages/backend/src/server.ts",
+              "packages/backend/src/session/manager.ts",
+              "packages/frontend/src/App.tsx",
+              "packages/frontend/src/components/actions/AnnotationsList.tsx",
+              "packages/frontend/src/components/actions/IssueDraftPreview.tsx",
+              "packages/frontend/src/components/lobby/Lobby.tsx",
+              "packages/frontend/src/components/room/ContentPanel.tsx",
+              "packages/frontend/src/hooks/NANOID_PLACEHOLDER.ts",
+              "packages/frontend/src/state/session-store.ts",
+              "packages/frontend/tsconfig.tsbuildinfo"
+            ],
+            "linesChanged": 504
+          },
+          {
+            "hash": "5f412960",
+            "message": "Add comprehensive README",
+            "author": "david ring iii",
+            "files": [
+              "README.md"
+            ],
+            "linesChanged": 163
+          },
+          {
+            "hash": "3f3a3e38",
+            "message": "Phase D+E: Onboarding Mode + Monday Digest",
+            "author": "david ring iii",
+            "files": [
+              "packages/backend/package.json",
+              "packages/backend/src/db/database.ts",
+              "packages/backend/src/db/repositories/onboarding-repo.ts",
+              "packages/backend/src/digest/generator.ts",
+              "packages/backend/src/digest/scheduler.ts",
+              "packages/backend/src/index.ts",
+              "packages/backend/src/intelligence/analyzer.ts",
+              "packages/backend/src/intelligence/prompts/onboarding.ts",
+              "packages/backend/src/routes/digest.ts",
+              "packages/backend/src/routes/onboarding.ts",
+              "packages/backend/src/server.ts",
+              "packages/frontend/src/App.tsx",
+              "packages/frontend/src/components/lobby/Lobby.tsx",
+              "packages/frontend/src/components/settings/SettingsPanel.tsx",
+              "packages/frontend/src/lib/api-client.ts",
+              "packages/shared/src/index.ts",
+              "packages/shared/src/types/modes.ts",
+              "packages/shared/src/types/onboarding.ts",
+              "packages/shared/src/types/settings.ts",
+              "packages/shared/src/types/ws-events.ts"
+            ],
+            "linesChanged": 984
+          },
+          {
+            "hash": "ffaccbb6",
+            "message": "Phase B+C: Smart Updates + Action Layer",
+            "author": "david ring iii",
+            "files": [
+              "packages/backend/src/db/database.ts",
+              "packages/backend/src/db/repositories/area-repo.ts",
+              "packages/backend/src/integrations/github.ts",
+              "packages/backend/src/intelligence/analyzer.ts",
+              "packages/backend/src/intelligence/prompts/clustering.ts",
+              "packages/backend/src/intelligence/prompts/impact-ranking.ts",
+              "packages/backend/src/intelligence/prompts/issue.ts",
+              "packages/backend/src/intelligence/prompts/narrative.ts",
+              "packages/backend/src/intelligence/prompts/quiet-week.ts",
+              "packages/backend/src/session/manager.ts",
+              "packages/backend/src/skills/create-issue.ts",
+              "packages/backend/src/skills/index.ts",
+              "packages/backend/src/skills/intent-classifier.ts",
+              "packages/backend/src/skills/share.ts",
+              "packages/frontend/src/components/actions/IssueDraftPreview.tsx",
+              "packages/frontend/src/components/actions/SharePanel.tsx",
+              "packages/frontend/src/components/room/ContentPanel.tsx",
+              "packages/frontend/src/state/session-store.ts",
+              "packages/frontend/tsconfig.tsbuildinfo",
+              "packages/shared/src/types/analysis.ts",
+              "packages/shared/src/types/skills.ts",
+              "packages/shared/src/types/ws-events.ts"
+            ],
+            "linesChanged": 1037
+          },
+          {
+            "hash": "1d98bb92",
+            "message": "Phase A: Progressive Zoom — 5 visual layers",
+            "author": "david ring iii",
+            "files": [
+              "packages/backend/src/intelligence/prompts/project-overview.ts",
+              "packages/backend/src/session/manager.ts",
+              "packages/backend/src/skills/intent-classifier.ts",
+              "packages/frontend/src/components/layers/BookJacket.tsx",
+              "packages/frontend/src/components/layers/CodeLayer.tsx",
+              "packages/frontend/src/components/layers/ConceptualFlow.tsx",
+              "packages/frontend/src/components/room/DiagramPanel.tsx",
+              "packages/frontend/src/state/session-store.ts",
+              "packages/frontend/tsconfig.tsbuildinfo",
+              "packages/shared/src/index.ts",
+              "packages/shared/src/types/visual-layer.ts",
+              "packages/shared/src/types/ws-events.ts"
+            ],
+            "linesChanged": 823
+          },
+          {
+            "hash": "0f19c102",
+            "message": "Add feature plans: progressive zoom, smart updates, actions, digest, onboarding",
+            "author": "david ring iii",
+            "files": [
+              "docs/feature-plans.md"
+            ],
+            "linesChanged": 164
+          },
+          {
+            "hash": "bbcc0934",
+            "message": "UX improvements: conversation history, voice help, processing feedback, auto-resume, repo enrichment, session history",
+            "author": "david ring iii",
+            "files": [
+              "packages/frontend/src/components/lobby/Lobby.tsx",
+              "packages/frontend/src/components/room/ContentPanel.tsx",
+              "packages/frontend/src/components/room/NarrationBar.tsx",
+              "packages/frontend/src/components/room/VoiceHelp.tsx",
+              "packages/frontend/src/hooks/NANOID_PLACEHOLDER.ts",
+              "packages/frontend/src/hooks/useVoiceInput.ts",
+              "packages/frontend/src/state/session-store.ts",
+              "packages/frontend/tsconfig.tsbuildinfo"
+            ],
+            "linesChanged": 737
+          },
+          {
+            "hash": "2ae99f9d",
+            "message": "Voice-first everywhere: all flows work without clicking",
+            "author": "david ring iii",
+            "files": [
+              "packages/backend/src/session/manager.ts",
+              "packages/backend/src/skills/intent-classifier.ts",
+              "packages/frontend/src/components/layout/Toolbar.tsx",
+              "packages/frontend/src/components/lobby/Lobby.tsx",
+              "packages/frontend/src/components/room/ContentPanel.tsx",
+              "packages/frontend/src/components/room/NarrationBar.tsx",
+              "packages/frontend/src/hooks/useVoiceInput.ts",
+              "packages/frontend/src/lib/speech-recognition.ts",
+              "test/harness/run-session.ts"
+            ],
+            "linesChanged": 546
+          },
+          {
+            "hash": "99f4bc5b",
+            "message": "Voice-first Q&A: answers inline via narration, no modal",
+            "author": "david ring iii",
+            "files": [
+              "packages/backend/src/session/manager.ts",
+              "packages/frontend/src/App.tsx",
+              "packages/frontend/src/hooks/NANOID_PLACEHOLDER.ts"
+            ],
+            "linesChanged": 129
+          },
+          {
+            "hash": "b3a8fbb5",
+            "message": "Fix Q&A: try Claude Code CLI on-the-fly when activeAnalyzer is null",
+            "author": "david ring iii",
+            "files": [
+              "packages/backend/src/session/manager.ts"
+            ],
+            "linesChanged": 48
+          },
+          {
+            "hash": "42cf76aa",
+            "message": "Two intelligence modes: local (Claude Code CLI) and cloud (API key)",
+            "author": "david ring iii",
+            "files": [
+              ".env.example",
+              "packages/backend/src/config.ts",
+              "packages/backend/src/intelligence/analyzer.ts",
+              "packages/backend/src/intelligence/claude-code-client.ts",
+              "packages/backend/src/intelligence/client-interface.ts",
+              "packages/backend/src/session/manager.ts",
+              "packages/backend/src/skills/intent-classifier.ts"
+            ],
+            "linesChanged": 313
+          },
+          {
+            "hash": "b4aca860",
+            "message": "Local audio pipeline: Whisper STT + echo cancellation",
+            "author": "david ring iii",
+            "files": [
+              "packages/backend/src/routes/audio.ts",
+              "packages/backend/src/tts/audio-server.py",
+              "packages/frontend/src/hooks/useVoiceInput.ts",
+              "packages/frontend/src/lib/audio-capture.ts",
+              "packages/frontend/tsconfig.tsbuildinfo"
+            ],
+            "linesChanged": 821
+          },
+          {
+            "hash": "c25a19e0",
+            "message": "Add mic diagnostics and speech toasts for debugging",
+            "author": "david ring iii",
+            "files": [
+              "packages/frontend/src/hooks/useVoiceInput.ts",
+              "packages/frontend/src/lib/speech-recognition.ts"
+            ],
+            "linesChanged": 99
+          },
+          {
+            "hash": "44c4b901",
+            "message": "Add version display in toolbar",
+            "author": "david ring iii",
+            "files": [
+              "packages/frontend/src/components/layout/Toolbar.tsx",
+              "packages/frontend/src/version.ts",
+              "packages/frontend/tsconfig.tsbuildinfo",
+              "packages/frontend/vite.config.ts"
+            ],
+            "linesChanged": 53
+          },
+          {
+            "hash": "6e8ba9cb",
+            "message": "Mic starts from user click, speech toasts for recognized words",
+            "author": "david ring iii",
+            "files": [
+              "packages/frontend/src/App.tsx",
+              "packages/frontend/src/components/audio/SpeechToasts.tsx",
+              "packages/frontend/src/components/lobby/Lobby.tsx",
+              "packages/frontend/src/hooks/useVoiceInput.ts",
+              "packages/frontend/src/state/audio-store.ts",
+              "packages/frontend/tsconfig.tsbuildinfo"
+            ],
+            "linesChanged": 250
+          },
+          {
+            "hash": "ba11f1b8",
+            "message": "Four-state voice system with interrupt support",
+            "author": "david ring iii",
+            "files": [
+              "packages/frontend/src/components/room/NarrationBar.tsx",
+              "packages/frontend/src/hooks/NANOID_PLACEHOLDER.ts",
+              "packages/frontend/src/hooks/useVoiceInput.ts",
+              "packages/frontend/src/lib/speech-recognition.ts",
+              "packages/frontend/src/state/audio-store.ts"
+            ],
+            "linesChanged": 305
+          },
+          {
+            "hash": "374c6634",
+            "message": "Add Kokoro local TTS: free, fast, runs on CPU",
+            "author": "david ring iii",
+            "files": [
+              ".gitignore",
+              "packages/backend/src/routes/audio.ts",
+              "packages/backend/src/tts/kokoro-server.py",
+              "packages/backend/src/tts/kokoro-tts.ts",
+              "packages/frontend/src/hooks/NANOID_PLACEHOLDER.ts"
+            ],
+            "linesChanged": 325
+          },
+          {
+            "hash": "2cb63e6a",
+            "message": "Add test fixtures, integration harness, and fix zero-commits bug",
+            "author": "david ring iii",
+            "files": [
+              "packages/backend/package.json",
+              "packages/backend/src/index.ts",
+              "packages/backend/src/session/manager.ts",
+              "test/fixtures/create-medium-repo.sh",
+              "test/fixtures/create-small-repo.sh",
+              "test/harness/run-session.ts"
+            ],
+            "linesChanged": 969
+          },
+          {
+            "hash": "22b54220",
+            "message": "Fix all audit gaps: proposal moment, understanding, staleness, bugs",
+            "author": "david ring iii",
+            "files": [
+              "packages/backend/src/export/reveal-generator.ts",
+              "packages/backend/src/intelligence/analyzer.ts",
+              "packages/backend/src/intelligence/prompts/narrative.ts",
+              "packages/backend/src/intelligence/prompts/system.ts",
+              "packages/backend/src/session/manager.ts",
+              "packages/frontend/src/components/room/ContentPanel.tsx",
+              "packages/frontend/src/hooks/NANOID_PLACEHOLDER.ts",
+              "packages/frontend/src/state/session-store.ts",
+              "packages/shared/src/types/ws-events.ts"
+            ],
+            "linesChanged": 831
+          },
+          {
+            "hash": "cce81bc8",
+            "message": "Phase 5b: Visual enhancements",
+            "author": "david ring iii",
+            "files": [
+              "packages/backend/src/db/database.ts",
+              "packages/frontend/package.json",
+              "packages/frontend/src/components/code/CodeMorphing.tsx",
+              "packages/frontend/src/components/code/CodeSnippet.tsx",
+              "packages/frontend/src/components/code/DiffView.tsx",
+              "packages/frontend/src/components/room/ContentPanel.tsx",
+              "packages/frontend/tsconfig.tsbuildinfo"
+            ],
+            "linesChanged": 356
+          },
+          {
+            "hash": "9e440c96",
+            "message": "Phase 4+5a: Deviation tracking, tour plan, edge cases",
+            "author": "david ring iii",
+            "files": [
+              "packages/backend/src/git/commit-reader.ts",
+              "packages/backend/src/intelligence/claude-client.ts",
+              "packages/backend/src/intelligence/prompts/architecture.ts",
+              "packages/backend/src/intelligence/prompts/system.ts",
+              "packages/backend/src/routes/health.ts",
+              "packages/backend/src/session/manager.ts",
+              "packages/backend/src/session/tour-plan.ts",
+              "packages/backend/src/skills/intent-classifier.ts",
+              "packages/frontend/src/components/lobby/Lobby.tsx",
+              "packages/frontend/src/hooks/NANOID_PLACEHOLDER.ts",
+              "packages/frontend/src/hooks/useWebSocket.ts",
+              "packages/frontend/src/lib/api-client.ts",
+              "packages/frontend/src/state/session-store.ts",
+              "packages/shared/src/types/ws-events.ts"
+            ],
+            "linesChanged": 756
+          },
+          {
+            "hash": "09941ab1",
+            "message": "Phase 3: Skills system with intent classification",
+            "author": "david ring iii",
+            "files": [
+              "packages/backend/src/session/manager.ts",
+              "packages/backend/src/skills/annotate.ts",
+              "packages/backend/src/skills/compare.ts",
+              "packages/backend/src/skills/critique.ts",
+              "packages/backend/src/skills/explain.ts",
+              "packages/backend/src/skills/index.ts",
+              "packages/backend/src/skills/intent-classifier.ts",
+              "packages/backend/src/skills/navigate.ts",
+              "packages/backend/src/skills/registry.ts",
+              "packages/backend/src/skills/summarize.ts",
+              "packages/backend/src/skills/teach.ts",
+              "packages/backend/src/skills/visualize.ts",
+              "packages/frontend/src/components/room/ContentPanel.tsx",
+              "packages/frontend/src/hooks/useVoiceInput.ts",
+              "packages/frontend/src/lib/speech-recognition.ts",
+              "packages/frontend/src/state/session-store.ts",
+              "packages/shared/src/index.ts",
+              "packages/shared/src/types/skills.ts",
+              "packages/shared/src/types/ws-events.ts"
+            ],
+            "linesChanged": 900
+          },
+          {
+            "hash": "154a71a9",
+            "message": "Phase 2: Five-layer understanding model and entry modes",
+            "author": "david ring iii",
+            "files": [
+              "packages/backend/src/db/database.ts",
+              "packages/backend/src/db/repositories/understanding-repo.ts",
+              "packages/backend/src/intelligence/analyzer.ts",
+              "packages/backend/src/intelligence/prompts/project-overview.ts",
+              "packages/backend/src/session/manager.ts",
+              "packages/frontend/src/components/lobby/Lobby.tsx",
+              "packages/frontend/src/components/room/ContentPanel.tsx",
+              "packages/frontend/src/hooks/NANOID_PLACEHOLDER.ts",
+              "packages/frontend/src/state/session-store.ts",
+              "packages/shared/src/index.ts",
+              "packages/shared/src/types/modes.ts",
+              "packages/shared/src/types/understanding.ts",
+              "packages/shared/src/types/ws-events.ts"
+            ],
+            "linesChanged": 1157
+          },
+          {
+            "hash": "d708bff8",
+            "message": "Phase 1: Room layout, progressive zoom, greeting flow",
+            "author": "david ring iii",
+            "files": [
+              "packages/backend/src/intelligence/analyzer.ts",
+              "packages/backend/src/intelligence/prompts/architecture.ts",
+              "packages/backend/src/session/manager.ts",
+              "packages/frontend/package.json",
+              "packages/frontend/src/App.tsx",
+              "packages/frontend/src/components/diagrams/ArchitectureDiagram.tsx",
+              "packages/frontend/src/components/diagrams/nodes/ModuleNode.tsx",
+              "packages/frontend/src/components/room/ContentPanel.tsx",
+              "packages/frontend/src/components/room/DiagramPanel.tsx",
+              "packages/frontend/src/components/room/NarrationBar.tsx",
+              "packages/frontend/src/components/room/Room.tsx",
+              "packages/frontend/src/hooks/NANOID_PLACEHOLDER.ts",
+              "packages/frontend/src/state/session-store.ts",
+              "packages/frontend/tsconfig.tsbuildinfo",
+              "packages/shared/src/types/analysis.ts",
+              "packages/shared/src/types/ws-events.ts"
+            ],
+            "linesChanged": 1106
+          },
+          {
+            "hash": "43fe3e17",
+            "message": "Final refinement of vision and implementation plan",
+            "author": "david ring iii",
+            "files": [
+              "docs/implementation-plan.md"
+            ],
+            "linesChanged": 21
+          },
+          {
+            "hash": "e447f29b",
+            "message": "Refine vision and implementation plan",
+            "author": "david ring iii",
+            "files": [
+              "docs/implementation-plan.md",
+              "docs/vision.md"
+            ],
+            "linesChanged": 461
+          },
+          {
+            "hash": "0bb9087b",
+            "message": "Add master vision document and implementation plan",
+            "author": "david ring iii",
+            "files": [
+              "docs/implementation-plan.md",
+              "docs/vision.md"
+            ],
+            "linesChanged": 603
+          },
+          {
+            "hash": "720318fe",
+            "message": "Add lobby, repo management, auto-play narration, and audit fixes",
+            "author": "david ring iii",
+            "files": [
+              "docs/future-features.md",
+              "packages/backend/src/db/database.ts",
+              "packages/backend/src/db/repositories/repo-repo.ts",
+              "packages/backend/src/routes/repos.ts",
+              "packages/backend/src/server.ts",
+              "packages/backend/src/session/manager.ts",
+              "packages/frontend/src/App.tsx",
+              "packages/frontend/src/components/layout/Toolbar.tsx",
+              "packages/frontend/src/components/lobby/Lobby.tsx",
+              "packages/frontend/src/components/session/SessionView.tsx",
+              "packages/frontend/src/hooks/NANOID_PLACEHOLDER.ts",
+              "packages/frontend/src/hooks/useVoiceInput.ts",
+              "packages/frontend/src/lib/api-client.ts",
+              "packages/frontend/src/state/session-store.ts",
+              "packages/frontend/tsconfig.tsbuildinfo",
+              "packages/shared/src/types/session.ts",
+              "packages/shared/src/types/ws-events.ts"
+            ],
+            "linesChanged": 1233
+          },
+          {
+            "hash": "875d2390",
+            "message": "Initial build of Interactive Reviewer",
+            "author": "david ring iii",
+            "files": [],
+            "linesChanged": 0
+          }
+        ]
+  tool:
+    name: group_commits
+    description: Group commits into semantic areas of change
+    inputSchema:
+      type: object
+      properties:
+        areas:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                description: Descriptive name for this area of change
+              description:
+                type: string
+                description: One paragraph explaining what changed and why
+              commitHashes:
+                type: array
+                items:
+                  type: string
+                description: Short hashes of commits in this area
+              significance:
+                type: string
+                enum:
+                  - major
+                  - minor
+                  - maintenance
+                description: Impact level
+              theme:
+                type: string
+                description: "High-level category: Security, Performance, Data model, Testing,
+                  DevOps, UI/UX, API, Documentation, or similar"
+            required:
+              - name
+              - description
+              - commitHashes
+              - significance
+              - theme
+      required:
+        - areas
+  maxTokens: 8192
+response:
+  text: ""
+  toolInput:
+    areas:
+      - name: Voice interaction and floor control
+        description: This represents the core voice user experience improvements -
+          implementing push-to-talk, voice activity detection, sub-20ms
+          interrupt latency, and sophisticated floor control mechanisms. The
+          work here focused on creating a natural conversational flow where
+          users can interrupt the AI seamlessly, with features like
+          pre-buffering to capture the first words of speech and dynamic VAD
+          thresholds. This was clearly a major technical challenge given the
+          multiple iterations and measurement-driven approach to get the timing
+          right.
+        commitHashes:
+          - f7320e91
+          - de75d225
+          - da53b091
+          - 8f003016
+          - 6c8d98c1
+          - f081c89e
+          - 99dca9f1
+          - 92e65a4c
+          - ba618d37
+          - 143eae0c
+          - aa6cafe8
+          - b52f09fb
+          - c2edad9b
+          - ba11f1b8
+          - c25a19e0
+          - 6e8ba9cb
+          - b4aca860
+        significance: major
+        theme: UI/UX
+      - name: AI briefing and comprehension system
+        description: Implementation of the sophisticated briefing generation system that
+          creates spoken narratives from code analysis, including the navigator
+          for drilling into different aspects of the codebase and comprehension
+          tracking to understand what users have grasped. This includes the
+          Hermes test scenarios and quiz functionality, representing the core
+          AI-powered analysis capabilities that make this tool unique. The
+          briefing composer orchestrates how raw code changes get transformed
+          into structured, spoken insights.
+        commitHashes:
+          - "768e9693"
+          - 7e92e7b3
+          - 5bf807ba
+          - 914b8031
+          - 67f5f562
+        significance: major
+        theme: AI
+      - name: Context caching and warming system
+        description: A sophisticated three-level caching system designed to pre-compute
+          expensive AI operations and deliver real-time insights. This includes
+          incremental updates, README parsing, import analysis, and manifest
+          processing to build comprehensive project understanding without
+          requiring expensive LLM calls on every interaction. This is the engine
+          that makes the real-time voice interactions possible by doing the
+          heavy lifting in the background.
+        commitHashes:
+          - 0ceb7c42
+          - 08e3a24a
+          - 03bbe921
+        significance: major
+        theme: Performance
+      - name: Frontend UI redesign and visual components
+        description: Major visual overhaul implementing the ember/espresso design system
+          from Claude Design, including full-bleed minimal UI, progressive
+          visual layers, and UX wow-factor improvements. This work transformed
+          the interface from basic functional components into a polished, modern
+          experience with sophisticated layout management, visual layers for
+          different levels of code understanding, and improved information
+          hierarchy.
+        commitHashes:
+          - 15f0d4a5
+          - 71f6fde9
+          - e1d7918d
+          - 0dd5a2a1
+          - f4e86b8f
+        significance: major
+        theme: UI/UX
+      - name: Testing infrastructure and E2E harness
+        description: Comprehensive testing setup including Playwright for E2E testing,
+          voice simulation capabilities, cassette recording for LLM
+          interactions, and sophisticated test fixtures that create entire Git
+          repositories with realistic commit histories. This testing
+          infrastructure enables reliable development of complex voice-driven
+          workflows and ensures the AI behaviors remain consistent across
+          changes.
+        commitHashes:
+          - f6dfddc1
+          - 9afddf31
+          - "71012514"
+          - 34d452ed
+          - 2cb63e6a
+        significance: major
+        theme: Testing
+      - name: Progressive feature rollout phases
+        description: Implementation of the core feature set through planned phases
+          including progressive zoom visual layers, smart code updates, action
+          layer for creating issues and sharing, onboarding mode for new team
+          members, and Monday digest functionality. Each phase built upon
+          previous capabilities to create a cohesive user experience for
+          understanding and interacting with codebases.
+        commitHashes:
+          - 1d98bb92
+          - ffaccbb6
+          - 3f3a3e38
+          - 0f19c102
+        significance: major
+        theme: API
+      - name: Skills and intent classification system
+        description: Development of a modular skills framework where different AI
+          capabilities (explain, compare, critique, annotate, etc.) are
+          organized and dispatched based on user intent classification. This
+          system enables the AI to understand what users want to accomplish and
+          route their requests to the appropriate analysis and response
+          generation modules, creating a more intelligent conversational
+          experience.
+        commitHashes:
+          - 09941ab1
+          - 154a71a9
+          - d708bff8
+        significance: major
+        theme: AI
+      - name: Audio pipeline and TTS integration
+        description: Implementation of the local audio processing pipeline including
+          Whisper for speech-to-text, Kokoro for text-to-speech, WebRTC for
+          audio capture, and echo cancellation. This creates a fully local audio
+          experience that doesn't rely on cloud services, with careful attention
+          to audio quality and latency optimization for natural conversation
+          flow.
+        commitHashes:
+          - 374c6634
+          - 42cf76aa
+          - 99f4bc5b
+          - 2ae99f9d
+          - bbcc0934
+        significance: major
+        theme: Performance
+      - name: Project architecture and documentation
+        description: Strategic documentation including the master vision document,
+          implementation plans, feature roadmaps, and architectural decisions
+          that guide the project's development. This includes the critical
+          VISION-MASTERPLAN that establishes the foundational direction and the
+          comprehensive README that explains the project's purpose and
+          capabilities to users.
+        commitHashes:
+          - 43fe3e17
+          - e447f29b
+          - 0bb9087b
+          - 5f412960
+          - 720318fe
+        significance: minor
+        theme: Documentation
+      - name: Session management and modes
+        description: Implementation of different interaction modes (explore, onboarding,
+          review) and session lifecycle management including auto-resume,
+          conversation history, and cross-session memory. This provides the
+          framework for different ways users can interact with their codebase
+          depending on their goals and experience level.
+        commitHashes:
+          - f44f1888
+          - 9e440c96
+          - 22b54220
+          - cce81bc8
+        significance: minor
+        theme: API
+      - name: Bug fixes and robustness improvements
+        description: Various targeted fixes including database migration issues,
+          infinite render loops, transcription pipeline reliability, AI focus
+          problems, and edge case handling. These commits ensure the system
+          works reliably across different scenarios and handle the inevitable
+          issues that arise when building complex interactive systems.
+        commitHashes:
+          - f5e48b3f
+          - f774f687
+          - 99cac43f
+          - fd586507
+          - b3a8fbb5
+        significance: maintenance
+        theme: Maintenance
+      - name: Project infrastructure and tooling
+        description: Basic project setup, build configuration, dependency management,
+          versioning, and development tooling. This includes the initial project
+          scaffolding, the major rename from Interactive Reviewer to Tetherline,
+          gitignore updates, and version display functionality that supports the
+          development workflow.
+        commitHashes:
+          - 27dc8817
+          - 3a8d4709
+          - 44c4b901
+          - 875d2390
+        significance: maintenance
+        theme: DevOps
+  usage:
+    inputTokens: 15510
+    outputTokens: 1891
