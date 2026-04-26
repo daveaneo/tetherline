@@ -19,6 +19,11 @@ export interface ModuleCacheRow {
   keyFiles: string[];
   imports: string[];
   confidence: number;
+  /** Composite "gravity" score combining recent commit churn against this
+   *  module's files and the sum of cross-module fan-in (connectivity) of
+   *  its files. Higher = more attention-worthy on the radial map. The
+   *  composer uses this to pick + order satellites. */
+  impactScore: number;
 }
 
 export interface FileCacheRow {
@@ -73,6 +78,7 @@ export class ContextCacheRepository {
       repoPath: row.repo_path, modulePath: row.module_path, summary: row.summary,
       source: row.source, keyFiles: JSON.parse(row.key_files || '[]'),
       imports: JSON.parse(row.dependencies || '[]'), confidence: row.confidence ?? 0,
+      impactScore: row.impact_score ?? 0,
     };
   }
 
@@ -82,18 +88,21 @@ export class ContextCacheRepository {
       repoPath: row.repo_path, modulePath: row.module_path, summary: row.summary,
       source: row.source, keyFiles: JSON.parse(row.key_files || '[]'),
       imports: JSON.parse(row.dependencies || '[]'), confidence: row.confidence ?? 0,
+      impactScore: row.impact_score ?? 0,
     }));
   }
 
   upsertModule(data: ModuleCacheRow): void {
     this.db.prepare(`
-      INSERT INTO context_cache_module (id, repo_path, module_path, summary, source, key_files, dependencies, confidence)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO context_cache_module (id, repo_path, module_path, summary, source, key_files, dependencies, confidence, impact_score)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(repo_path, module_path) DO UPDATE SET
         summary=excluded.summary, source=excluded.source, key_files=excluded.key_files,
-        dependencies=excluded.dependencies, confidence=excluded.confidence, generated_at=datetime('now')
+        dependencies=excluded.dependencies, confidence=excluded.confidence,
+        impact_score=excluded.impact_score, generated_at=datetime('now')
     `).run(uuid(), data.repoPath, data.modulePath, data.summary, data.source,
-      JSON.stringify(data.keyFiles), JSON.stringify(data.imports), data.confidence);
+      JSON.stringify(data.keyFiles), JSON.stringify(data.imports), data.confidence,
+      data.impactScore ?? 0);
   }
 
   // --- File ---

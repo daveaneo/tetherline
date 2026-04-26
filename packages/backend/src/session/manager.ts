@@ -88,6 +88,10 @@ export class SessionManager {
    *  the last few turns so prompt size stays small. */
   private qaTurns: Array<{ role: 'user' | 'assistant'; content: string }> = [];
   private readonly QA_HISTORY_MAX = 6;
+  /** Per-session answer-length preference. Sticks until the user changes
+   *  it ("shorter" / "more detail"). The QA scaffold uses this to steer
+   *  the LLM's output length on every answer. */
+  private depthTier: import('../intelligence/depth-modifiers.js').DepthTier = 'normal';
   /** Cooldown per comprehension item — same item can only transition once every
    *  30s, protects against chatty transcripts double-counting. */
   private readonly COMPREHENSION_COOLDOWN_MS = 30_000;
@@ -1332,6 +1336,12 @@ export class SessionManager {
     // include both this session's qaTurns AND prior-session highlights so
     // follow-ups like "what about it?" carry over across days.
     const { buildQAContext } = await import('../intelligence/qa-context.js');
+    const { detectDepth } = await import('../intelligence/depth-modifiers.js');
+    // Update the session's depth tier from the current question so the
+    // scaffold's length guidance matches what the user just asked for.
+    const depthSignal = detectDepth(question, this.depthTier);
+    this.depthTier = depthSignal.tier;
+
     const priorTurns = this.db.getQAHistoryRepo().recent(repoPath, {
       excludeSessionId: this.context.sessionId,
       limit: 6,
@@ -1347,6 +1357,7 @@ export class SessionManager {
         currentLocation,
         agenticTools,
         recentTurns,
+        depthTier: this.depthTier,
       },
     );
 

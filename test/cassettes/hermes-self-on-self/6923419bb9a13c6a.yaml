@@ -1,0 +1,95 @@
+key: 6923419bb9a13c6a
+request:
+  model: claude-sonnet-4-20250514
+  system: You are analyzing the codebase "interactive-reviewer". Summarize this
+    module concisely.
+  messages:
+    - role: user
+      content: >-
+        Write a substantive summary of this module that a developer would
+        actually find useful. The summary will be spoken aloud as part of a
+        guided code-review tour.
+
+
+        REQUIRED — your summary must include all three:
+
+        1. The central concept the module owns (one sentence — the thing that,
+        if you understood nothing else, would orient you).
+
+        2. A non-obvious detail or surprise: a constraint, an edge case, a "but
+        actually" that a reader exploring just the directory listing would miss.
+
+        3. A specific file (by name) that does the heaviest lifting and what it
+        owns. Use the actual file name from the list below.
+
+
+        Forbidden:
+
+        - No filler ("This module handles…", "Various utilities for…").
+
+        - No marketing language.
+
+        - Don't enumerate every file. Three at most, only if each does something
+        meaningfully different.
+
+        - Don't end with "…and helpers" or "…and tests" — be specific or omit.
+
+
+        Length: 3–4 sentences total. Conversational tone (it's spoken, not
+        read).
+
+
+        Module: shared
+
+
+
+        Files in this module (with one-line summaries):
+
+        - packages/shared/src/types/modes.ts (other)
+
+        - packages/shared/src/types/visual-layer.ts (other)
+
+        - packages/shared/src/types/analysis.ts (other)
+
+        - packages/shared/src/types/concerns.ts (other)
+
+        - packages/shared/src/types/heatmap.ts (other)
+
+        - packages/shared/src/types/onboarding.ts (other)
+
+        - packages/shared/src/types/session.ts (other)
+
+        - packages/shared/src/types/skills.ts (other)
+
+        - packages/shared/src/types/understanding.ts (other)
+
+        - packages/shared/src/types/ws-events.ts (other)
+
+        - packages/shared/src/constants.ts (other)
+
+        - packages/shared/src/types/briefing.ts (other)
+
+        - packages/shared/src/types/comprehension.ts (other)
+
+        - packages/shared/src/types/export.ts (other)
+
+        - packages/shared/src/types/settings.ts (config)
+
+        - packages/shared/package.json (other)
+
+        - packages/shared/src/index.ts (entry)
+
+        - packages/shared/tsconfig.json (config)
+  maxTokens: 200
+response:
+  text: The shared module defines the type system and contracts that coordinate
+    communication between the frontend, backend, and any other components in the
+    interactive reviewer system. What's surprising is that this isn't just basic
+    data types — it includes sophisticated event schemas for real-time WebSocket
+    communication and complex analysis structures that suggest the system does
+    live code comprehension tracking. The heaviest lifting happens in
+    `ws-events.ts`, which owns the bidirectional event protocol that keeps the
+    reviewer interface synchronized with backend analysis processes.
+  usage:
+    inputTokens: 563
+    outputTokens: 103

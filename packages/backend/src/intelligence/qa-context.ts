@@ -14,6 +14,7 @@
  */
 import path from 'path';
 import type { ContextCacheRepository } from '../db/repositories/context-cache-repo.js';
+import { depthInstruction, type DepthTier } from './depth-modifiers.js';
 
 export interface QAContextOptions {
   /** What the user is currently looking at — area name + description, breadcrumb, etc. */
@@ -24,6 +25,8 @@ export interface QAContextOptions {
   recentTurns?: Array<{ role: 'user' | 'assistant'; content: string }>;
   /** Cap on module summary lines to keep the prompt compact. */
   maxModules?: number;
+  /** Answer-length tier — 'tldr' / 'normal' / 'deep'. Defaults to 'normal'. */
+  depthTier?: DepthTier;
 }
 
 export function buildQAContext(
@@ -42,6 +45,7 @@ export function buildQAContext(
 
   const lines: string[] = [];
 
+  const lengthGuidance = depthInstruction(opts.depthTier ?? 'normal');
   lines.push(
     `You are Hermes — the developer's guide through "${projectName}". Hermes in myth led ` +
     `lost souls home and carried messages between worlds; here, you help a developer find ` +
@@ -49,8 +53,8 @@ export function buildQAContext(
     `economical — no filler, no "I'm here to help" pleasantries. ` +
     `When the user says "the project," "this," "the codebase," or "this app" — they mean ` +
     `${projectName} at ${repoPath}. ` +
-    `Answer in 2–4 conversational sentences (your reply is spoken aloud) unless explicitly ` +
-    `asked to go deep. Don't introduce yourself unless asked.`,
+    `Your reply will be spoken aloud, so use natural prose — no bullet lists, no markdown headers, no code fences. ` +
+    `${lengthGuidance} Don't introduce yourself unless asked.`,
   );
 
   if (project?.summary) {

@@ -1,4 +1,4 @@
-key: 939bf3d3bd1e80c8
+key: 61175a770ffde0cd
 request:
   model: claude-sonnet-4-20250514
   system: You are analyzing the codebase "interactive-reviewer". Summarize this
@@ -45,6 +45,22 @@ request:
 
         Files in this module (with one-line summaries):
 
+        - test/harness/client.ts (test)
+
+        - test/harness/server.ts (test)
+
+        - test/integration/voice-measurement/scenarios.ts (test)
+
+        - test/cassettes/hermes-self-on-self/69ffa8484932dfbe.yaml (test)
+
+        - test/cassettes/hermes-self-on-self/939bf3d3bd1e80c8.yaml (test)
+
+        - test/cassettes/hermes-self-on-self/9d94916715564244.yaml (test)
+
+        - test/cassettes/hermes-self-on-self/a7b2c75ec5290161.yaml (test)
+
+        - test/cassettes/hermes-self-on-self/ee2771f6fd6a9ca0.yaml (test)
+
         - test/e2e/explore-mode-no-blank-screen.spec.ts (test)
 
         - test/e2e/lobby.spec.ts (test)
@@ -68,33 +84,16 @@ request:
         - test/frontend/orchestrator-no-self-interrupt.test.tsx (test)
 
         - test/frontend/pause-stops-mic.test.tsx (test)
-
-        - test/frontend/push-to-talk.test.tsx (test)
-
-        - test/frontend/room-renders-for-every-phase.test.tsx (test)
-
-        - test/harness/cassettes-audit.ts (test)
-
-        - test/harness/client.ts (test)
-
-        - test/harness/index.ts (test)
-
-        - test/harness/run-session.ts (test)
-
-        - test/harness/server.ts (test)
-
-        - test/integration/audio/voice-simulate.test.ts (test)
   maxTokens: 200
 response:
-  text: This module owns end-to-end testing of the interactive code review system,
-    from voice simulation through complete user workflows. The surprising thing
-    is that it includes shell scripts that generate entire fake repositories as
-    test fixtures—not just mocking data structures, but actually creating Git
-    repos with realistic commit histories. The `test/harness/run-session.ts`
-    file does the heavy lifting by orchestrating full session simulations that
-    can replay recorded interactions through "cassettes," letting you test
-    complex voice-driven review flows without needing real speech recognition
-    during CI.
+  text: This module owns the complete testing strategy for the interactive
+    reviewer, covering everything from unit tests to end-to-end scenarios. The
+    surprise here is the "cassettes" directory containing YAML files—these are
+    HTTP interaction recordings that let tests replay actual API responses
+    deterministically, avoiding flaky network calls during testing. The
+    `test/harness/server.ts` file does the heaviest lifting by providing a
+    configurable test server that can simulate different backend states and API
+    responses for consistent test execution.
   usage:
-    inputTokens: 622
-    outputTokens: 115
+    inputTokens: 688
+    outputTokens: 104

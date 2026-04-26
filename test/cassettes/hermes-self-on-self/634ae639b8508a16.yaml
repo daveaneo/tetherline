@@ -1,0 +1,129 @@
+key: 634ae639b8508a16
+request:
+  model: claude-sonnet-4-20250514
+  system: Synthesize a concise project summary. One paragraph. Spoken aloud via TTS.
+  messages:
+    - role: user
+      content: >-
+        Write the project briefing a senior engineer would want before they
+        touch this codebase. The briefing will be spoken aloud as the first
+        thing the user hears.
+
+
+        REQUIRED — your summary must include:
+
+        1. What the product DOES, in one sentence — phrased so a non-team-member
+        instantly gets it.
+
+        2. The architectural shape — the 2–3 worlds (e.g. "backend, frontend,
+        shared types") and what each one owns.
+
+        3. The thing that's NOT obvious from the file tree — a constraint, a
+        design choice with consequences, the gravity (where activity
+        concentrates), the "watch out for…" detail. This is the line that makes
+        the briefing feel like a real human guide, not a directory listing.
+
+
+        Forbidden:
+
+        - "This is a project that…" or any other filler opener.
+
+        - Listing modules without saying what they own.
+
+        - Marketing language.
+
+        - Generic descriptors that could apply to any codebase ("modular
+        architecture", "robust logging").
+
+
+        Length: 4–6 sentences. Conversational tone (spoken aloud).
+
+
+        Project: interactive-reviewer
+
+        README says: **Stay tethered to your codebase.**
+
+
+        Tech stack: @testing-library/jest-dom, @vitejs/plugin-react, vitest
+
+
+        Modules:
+
+        backend: This module orchestrates the AI-powered code review experience
+        by coordinating LLM intelligence, text-to-speech generation, and session
+        management to deliver spoken code briefings. The surprising constraint
+        is that everything flows through a comprehensive caching layer that
+        hashes not just code content but also the specific AI model
+        configurations and TTS settings, since changing any of these invalidates
+        previously generated briefings. The `server.ts` file serves as the main
+        orchestrator, wiring together the intelligence pipeline, session
+        handling, and delivery mechanisms that transform static code into
+        interactive spoken reviews.
+
+
+        tetherline: The tetherline module manages the command-line interface
+        that launches and coordinates the interactive code review process. The
+        CLI acts as a bridge between the user's terminal and the underlying
+        review engine, but it's designed to hand off control quickly rather than
+        managing the review session itself. The `launcher.ts` file owns the core
+        orchestration logic, handling process spawning and inter-process
+        communication setup that gets the review environment running.
+
+
+        frontend: The frontend module builds a real-time collaborative code
+        review interface that connects multiple participants through voice and
+        visual feedback. The surprising constraint here is that everything
+        revolves around "gaps" in understanding—the system doesn't just show
+        code, it actively tracks and visualizes what each participant doesn't
+        understand yet. The `NANOID_PLACEHOLDER.ts` file does the heaviest
+        lifting, coordinating the complex dance between voice input, WebSocket
+        synchronization, and the gap-tracking state that drives the entire
+        collaborative experience.
+
+
+        shared: The shared module defines the type system and contracts that
+        coordinate communication between the frontend, backend, and any other
+        components in the interactive reviewer system. What's surprising is that
+        this isn't just basic data types — it includes sophisticated event
+        schemas for real-time WebSocket communication and complex analysis
+        structures that suggest the system does live code comprehension
+        tracking. The heaviest lifting happens in `ws-events.ts`, which owns the
+        bidirectional event protocol that keeps the reviewer interface
+        synchronized with backend analysis processes.
+
+
+        docs: This module contains the project's strategic documentation and
+        planning artifacts that guide development decisions. The non-obvious
+        detail is that most files are "VOICE" comparisons showing before/after
+        examples of how the AI reviewer should communicate, suggesting this tool
+        underwent significant tone refinement. The heaviest lifting happens in
+        **VISION-MASTERPLAN.md**, which likely serves as the north star document
+        defining what this interactive reviewer is actually trying to become.
+
+
+        test: This module owns the complete testing strategy for the interactive
+        reviewer, covering everything from unit tests to end-to-end scenarios.
+        The surprise here is the "cassettes" directory containing YAML
+        files—these are HTTP interaction recordings that let tests replay actual
+        API responses deterministically, avoiding flaky network calls during
+        testing. The `test/harness/server.ts` file does the heaviest lifting by
+        providing a configurable test server that can simulate different backend
+        states and API responses for consistent test execution.
+  maxTokens: 300
+response:
+  text: "Interactive Reviewer transforms any codebase into a spoken AI briefing
+    that explains what the code does and how it's structured. The system has
+    three main worlds: backend handles AI analysis and text-to-speech
+    generation, frontend provides a real-time collaborative interface for
+    multiple reviewers, and shared defines the type contracts between them. The
+    non-obvious constraint is that everything flows through an aggressive
+    caching layer that hashes not just your code, but also the AI model settings
+    and voice configurations—change any of these and all your cached briefings
+    become invalid. What's surprising is the frontend's focus on \"gaps\"—it
+    actively tracks what each participant doesn't understand yet rather than
+    just displaying code. The system is designed around the belief that code
+    review should be conversational and collaborative, not just a static diff
+    inspection."
+  usage:
+    inputTokens: 935
+    outputTokens: 169

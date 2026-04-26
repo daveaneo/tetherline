@@ -1,4 +1,4 @@
-key: 9d94916715564244
+key: 6fd8786658336eaa
 request:
   model: claude-sonnet-4-20250514
   system: You are analyzing the codebase "interactive-reviewer". Summarize this
@@ -39,44 +39,28 @@ request:
         read).
 
 
-        Module: docs
+        Module: tetherline
 
 
 
         Files in this module (with one-line summaries):
 
-        - docs/TESTING-MASTERPLAN.md (test)
+        - packages/cli/src/launcher.ts (other)
 
-        - docs/TESTING.md (test)
+        - packages/cli/package.json (other)
 
-        - docs/VISION-MASTERPLAN.md (other)
+        - packages/cli/src/index.ts (entry)
 
-        - docs/VOICE-AFTER-FIX.md (other)
-
-        - docs/VOICE-AFTER.md (other)
-
-        - docs/VOICE-BEFORE.md (other)
-
-        - docs/VOICE-COMPARISON.md (other)
-
-        - docs/context-cache-plan.md (other)
-
-        - docs/feature-plans.md (other)
-
-        - docs/future-features.md (other)
-
-        - docs/implementation-plan.md (other)
-
-        - docs/vision.md (other)
+        - packages/cli/tsconfig.json (config)
   maxTokens: 200
 response:
-  text: This module contains the project's strategic documentation and planning
-    artifacts that guide development decisions. The non-obvious detail is that
-    most files are "VOICE" comparisons showing before/after examples of how the
-    AI reviewer should communicate, suggesting this tool underwent significant
-    tone refinement. The heaviest lifting happens in **VISION-MASTERPLAN.md**,
-    which likely serves as the north star document defining what this
-    interactive reviewer is actually trying to become.
+  text: The tetherline module manages the command-line interface that launches and
+    coordinates the interactive code review process. The CLI acts as a bridge
+    between the user's terminal and the underlying review engine, but it's
+    designed to hand off control quickly rather than managing the review session
+    itself. The `launcher.ts` file owns the core orchestration logic, handling
+    process spawning and inter-process communication setup that gets the review
+    environment running.
   usage:
-    inputTokens: 437
-    outputTokens: 92
+    inputTokens: 331
+    outputTokens: 89

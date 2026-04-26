@@ -70,9 +70,12 @@ export class BriefingComposer {
 
     const modules = this.cacheRepo.getModulesForRepo(this.repoPath);
     // Cap at 6 — Miller's-rule cognitive load guard for the radial map.
-    // (5 modules + arch/root = 6 satellites.)
+    // (5 modules + arch/root = 6 satellites.) Order by impactScore so
+    // the most-active / most-connected modules surface first; ties fall
+    // back to confidence.
     const children = modules
       .filter(m => m.confidence >= 0.3)
+      .sort((a, b) => (b.impactScore - a.impactScore) || (b.confidence - a.confidence))
       .slice(0, 5)
       .map(m => `module/${m.modulePath}`);
     children.unshift('arch/root');
@@ -95,7 +98,11 @@ export class BriefingComposer {
 
   /** Compose the architecture briefing: one voiced tour of the top-level modules. */
   composeArchitecture(): Briefing | null {
-    const modules = this.cacheRepo.getModulesForRepo(this.repoPath).filter(m => m.confidence >= 0.3);
+    const modules = this.cacheRepo.getModulesForRepo(this.repoPath)
+      .filter(m => m.confidence >= 0.3)
+      // Gravity-ordered: highest-impact modules first so the architecture
+      // tour starts with what's actually moving in the codebase.
+      .sort((a, b) => (b.impactScore - a.impactScore) || (b.confidence - a.confidence));
     if (modules.length === 0) return null;
 
     const opener = this.buildArchitectureOpener(modules);

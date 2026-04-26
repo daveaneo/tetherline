@@ -6,7 +6,7 @@ import type { ContextCacheRepository } from '../../packages/backend/src/db/repos
  *  actually calls. Avoids pulling better-sqlite3 into the unit test. */
 function makeFakeCacheRepo(state: {
   project?: any;
-  modules?: Array<{ modulePath: string; summary: string; keyFiles?: string[]; confidence?: number }>;
+  modules?: Array<{ modulePath: string; summary: string; keyFiles?: string[]; confidence?: number; impactScore?: number }>;
   files?: Array<{ filePath: string; summary: string }>;
 }): ContextCacheRepository {
   const modules = (state.modules ?? []).map(m => ({
@@ -17,6 +17,7 @@ function makeFakeCacheRepo(state: {
     keyFiles: m.keyFiles ?? [],
     dependencies: [],
     confidence: m.confidence ?? 0.9,
+    impactScore: m.impactScore ?? 0,
     generatedAt: new Date().toISOString(),
   }));
   return {
@@ -235,6 +236,28 @@ describe('BriefingComposer', () => {
     for (const tp of briefing.talkingPoints) {
       expect(tp.split(/\s+/).length).toBeGreaterThan(2);
     }
+  });
+
+  it('project briefing satellites are ordered by gravity (impactScore DESC)', () => {
+    // Three modules with deliberately mixed impact scores. The first
+    // satellite (after arch/root) must be the highest-impact one — the
+    // user's first glance should land on the most-active module, not the
+    // alphabetically-first directory.
+    const repo = makeFakeCacheRepo({
+      project: { repoPath, summary: '.', purpose: '', techStack: [], moduleMap: {}, triggerHashes: {}, confidence: 0.9 },
+      modules: [
+        { modulePath: 'aardvark',  summary: 'Quiet zoo module.', impactScore: 5 },
+        { modulePath: 'midmod',    summary: 'A moderately active module.', impactScore: 50 },
+        { modulePath: 'busy-core', summary: 'Where all the recent commits land.', impactScore: 200 },
+      ],
+    });
+    const briefing = new BriefingComposer(repo, repoPath).composeProject()!;
+    // children[0] is always 'arch/root' (the architecture entry).
+    expect(briefing.children[0]).toBe('arch/root');
+    // The first MODULE satellite must be the highest-impact one.
+    expect(briefing.children[1]).toBe('module/busy-core');
+    expect(briefing.children[2]).toBe('module/midmod');
+    expect(briefing.children[3]).toBe('module/aardvark');
   });
 
   it('briefing openers stay under 45 seconds of spoken duration', () => {

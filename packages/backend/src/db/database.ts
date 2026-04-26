@@ -229,6 +229,7 @@ export class Database {
         dependencies TEXT DEFAULT '[]',
         file_hash_snapshot TEXT DEFAULT '{}',
         confidence REAL DEFAULT 0,
+        impact_score REAL DEFAULT 0,
         generated_at TEXT NOT NULL DEFAULT (datetime('now')),
         model_version TEXT,
         UNIQUE(repo_path, module_path)
@@ -360,6 +361,15 @@ export class Database {
     }
     if (!areaColumnNames.has('risk_flags')) {
       this.db.exec(`ALTER TABLE areas ADD COLUMN risk_flags TEXT DEFAULT '[]'`);
+    }
+
+    // Migration: add impact_score to context_cache_module — used by the
+    // briefing composer to order radial-map satellites by gravity rather
+    // than alphabetically.
+    const moduleColumns = this.db.pragma('table_info(context_cache_module)') as Array<{ name: string }>;
+    const moduleColumnNames = new Set(moduleColumns.map(c => c.name));
+    if (!moduleColumnNames.has('impact_score')) {
+      this.db.exec(`ALTER TABLE context_cache_module ADD COLUMN impact_score REAL DEFAULT 0`);
     }
   }
 
