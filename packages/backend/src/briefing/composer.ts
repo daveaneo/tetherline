@@ -134,7 +134,11 @@ export class BriefingComposer {
       layer: 'module',
       title: modulePath,
       opener,
-      talkingPoints: (mod.keyFiles ?? []).slice(0, 4),
+      // Talking points carry the supplementary insights from the summary
+      // (the surprise, the constraint, the "why"). Filenames already appear
+      // in the opener — putting them here too sounded like a directory
+      // listing when read aloud.
+      talkingPoints: this.pickTalkingPoints(mod.summary, 4),
       children,
       parent: 'arch/root',
       visualCue: { kind: 'diagram_focus', ref: modulePath },
@@ -166,7 +170,12 @@ export class BriefingComposer {
 
   private buildProjectOpener(name: string, purpose: string | undefined, summary: string): string {
     const cleanedSummary = stripMarkdownForSpeech(summary);
-    const firstTwoSentences = splitSentences(cleanedSummary).slice(0, 2).join(' ').trim();
+    // Keep up to 4 sentences for the project briefing — this is where the
+    // architectural shape + the "watch out for" detail lives, and capping
+    // at 2 routinely chopped off the substance line. The 45s spoken-time
+    // cap (enforced downstream) is the real ceiling.
+    const summarySentences = splitSentences(cleanedSummary).slice(0, 4).join(' ').trim();
+    const firstTwoSentences = summarySentences;
     const cleanedPurpose = purpose ? stripMarkdownForSpeech(purpose).trim() : '';
 
     // Shape the lead sentence around what `purpose` actually looks like.
@@ -237,7 +246,9 @@ export class BriefingComposer {
   private pickTalkingPoints(summary: string, limit: number): string[] {
     const sentences = splitSentences(stripMarkdownForSpeech(summary));
     return sentences
-      .filter(s => s.length > 20 && s.length < 160)
+      // Drop fragments + one-line headings ("Logging.") that read terribly
+      // when spoken. Spoken delivery needs at least a subject + verb.
+      .filter(s => s.length > 20 && s.length < 200 && s.split(/\s+/).length >= 4)
       .slice(0, limit);
   }
 }

@@ -173,6 +173,70 @@ describe('BriefingComposer', () => {
     expect(occurrences).toBeLessThanOrEqual(1);
   });
 
+  // ─── Substance bar (Round 1) ────────────────────────────────────────
+  // The composer is the last hop before a briefing is heard. If the cache
+  // hands it a substantive 3-part summary (concept / surprise / file), the
+  // composer must NOT flatten it — the user has to hear the substance.
+  // These guard the failure mode where good upstream summaries get
+  // mangled by overzealous truncation.
+
+  it('module briefing preserves a "concept + surprise + key file" summary', () => {
+    const richSummary =
+      'The session module owns the SessionManager state machine — every WebSocket event flows through here. ' +
+      'The non-obvious part: it gates outbound narration via a userSpeaking flag with a 600ms cooldown after the user stops, so the AI never overlaps itself. ' +
+      'Most of the gravity is in manager.ts.';
+    const repo = makeFakeCacheRepo({
+      project: { repoPath, summary: '.', purpose: '', techStack: [], moduleMap: {}, triggerHashes: {}, confidence: 0.9 },
+      modules: [{
+        modulePath: 'session',
+        summary: richSummary,
+        keyFiles: ['session/manager.ts', 'session/navigator.ts'],
+      }],
+    });
+    const briefing = new BriefingComposer(repo, repoPath).composeModule('session')!;
+    // The opener should carry the central concept (state machine).
+    expect(briefing.opener).toMatch(/state machine|SessionManager/i);
+    // …the surprise (gating / overlap / cooldown / 600ms).
+    expect(briefing.opener).toMatch(/600ms|cooldown|gates|overlap/i);
+    // …and name the heaviest-lifting file.
+    expect(briefing.opener).toMatch(/manager\.ts/);
+    // Talking points should also surface from the rich summary.
+    expect(briefing.talkingPoints.length).toBeGreaterThan(0);
+  });
+
+  it('project opener carries architectural shape from a 3-world summary', () => {
+    const richSummary =
+      'Tetherline is a local-first AI code review tool. ' +
+      'Three worlds: a Node backend that runs analysis and the AI guide, a React frontend with voice and visuals, and a shared types package between them. ' +
+      'The gravity right now is in the backend — the briefing pipeline is being upgraded.';
+    const repo = makeFakeCacheRepo({
+      project: { repoPath, summary: richSummary, purpose: 'Stay tethered to your codebase', techStack: ['TypeScript'], moduleMap: {}, triggerHashes: {}, confidence: 0.9 },
+    });
+    const briefing = new BriefingComposer(repo, repoPath).composeProject()!;
+    // The 3-world shape must survive into the opener.
+    expect(briefing.opener).toMatch(/backend/i);
+    expect(briefing.opener).toMatch(/frontend/i);
+    // The "where the gravity is" line must survive — that's the texture.
+    expect(briefing.opener).toMatch(/gravity|backend.*upgrad/i);
+  });
+
+  it('module talking points exclude one-word filler items', () => {
+    // Bug-class guard: the previous templated picker would let single-word
+    // sentences slip through ("Logging."). They sound terrible spoken aloud.
+    const repo = makeFakeCacheRepo({
+      project: { repoPath, summary: '.', purpose: '', techStack: [], moduleMap: {}, triggerHashes: {}, confidence: 0.9 },
+      modules: [{
+        modulePath: 'utils',
+        summary: 'Logging. Helpers for path resolution and config loading. The notable surprise is that the logger is dev-only — production routes through structured JSON.',
+        keyFiles: ['utils/log.ts'],
+      }],
+    });
+    const briefing = new BriefingComposer(repo, repoPath).composeModule('utils')!;
+    for (const tp of briefing.talkingPoints) {
+      expect(tp.split(/\s+/).length).toBeGreaterThan(2);
+    }
+  });
+
   it('briefing openers stay under 45 seconds of spoken duration', () => {
     const repo = makeFakeCacheRepo({
       project: {

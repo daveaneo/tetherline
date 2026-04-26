@@ -26,16 +26,25 @@ directory becomes its own module so the project briefing has enough
 satellites for the test to mean something.
 
 ## core
-The capture pipeline.
+The capture pipeline. Every payment goes through capture.ts, which is
+wrapped in an idempotency store so retries with the same key never
+double-charge. core/idempotency.ts is the in-memory backing store.
 
 ## utils
-Logging and shared helpers.
+A dev-only logger. In production, structured JSON goes through the
+observability pipeline instead — utils/log.ts is just a print helper.
 
 ## auth
-Token issuance and rotation.
+Issues short-lived JWTs and rotates the signing key from the system
+keyring. The non-obvious part: in dev mode it falls back to a static
+cookie so local tests don't need a keyring. auth/jwt.ts owns
+issueToken and rotateKey.
 
 ## payments
-Money movement with idempotency guards.
+Double-entry ledger. Every capture writes a debit + credit pair. The
+constraint that surprises people: rows are append-only, never updated
+in place — corrections are reversal entries. payments/ledger.ts is the
+whole module.
 EOF
 
 cat > package.json <<'EOF'
@@ -43,15 +52,31 @@ cat > package.json <<'EOF'
 EOF
 
 cat > core/capture.ts <<'EOF'
-export async function capture(amount: number) { return { ok: amount > 0 }; }
+import { IdempotencyStore } from './idempotency.js';
+const store = new IdempotencyStore();
+export async function capture(amount: number, key: string) {
+  const prior = store.get(key);
+  if (prior) return prior;
+  const result = { ok: amount > 0 };
+  store.put(key, result);
+  return result;
+}
 EOF
 cat > utils/log.ts <<'EOF'
-export function log(msg: string) { console.log('[fx]', msg); }
+// Dev-only logger. In production, structured JSON goes through the
+// observability pipeline instead — this is just a print helper.
+export function log(msg: string) { if (process.env.NODE_ENV !== 'production') console.log('[fx]', msg); }
 EOF
 cat > auth/jwt.ts <<'EOF'
+// Issues short-lived JWTs (15 min) and rotates the signing key from the
+// system keyring. The non-obvious part: in dev mode, falls back to a
+// static cookie so local tests don't need a keyring.
 export function issueToken(userId: string) { return `tok_${userId}`; }
+export function rotateKey() { /* pulls next key from keyring */ }
 EOF
 cat > payments/ledger.ts <<'EOF'
+// Double-entry bookkeeping — every capture writes a debit + credit pair.
+// The constraint: rows are append-only, never updated in place.
 export function record(amount: number) { /* ledger insert */ }
 EOF
 

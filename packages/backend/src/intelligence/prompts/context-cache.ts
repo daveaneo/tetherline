@@ -34,12 +34,25 @@ export const MODULE_DETECTION_TOOL = {
 };
 
 export function buildModuleSummaryPrompt(moduleName: string, fileSummaries: string[], readmeContent?: string): string {
-  return `Summarize this module in one paragraph. What does it do, what are its key files, and what does it depend on?
+  return `Write a substantive summary of this module that a developer would actually find useful. The summary will be spoken aloud as part of a guided code-review tour.
+
+REQUIRED — your summary must include all three:
+1. The central concept the module owns (one sentence — the thing that, if you understood nothing else, would orient you).
+2. A non-obvious detail or surprise: a constraint, an edge case, a "but actually" that a reader exploring just the directory listing would miss.
+3. A specific file (by name) that does the heaviest lifting and what it owns. Use the actual file name from the list below.
+
+Forbidden:
+- No filler ("This module handles…", "Various utilities for…").
+- No marketing language.
+- Don't enumerate every file. Three at most, only if each does something meaningfully different.
+- Don't end with "…and helpers" or "…and tests" — be specific or omit.
+
+Length: 3–4 sentences total. Conversational tone (it's spoken, not read).
 
 Module: ${moduleName}
 ${readmeContent ? `README says: ${readmeContent}` : ''}
 
-Files in this module:
+Files in this module (with one-line summaries):
 ${fileSummaries.join('\n')}`;
 }
 
@@ -50,7 +63,20 @@ export function buildProjectSynthesisPrompt(
   techStack: string[],
   moduleSummaries: string[],
 ): string {
-  return `Synthesize a one-paragraph project summary from these sources. Be concise and accurate.
+  return `Write the project briefing a senior engineer would want before they touch this codebase. The briefing will be spoken aloud as the first thing the user hears.
+
+REQUIRED — your summary must include:
+1. What the product DOES, in one sentence — phrased so a non-team-member instantly gets it.
+2. The architectural shape — the 2–3 worlds (e.g. "backend, frontend, shared types") and what each one owns.
+3. The thing that's NOT obvious from the file tree — a constraint, a design choice with consequences, the gravity (where activity concentrates), the "watch out for…" detail. This is the line that makes the briefing feel like a real human guide, not a directory listing.
+
+Forbidden:
+- "This is a project that…" or any other filler opener.
+- Listing modules without saying what they own.
+- Marketing language.
+- Generic descriptors that could apply to any codebase ("modular architecture", "robust logging").
+
+Length: 4–6 sentences. Conversational tone (spoken aloud).
 
 Project: ${repoName}
 ${readmePurpose ? `README says: ${readmePurpose}` : ''}
