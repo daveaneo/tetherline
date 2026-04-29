@@ -34,6 +34,15 @@ interface AudioStore {
   _startMicFn: (() => void) | null;
   setStartMicFn: (fn: () => void) => void;
   requestMicStart: () => void;
+  /** Mirrored from useVoiceInput's `listening` state so any component
+   *  (e.g. the chrome MicToggle) can read mic on/off without needing
+   *  the hook itself. Source of truth still lives in useVoiceInput. */
+  micListening: boolean;
+  setMicListening: (v: boolean) => void;
+  /** Mic stop function — set by useVoiceInput, callable from MicToggle. */
+  _stopMicFn: (() => void) | null;
+  setStopMicFn: (fn: () => void) => void;
+  requestMicStop: () => void;
 
   setCurrentSegment: (segment: NarrationSegment | null) => void;
   setPlaying: (playing: boolean) => void;
@@ -53,6 +62,8 @@ export const useAudioStore = create<AudioStore>((set, get) => ({
   audioElement: null,
   interruptBackoffUntil: 0,
   _startMicFn: null,
+  _stopMicFn: null,
+  micListening: false,
 
   setAudioElement: (el) => set({ audioElement: el }),
   muteOutput: () => {
@@ -79,6 +90,9 @@ export const useAudioStore = create<AudioStore>((set, get) => ({
 
   setStartMicFn: (fn) => set({ _startMicFn: fn }),
   requestMicStart: () => { get()._startMicFn?.(); },
+  setStopMicFn: (fn) => set({ _stopMicFn: fn }),
+  requestMicStop: () => { get()._stopMicFn?.(); },
+  setMicListening: (v) => set({ micListening: v }),
 
   setCurrentSegment: (segment) => set({ currentSegment: segment }),
   setPlaying: (playing) => set((s) => ({

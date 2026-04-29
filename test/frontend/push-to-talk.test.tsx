@@ -81,14 +81,13 @@ function releaseSpace() {
 }
 
 describe('push-to-talk on space', () => {
-  it('hold > 150ms engages PTT: starts mic, sends user:speaking_started, flushes AI audio', async () => {
+  it('press space → engages PTT immediately: starts mic, sends user:speaking_started, flushes AI audio', async () => {
     vi.useFakeTimers();
     const flushSpy = vi.spyOn(useAudioStore.getState(), 'flushOnInterrupt');
     const hook = renderHook(() => useVoiceInput());
     await act(async () => { await vi.advanceTimersByTimeAsync(1); });
 
     act(() => { pressSpace(); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(200); });
 
     expect(useAudioStore.getState().voiceState).toBe('hearing');
     expect(sentEvents.some(e => e.type === 'user:speaking_started')).toBe(true);
@@ -103,7 +102,6 @@ describe('push-to-talk on space', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1); });
 
     act(() => { pressSpace(); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(200); });
     expect(recognizerCalls.start).toBe(1);
 
     act(() => { releaseSpace(); });
@@ -112,18 +110,24 @@ describe('push-to-talk on space', () => {
     expect(hook.result.current.listening).toBe(false);
   });
 
-  it('a quick tap (< 150ms) sends pause/resume, NOT speaking_started', async () => {
+  it('spacebar is pure PTT — no tap-as-pause behavior', async () => {
+    // Earlier draft had a 150ms threshold to disambiguate tap-pause
+    // from hold-talk, which was confusing UX (the user reported "I
+    // thought space was for the mic"). Pause/resume now lives ONLY on
+    // the chrome button. Spacebar is pure hold-to-talk.
     vi.useFakeTimers();
     renderHook(() => useVoiceInput());
     await act(async () => { await vi.advanceTimersByTimeAsync(1); });
 
+    // Even an instantaneous press+release engages PTT.
     act(() => { pressSpace(); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
     act(() => { releaseSpace(); });
 
-    expect(sentEvents.some(e => e.type === 'user:speaking_started')).toBe(false);
-    expect(sentEvents.some(e => e.type === 'command:pause')).toBe(true);
-    expect(recognizerCalls.start).toBe(0);
+    expect(sentEvents.some(e => e.type === 'user:speaking_started')).toBe(true);
+    expect(sentEvents.some(e => e.type === 'user:speaking_stopped')).toBe(true);
+    // Critically: no pause/resume command fires from the spacebar.
+    expect(sentEvents.some(e => e.type === 'command:pause')).toBe(false);
+    expect(sentEvents.some(e => e.type === 'command:resume')).toBe(false);
   });
 
   it('keyboard repeat events do not re-engage PTT', async () => {
@@ -132,7 +136,6 @@ describe('push-to-talk on space', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1); });
 
     act(() => { pressSpace(); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(200); });
     expect(recognizerCalls.start).toBe(1);
 
     // Simulate OS auto-repeat — should be ignored.
@@ -153,7 +156,6 @@ describe('push-to-talk on space', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1); });
 
     act(() => { pressSpace(); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
     expect(recognizerCalls.start).toBe(0);
     expect(sentEvents.some(e => e.type === 'user:speaking_started')).toBe(false);
   });
@@ -169,7 +171,6 @@ describe('push-to-talk on space', () => {
     act(() => {
       input.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ', bubbles: true }));
     });
-    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
     expect(recognizerCalls.start).toBe(0);
     document.body.removeChild(input);
   });

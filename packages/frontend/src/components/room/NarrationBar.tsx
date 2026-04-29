@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { sendEvent } from '../../lib/ws-client.js';
 import { VoiceHelp } from './VoiceHelp.js';
 import { VoiceOrb } from '../primitives/VoiceOrb.js';
+import { MicToggle } from './MicToggle.js';
 
 const STATE_LABEL: Record<VoiceState, string> = {
   speaking: 'speaking',
@@ -128,6 +129,7 @@ export function NarrationBar() {
       </div>
 
       <div className="flex items-center gap-2 flex-none">
+        <MicToggle />
         <button
           type="button"
           onClick={() => sendEvent({ type: 'command:previous' })}
@@ -143,9 +145,8 @@ export function NarrationBar() {
           onClick={() => sendEvent(state.paused ? { type: 'command:resume' } : { type: 'command:pause' })}
           className="btn btn-ghost"
           style={{ padding: '8px 12px', fontSize: 12 }}
-          title={state.paused ? 'Tap space to resume' : 'Tap space to pause · hold space to talk'}
+          title={state.paused ? 'Click to resume' : 'Click to pause'}
         >
-          <span className="kc">␣</span>
           {state.paused ? 'Resume' : 'Pause'}
         </button>
         <button

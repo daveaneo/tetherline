@@ -97,18 +97,24 @@ export function Lobby() {
 
   const handleBegin = () => {
     if (!selectedRepo) return;
-    const { requestMicStart } = useAudioStore.getState();
-    requestMicStart();
+    // Mic is intentionally NOT auto-started anymore. The user's audit
+    // surfaced that ambient sound (or the AI's own speakers) bleeding
+    // into a hot mic was the root of "AI interrupts itself." Mic now
+    // starts off; user enables it explicitly via the chrome toolbar
+    // toggle, or holds space for one-shot PTT.
     setEntryModeRepo(selectedRepo);
   };
 
   const handleStartSession = (mode: EntryMode) => {
     const target = entryModeRepo;
     if (!target) return;
-    const { requestMicStart } = useAudioStore.getState();
-    requestMicStart();
+    // For full project review we want the WHOLE git history, not just
+    // the recent window. The "updates" mode is what uses `windowDays`.
+    const sinceDays = mode === 'full_walkthrough' || mode === 'onboarding' || mode === 'explore'
+      ? 3650 // ~10 years; effectively all history
+      : windowDays;
     useSessionStore.setState({ activeRepoPath: target.path, entryMode: mode });
-    sendEvent({ type: 'session:start', payload: { repoPath: target.path, sinceDays: windowDays, entryMode: mode } });
+    sendEvent({ type: 'session:start', payload: { repoPath: target.path, sinceDays, entryMode: mode } });
     setEntryModeRepo(null);
   };
 
@@ -449,14 +455,11 @@ function EntryModeDialog({ repo, onSelect, onClose }: { repo: Repo; onSelect: (m
         </h2>
 
         <div className="mt-4 flex items-center gap-3">
-          <motion.span
-            className="block rounded-full"
-            animate={{ scale: [1, 1.2, 1], opacity: [0.6, 1, 0.6] }}
-            transition={{ duration: 1.6, repeat: Infinity }}
-            style={{ width: 8, height: 8, background: 'var(--sig-okay)', boxShadow: '0 0 8px var(--sig-okay)' }}
+          <span
+            style={{ width: 8, height: 8, background: 'var(--cream-500)', borderRadius: '50%', opacity: 0.5 }}
           />
-          <span className="font-mono" style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--sig-okay)' }}>
-            Mic live — say your choice or click
+          <span className="font-mono" style={{ fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--cream-500)' }}>
+            Mic is off · click a mode (or say it once you turn the mic on in-session)
           </span>
         </div>
 

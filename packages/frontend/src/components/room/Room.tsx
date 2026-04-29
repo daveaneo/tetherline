@@ -10,6 +10,7 @@ import { QuickChips } from './QuickChips.js';
 import { GapsPanel } from './GapsPanel.js';
 import { CodePanel } from './CodePanel.js';
 import { LiveTranscript } from './LiveTranscript.js';
+import { MicToggle } from './MicToggle.js';
 import { useGapsStore } from '../../state/gaps-store.js';
 import { SessionEntrance } from './SessionEntrance.js';
 import { BriefingCard } from '../vision/BriefingCard.js';

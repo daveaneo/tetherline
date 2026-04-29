@@ -244,6 +244,25 @@ export function useVoiceInput() {
     useAudioStore.getState().setStartMicFn(startListening);
   }, [startListening]);
 
+  // Mirror `listening` into the audio store so the chrome MicToggle can
+  // render the right state without needing this hook. Also register a
+  // stop function so the toggle can turn the mic off.
+  useEffect(() => {
+    useAudioStore.getState().setMicListening(listening);
+  }, [listening]);
+  const stopListening = useCallback(() => {
+    captureRef.current?.stop();
+    captureRef.current = null;
+    recognizerRef.current?.stop();
+    setListening(false);
+    if (useAudioStore.getState().voiceState === 'hearing') {
+      useAudioStore.getState().setVoiceState('idle');
+    }
+  }, []);
+  useEffect(() => {
+    useAudioStore.getState().setStopMicFn(stopListening);
+  }, [stopListening]);
+
   // Auto-stop when returning to IDLE
   const phase = useSessionStore(s => s.state.phase);
   useEffect(() => {
@@ -266,15 +285,15 @@ export function useVoiceInput() {
   // triggers `setListening(true)` and re-runs this effect's deps) doesn't
   // wipe `holdActive` mid-hold. Without this, the keyup that follows a
   // genuine hold is misclassified as a tap and pause/resume fires.
-  const ptHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ptHoldActiveRef = useRef(false);
   const ptMicWasListeningRef = useRef(false);
   const listeningRef = useRef(listening);
   useEffect(() => { listeningRef.current = listening; }, [listening]);
 
   useEffect(() => {
-    const HOLD_THRESHOLD_MS = 150;
-
+    // Spacebar is now PURE hold-to-talk. No tap-as-pause anymore — that
+    // disambiguation was confusing (user reported: "I thought space was
+    // for the mic"). Pause/resume lives on a button click, not a key.
     const isTypingTarget = (t: EventTarget | null): boolean => {
       if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) return true;
       if (t instanceof HTMLElement && t.isContentEditable) return true;
@@ -288,40 +307,34 @@ export function useVoiceInput() {
       e.preventDefault();
       const phaseNow = useSessionStore.getState().state.phase;
       if (phaseNow === 'IDLE') return;
-      if (ptHoldActiveRef.current || ptHoldTimerRef.current) return;
-      ptHoldTimerRef.current = setTimeout(() => {
-        ptHoldTimerRef.current = null;
-        ptHoldActiveRef.current = true;
-        const audioStore = useAudioStore.getState();
-        ptMicWasListeningRef.current = listeningRef.current;
-        audioStore.setVoiceState('hearing');
-        audioStore.flushOnInterrupt();
-        sendEvent({ type: 'user:speaking_started' });
-        if (!listeningRef.current) startListening();
-      }, HOLD_THRESHOLD_MS);
+      if (ptHoldActiveRef.current) return;
+      ptHoldActiveRef.current = true;
+      const audioStore = useAudioStore.getState();
+      ptMicWasListeningRef.current = listeningRef.current;
+      audioStore.setVoiceState('hearing');
+      audioStore.flushOnInterrupt();
+      sendEvent({ type: 'user:speaking_started' });
+      if (!listeningRef.current) startListening();
     };
 
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.code !== 'Space') return;
       if (isTypingTarget(e.target)) return;
       e.preventDefault();
-      if (ptHoldActiveRef.current) {
-        ptHoldActiveRef.current = false;
-        sendEvent({ type: 'user:speaking_stopped' });
-        if (!ptMicWasListeningRef.current) {
-          captureRef.current?.stop();
-          captureRef.current = null;
-          recognizerRef.current?.stop();
-          setListening(false);
-          if (useAudioStore.getState().voiceState === 'hearing') {
-            useAudioStore.getState().setVoiceState('listening');
-          }
+      if (!ptHoldActiveRef.current) return;
+      ptHoldActiveRef.current = false;
+      sendEvent({ type: 'user:speaking_stopped' });
+      // If we turned the mic on for this hold only, turn it back off so
+      // ambient sound never reaches the AI. The toggle (chrome button)
+      // is the only way to leave the mic continuously hot.
+      if (!ptMicWasListeningRef.current) {
+        captureRef.current?.stop();
+        captureRef.current = null;
+        recognizerRef.current?.stop();
+        setListening(false);
+        if (useAudioStore.getState().voiceState === 'hearing') {
+          useAudioStore.getState().setVoiceState('listening');
         }
-      } else if (ptHoldTimerRef.current) {
-        clearTimeout(ptHoldTimerRef.current);
-        ptHoldTimerRef.current = null;
-        const paused = useSessionStore.getState().state.paused;
-        sendEvent(paused ? { type: 'command:resume' } : { type: 'command:pause' });
       }
     };
 
@@ -330,10 +343,7 @@ export function useVoiceInput() {
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
-      if (ptHoldTimerRef.current) clearTimeout(ptHoldTimerRef.current);
     };
-    // No deps that change mid-session — this effect mounts once. State that
-    // changes (listening) is read through `listeningRef`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startListening]);
 
