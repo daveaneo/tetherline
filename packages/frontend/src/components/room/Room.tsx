@@ -9,35 +9,46 @@ import { NarrationBar } from './NarrationBar.js';
 import { QuickChips } from './QuickChips.js';
 import { GapsPanel } from './GapsPanel.js';
 import { CodePanel } from './CodePanel.js';
-import { LiveTranscript } from './LiveTranscript.js';
-import { MicToggle } from './MicToggle.js';
+import { HermesText } from './HermesText.js';
 import { useGapsStore } from '../../state/gaps-store.js';
 import { SessionEntrance } from './SessionEntrance.js';
-import { BriefingCard } from '../vision/BriefingCard.js';
 import { BreadcrumbStrip } from '../vision/BreadcrumbStrip.js';
 import { ComprehensionOverlay, ComprehensionToggle } from '../vision/ComprehensionOverlay.js';
 import { VERSION } from '../../version.js';
 
 /** Room layers, back-to-front:
- *   1. DiagramPanel — visual backdrop (5 progressive-zoom layers)
- *   2. ContentPanel — phase-aware primary content (analyzing / proposal /
- *      overview / advisory / wrap-up / error / etc.). Guarantees *something*
- *      renders for every non-IDLE phase, so no blank-screen regressions on
- *      any entry mode.
- *   3. ContentDrawer — side drawer for code snippets, skill results
- *   4. BriefingCard — briefing overlay when active
- *   5. Floating chrome toolbar
+ *   1. DiagramPanel — the diagram is the centerpiece (was a backdrop;
+ *      now the primary visual once Round-A lands).
+ *   2. ContentPanel — only for action-required phases (proposal, advisory,
+ *      wrap-up, error, analyzing-progress). Narrative phases delegate
+ *      their text to HermesText below; the diagram carries the visual.
+ *   3. ContentDrawer — side drawer for code snippets, skill results.
+ *   4. CodePanel + GapsPanel — slide-in panels.
+ *   5. Chrome toolbar.
+ *
+ * Removed in favor of HermesText:
+ *   - BriefingCard overlay (text-heavy; competed with the diagram).
+ *   - LiveTranscript right-side panel.
+ *   - NarrationBar's line-clamp-2 text portion.
  */
+
+// Phases where Hermes narrates the meaning — the diagram + HermesText
+// carry the experience. The legacy ContentPanel prose would fight them.
+const NARRATIVE_PHASES = new Set([
+  'OVERVIEW', 'AREA_WALKTHROUGH', 'COMPONENT_TOUR', 'PROJECT_OVERVIEW',
+  'ARCHITECTURE_OVERVIEW', 'PREVIOUSLY_ON', 'HEATMAP', 'QA',
+  'AREA_TRANSITION',
+]);
+
 export function Room() {
   useSession();
   const [showEntrance, setShowEntrance] = useState(true);
-  // Code-layer briefings get the dedicated CodePanel UI; the briefing
-  // card overlay would just sit on top creating a visual collision, so
-  // suppress it for layer === 'code'.
-  const briefingLayer = useSessionStore(s => s.currentBriefing?.layer ?? null);
-  const hasBriefing = briefingLayer !== null && briefingLayer !== 'code';
   const phase = useSessionStore(s => s.state.phase);
-  const showContentPanel = phase !== 'IDLE';
+  // Show the legacy ContentPanel ONLY for phases that need an action UI
+  // (PROPOSAL choices, ANALYZING progress, ADVISORY concerns, WRAP_UP
+  // export buttons, ERROR, COMPLETED). Hermes-narrated phases skip it
+  // — the diagram is the visual; HermesText is the words.
+  const showContentPanel = phase !== 'IDLE' && !NARRATIVE_PHASES.has(phase);
 
   return (
     <div className="flex flex-col h-full relative" data-testid="session-room" data-phase={phase}>
@@ -59,20 +70,6 @@ export function Room() {
             }}
           >
             <ContentPanel />
-          </div>
-        )}
-
-        {hasBriefing && (
-          <div
-            className="absolute inset-0 z-20 overflow-auto"
-            data-testid="briefing-overlay"
-            style={{
-              background: 'color-mix(in oklch, var(--ink-050) 88%, transparent)',
-              backdropFilter: 'blur(4px)',
-              padding: '48px 32px',
-            }}
-          >
-            <BriefingCard />
           </div>
         )}
 
@@ -107,12 +104,12 @@ export function Room() {
 
         <GapsPanel />
         <CodePanel />
-        <LiveTranscript />
       </div>
 
       <ComprehensionOverlay />
 
       <QuickChips />
+      <HermesText />
       <NarrationBar />
     </div>
   );

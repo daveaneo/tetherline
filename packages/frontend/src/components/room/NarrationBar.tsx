@@ -7,6 +7,11 @@ import { VoiceHelp } from './VoiceHelp.js';
 import { VoiceOrb } from '../primitives/VoiceOrb.js';
 import { MicToggle } from './MicToggle.js';
 
+// NarrationBar is now a CONTROL strip only — Hermes's spoken text
+// lives in HermesText above this bar. Keeping the voice orb (live
+// signal of mic/speaking state) and the area progress dots; the
+// line-clamp-2 prose section is gone (HermesText shows the full
+// stream, expandable).
 const STATE_LABEL: Record<VoiceState, string> = {
   speaking: 'speaking',
   listening: 'listening',
@@ -16,15 +21,9 @@ const STATE_LABEL: Record<VoiceState, string> = {
 };
 
 export function NarrationBar() {
-  const { currentSegment, voiceState } = useAudioStore();
+  const voiceState = useAudioStore(s => s.voiceState);
   const state = useSessionStore(s => s.state);
   const { areas } = useSession();
-
-  const idleText =
-    state.phase === 'ANALYZING' ? 'Analyzing repository…' :
-    voiceState === 'hearing' ? 'Go ahead — I\'m listening.' :
-    voiceState === 'processing' ? 'Let me think about that…' :
-    'Say something, or I\'ll keep going.';
 
   return (
     <div
@@ -100,33 +99,10 @@ export function NarrationBar() {
         </div>
       )}
 
-      <div className="flex-1 min-w-0">
-        <AnimatePresence mode="wait">
-          {currentSegment ? (
-            <motion.p
-              key={currentSegment.id}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.25 }}
-              className="narration line-clamp-2"
-              style={{ fontSize: 18 }}
-            >
-              {currentSegment.text}
-            </motion.p>
-          ) : (
-            <motion.p
-              key="idle"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="narration"
-              style={{ fontSize: 16, color: 'var(--cream-500)' }}
-            >
-              {idleText}
-            </motion.p>
-          )}
-        </AnimatePresence>
-      </div>
+      {/* Spacer pushes the controls to the right edge. Hermes's text
+          lives in HermesText above this bar; nothing prose-y here. */}
+      <div className="flex-1" />
+
 
       <div className="flex items-center gap-2 flex-none">
         <MicToggle />
