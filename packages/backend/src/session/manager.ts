@@ -566,6 +566,24 @@ export class SessionManager {
             });
           }
         }
+
+        // Pre-warm diagram payloads (project + per-module, both views)
+        // so click-to-drill on the radial map is instant. Cassette-backed
+        // for the LLM portion. Skipped on warm starts when source hash
+        // hasn't drifted.
+        try {
+          const { warmDiagrams } = await import('../intelligence/diagram-warmer.js');
+          await warmDiagrams(
+            effectivePath,
+            this.db.getContextCacheRepo(),
+            this.db.getDiagramCacheRepo(),
+            this.db.getComprehensionRepo(),
+            aiClient ? getDefaultLLMAdapter() : null,
+            (msg) => this.emit({ type: 'analysis:progress', payload: { phase: 'warming_cache', progress: 0.55, message: msg } }),
+          );
+        } catch (err: any) {
+          console.warn('Failed to warm diagrams:', err.message);
+        }
       } catch {
         // Cache warming is best-effort; don't block session start
         this.contextComposer = null;

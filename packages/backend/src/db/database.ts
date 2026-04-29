@@ -12,6 +12,7 @@ import { ContextCacheRepository } from './repositories/context-cache-repo.js';
 import { BriefingRepository } from './repositories/briefing-repo.js';
 import { ComprehensionRepository } from './repositories/comprehension-repo.js';
 import { QAHistoryRepository } from './repositories/qa-history-repo.js';
+import { DiagramCacheRepository } from './repositories/diagram-cache-repo.js';
 
 export class Database {
   private db: BetterSqlite3.Database;
@@ -26,6 +27,7 @@ export class Database {
   private briefingRepo: BriefingRepository;
   private comprehensionRepo: ComprehensionRepository;
   private qaHistoryRepo: QAHistoryRepository;
+  private diagramCacheRepo: DiagramCacheRepository;
 
   constructor(dbPath: string) {
     // Ensure directory exists
@@ -48,6 +50,7 @@ export class Database {
     this.briefingRepo = new BriefingRepository(this.db);
     this.comprehensionRepo = new ComprehensionRepository(this.db);
     this.qaHistoryRepo = new QAHistoryRepository(this.db);
+    this.diagramCacheRepo = new DiagramCacheRepository(this.db);
   }
 
   private runMigrations() {
@@ -319,6 +322,25 @@ export class Database {
       );
       CREATE INDEX IF NOT EXISTS idx_qa_history_repo ON qa_history(repo_path, created_at);
       CREATE INDEX IF NOT EXISTS idx_qa_history_session ON qa_history(session_id);
+
+      -- Pre-warmed diagram cache. Keyed by (repo, scope, view) — e.g.
+      -- ('/path', 'project', 'logic') or ('/path', 'module/auth',
+      -- 'file'). nodes_json + edges_json are the rendered payload.
+      -- source_hash drives invalidation — recomputes when underlying
+      -- cache rows drift (file content changes etc.).
+      CREATE TABLE IF NOT EXISTS diagram_cache (
+        repo_path TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        view TEXT NOT NULL CHECK (view IN ('logic', 'file')),
+        title TEXT NOT NULL DEFAULT '',
+        subtitle TEXT NOT NULL DEFAULT '',
+        nodes_json TEXT NOT NULL DEFAULT '[]',
+        edges_json TEXT NOT NULL DEFAULT '[]',
+        source_hash TEXT NOT NULL,
+        generated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (repo_path, scope, view)
+      );
+      CREATE INDEX IF NOT EXISTS idx_diagram_cache_repo ON diagram_cache(repo_path);
     `);
 
     // Rename migration: rows stored under ~/.interactive-reviewer/ need
@@ -386,6 +408,7 @@ export class Database {
   getBriefingRepo(): BriefingRepository { return this.briefingRepo; }
   getComprehensionRepo(): ComprehensionRepository { return this.comprehensionRepo; }
   getQAHistoryRepo(): QAHistoryRepository { return this.qaHistoryRepo; }
+  getDiagramCacheRepo(): DiagramCacheRepository { return this.diagramCacheRepo; }
   getRawDb(): BetterSqlite3.Database { return this.db; }
 
   close() {

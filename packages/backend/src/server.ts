@@ -16,6 +16,7 @@ import { createHealthRoutes } from './routes/health.js';
 import { createAudioRoutes } from './routes/audio.js';
 import { createRepoRoutes } from './routes/repos.js';
 import { createTicketRoutes } from './routes/ticket.js';
+import { createDiagramRoutes } from './routes/diagram.js';
 import { GitHubTicketProvider } from './integrations/github-provider.js';
 import { setTicketProvider } from './integrations/ticket-provider.js';
 import { createOnboardingRoutes } from './routes/onboarding.js';
@@ -61,6 +62,7 @@ export async function createServer(overrides: { port?: number; repoPath?: string
     dryRun: process.env.TETHERLINE_TICKETS_LIVE !== '1',
   }));
   router.use('/ticket', createTicketRoutes(db));
+  router.use('/diagram', createDiagramRoutes(db));
   router.use('/onboarding', createOnboardingRoutes(db, config));
   const digestScheduler = new DigestScheduler(db, config);
   router.use('/digest', createDigestRoutes(db, config, digestScheduler));
