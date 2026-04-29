@@ -8,7 +8,11 @@ import { ErrorBanner } from './components/layout/ErrorBanner.js';
 import { SpeechToasts } from './components/audio/SpeechToasts.js';
 import { useWebSocket } from './hooks/useWebSocket.js';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
-import { useInterrupt } from './hooks/useInterrupt.js';
+// useInterrupt is intentionally NOT used: its "any keypress = interrupt"
+// sledgehammer pauses the session when the user presses Cmd+C to copy
+// briefing text. Explicit PTT (hold space) handles intentional
+// interrupts; ambient interrupts are gone now that the mic is off by
+// default. Keep the file around as a reference, but don't mount it.
 import { useSessionOrchestrator } from './hooks/useSessionOrchestrator.js';
 import { useVoiceInput } from './hooks/useVoiceInput.js';
 import { useSessionStore } from './state/session-store.js';
@@ -36,7 +40,6 @@ export function App() {
   }, [connected]);
 
   useKeyboardShortcuts();
-  useInterrupt();
   useSessionOrchestrator();
   useVoiceInput();
 
