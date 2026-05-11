@@ -209,7 +209,20 @@ export class BriefingComposer {
     const purposeLooksLikeTagline =
       IMPERATIVE_VERBS.has(firstWord) ||
       (wordCount <= 8 && /^[A-Z][a-z]/.test(cleanedPurpose) && !/\s(is|are|was|were|a|an|the)\s/i.test(cleanedPurpose.split(/\s+/).slice(0, 3).join(' ')));
-    const lead = !cleanedPurpose
+    // Detect sentence fragments / comparative leads that don't read as
+    // self-contained noun phrases. "Most X are Y" → "PersonalForge is most
+    // X are Y" reads as broken English. When the purpose looks like the
+    // tail of a longer sentence (starts with comparative/quantifier or
+    // contains a period mid-text), skip the "X is ..." construction and
+    // fall back to the summary alone.
+    const FRAGMENT_LEADERS = new Set([
+      'most', 'unlike', 'instead', 'rather', 'whereas', 'while', 'though',
+      'however', 'because', 'since', 'although', 'but',
+    ]);
+    const purposeLooksLikeFragment =
+      FRAGMENT_LEADERS.has(firstWord) ||
+      /\.\s/.test(cleanedPurpose); // contains a sentence break — not a single noun phrase
+    const lead = !cleanedPurpose || purposeLooksLikeFragment
       ? name
       : purposeLooksLikeTagline
         ? `${name} — ${cleanedPurpose}`

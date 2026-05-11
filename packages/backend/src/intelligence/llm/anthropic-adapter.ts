@@ -15,10 +15,24 @@ export class AnthropicLLMAdapter implements LLMAdapter {
     const t0 = Date.now();
     const id = `llm_${Date.now().toString(36)}_${randomBytes(3).toString('hex')}`;
 
+    const lastUserMsg = [...req.messages].reverse().find(m => m.role === 'user');
+    const lastUserText = typeof lastUserMsg?.content === 'string'
+      ? lastUserMsg.content
+      : Array.isArray(lastUserMsg?.content)
+        ? lastUserMsg.content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join(' ')
+        : '';
     trace({
       kind: 'llm.request',
       sessionId: null,
-      payload: { id, model: req.model, hasTool: !!req.tool, maxTokens: req.maxTokens },
+      payload: {
+        id,
+        model: req.model,
+        hasTool: !!req.tool,
+        toolName: req.tool?.name,
+        maxTokens: req.maxTokens,
+        system: req.system ?? '',
+        lastUserMessage: lastUserText,
+      },
     });
 
     const response = await this.withRetry(() => this.client.messages.create({
@@ -65,7 +79,8 @@ export class AnthropicLLMAdapter implements LLMAdapter {
         id,
         cacheHit: false,
         tokens: result.usage,
-        preview: text.slice(0, 140),
+        text,
+        toolInput: toolBlock?.input,
       },
     });
 

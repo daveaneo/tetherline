@@ -48,17 +48,27 @@ export async function warmDiagrams(
     written += 1;
   };
 
-  // Project file view — no LLM, deterministic.
+  // Project file view — no LLM, deterministic. Cheap to recompute, so
+  // we don't skip-by-existence here; just rebuild and overwrite if the
+  // hash drifted.
   try {
     onProgress?.('Composing project file map...');
     tryWrite(extractProjectFileView(params));
   } catch { errors += 1; }
 
-  // Project logic view — LLM call (or fallback).
-  try {
-    onProgress?.('Extracting project conceptual flow...');
-    tryWrite(await extractProjectLogicView(params));
-  } catch { errors += 1; }
+  // Project logic view — LLM call. Skip ENTIRELY if a cached row exists.
+  // The cached row's source_hash includes DIAGRAM_SCHEMA_VERSION, so a
+  // schema bump triggers explicit invalidation; otherwise the prior LLM
+  // result is reusable. Without this skip the warmer makes a fresh LLM
+  // call on every warm session even when nothing changed.
+  if (!diagramRepo.get(repoPath, 'project', 'logic')) {
+    try {
+      onProgress?.('Extracting project conceptual flow...');
+      tryWrite(await extractProjectLogicView(params));
+    } catch { errors += 1; }
+  } else {
+    skipped += 1;
+  }
 
   // Per-module diagrams — both views for each top-level module.
   const modules = cacheRepo.getModulesForRepo(repoPath)
@@ -68,15 +78,26 @@ export async function warmDiagrams(
 
   for (let i = 0; i < modules.length; i++) {
     const m = modules[i];
+    const scope = `module/${m.modulePath}`;
+    const fileCached = !!diagramRepo.get(repoPath, scope, 'file');
+    const logicCached = !!diagramRepo.get(repoPath, scope, 'logic');
+    if (fileCached && logicCached) {
+      skipped += 2;
+      continue;
+    }
     onProgress?.(`Composing module diagrams (${i + 1}/${modules.length}: ${m.modulePath})...`);
-    try {
-      const fileRow = extractModuleFileView(params, m.modulePath);
-      if (fileRow) tryWrite(fileRow);
-    } catch { errors += 1; }
-    try {
-      const logicRow = await extractModuleLogicView(params, m.modulePath);
-      if (logicRow) tryWrite(logicRow);
-    } catch { errors += 1; }
+    if (!fileCached) {
+      try {
+        const fileRow = extractModuleFileView(params, m.modulePath);
+        if (fileRow) tryWrite(fileRow);
+      } catch { errors += 1; }
+    } else { skipped += 1; }
+    if (!logicCached) {
+      try {
+        const logicRow = await extractModuleLogicView(params, m.modulePath);
+        if (logicRow) tryWrite(logicRow);
+      } catch { errors += 1; }
+    } else { skipped += 1; }
   }
 
   return { written, skipped, errors };

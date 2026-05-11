@@ -13,6 +13,7 @@ import { BriefingRepository } from './repositories/briefing-repo.js';
 import { ComprehensionRepository } from './repositories/comprehension-repo.js';
 import { QAHistoryRepository } from './repositories/qa-history-repo.js';
 import { DiagramCacheRepository } from './repositories/diagram-cache-repo.js';
+import { LlmCallCacheRepository } from './repositories/llm-call-cache-repo.js';
 
 export class Database {
   private db: BetterSqlite3.Database;
@@ -28,6 +29,7 @@ export class Database {
   private comprehensionRepo: ComprehensionRepository;
   private qaHistoryRepo: QAHistoryRepository;
   private diagramCacheRepo: DiagramCacheRepository;
+  private llmCallCacheRepo: LlmCallCacheRepository;
 
   constructor(dbPath: string) {
     // Ensure directory exists
@@ -51,7 +53,10 @@ export class Database {
     this.comprehensionRepo = new ComprehensionRepository(this.db);
     this.qaHistoryRepo = new QAHistoryRepository(this.db);
     this.diagramCacheRepo = new DiagramCacheRepository(this.db);
+    this.llmCallCacheRepo = new LlmCallCacheRepository(this.db);
   }
+
+  getLlmCallCacheRepo(): LlmCallCacheRepository { return this.llmCallCacheRepo; }
 
   private runMigrations() {
     this.db.exec(`
@@ -341,6 +346,21 @@ export class Database {
         PRIMARY KEY (repo_path, scope, view)
       );
       CREATE INDEX IF NOT EXISTS idx_diagram_cache_repo ON diagram_cache(repo_path);
+
+      -- Generic content-addressable cache for LLM analyzer calls.
+      -- Each row is one cached (phase, inputs) → output mapping.
+      -- input_hash is a stable hash of the deterministic inputs for the
+      -- call (e.g. commit SHAs for clusterCommits, area+commits for
+      -- generateNarrative). Hits skip the LLM entirely.
+      CREATE TABLE IF NOT EXISTS llm_call_cache (
+        repo_path TEXT NOT NULL,
+        phase TEXT NOT NULL,
+        input_hash TEXT NOT NULL,
+        output_json TEXT NOT NULL,
+        generated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (repo_path, phase, input_hash)
+      );
+      CREATE INDEX IF NOT EXISTS idx_llm_call_cache_repo ON llm_call_cache(repo_path);
     `);
 
     // Rename migration: rows stored under ~/.interactive-reviewer/ need

@@ -26,15 +26,24 @@ export function createDiagramRoutes(db: Database): Router {
       return;
     }
 
-    // Cache hit — instant.
     const cached = db.getDiagramCacheRepo().get(repoPath, scope, view);
+
+    // Fast path: cached row exists → serve immediately. The diagram
+    // warmer (called at session start, see diagram-warmer.ts) is
+    // responsible for keeping cache rows fresh. Doing extraction on
+    // the read path triggered 12+ LLM calls per navigation on a
+    // 6-module repo even when the cache was valid — the user saw
+    // "Generating architecture diagram…" on every view.
+    //
+    // Schema-version drift is handled by DIAGRAM_SCHEMA_VERSION being
+    // mixed into source_hash: when the extractor changes shape, bump
+    // the version constant and old rows get re-warmed at session start.
     if (cached) {
       res.json({ diagram: cached, cacheHit: true });
       return;
     }
 
-    // Cache miss — meander territory. Compose on the fly. The user
-    // sees a brief loading state while we do this.
+    // Cold path only: no cached row → run extraction and persist.
     try {
       const params = {
         repoPath,
@@ -60,7 +69,7 @@ export function createDiagramRoutes(db: Database): Router {
         res.status(404).json({ error: 'no diagram could be composed' });
         return;
       }
-      // Persist the on-the-fly result so the next visit is instant.
+      // Cold path: persist the newly extracted diagram for next time.
       db.getDiagramCacheRepo().upsert(composed);
       res.json({ diagram: composed, cacheHit: false });
     } catch (err: any) {

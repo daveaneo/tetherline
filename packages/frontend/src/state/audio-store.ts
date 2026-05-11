@@ -30,6 +30,12 @@ interface AudioStore {
   setInterruptBackoff: (until: number) => void;
   isInBackoff: () => boolean;
 
+  /** Timestamp when TTS playback last finished. Used as an echo-gate:
+   *  mic transcripts arriving within ~1.5s of TTS end are suppressed
+   *  because they're almost always speaker-bleed of the AI's own audio,
+   *  not the user speaking. */
+  lastTtsEndAt: number;
+
   // Mic start function — set by useVoiceInput, callable from anywhere (e.g. Lobby click)
   _startMicFn: (() => void) | null;
   setStartMicFn: (fn: () => void) => void;
@@ -57,10 +63,15 @@ export const useAudioStore = create<AudioStore>((set, get) => ({
   currentSegment: null,
   isPlaying: false,
   queue: [],
-  voiceState: 'listening',
+  // Start in 'idle' — the mic is off by default per the voice-UX
+  // principle, and the orb should not lie about its state. Starting in
+  // 'listening' made the UI claim the mic was hot while micListening was
+  // actually false.
+  voiceState: 'idle',
   speechToasts: [],
   audioElement: null,
   interruptBackoffUntil: 0,
+  lastTtsEndAt: 0,
   _startMicFn: null,
   _stopMicFn: null,
   micListening: false,
@@ -97,9 +108,18 @@ export const useAudioStore = create<AudioStore>((set, get) => ({
   setCurrentSegment: (segment) => set({ currentSegment: segment }),
   setPlaying: (playing) => set((s) => ({
     isPlaying: playing,
+    // When TTS finishes, the orb should reflect the actual mic state, not
+    // a hardcoded "listening" lie. If the mic is on → 'listening'; else
+    // → 'idle'. Same for when TTS starts: only block-state on 'speaking'
+    // if we were previously in a non-speaking state.
     voiceState: playing
       ? 'speaking'
-      : s.voiceState === 'speaking' ? 'listening' : s.voiceState,
+      : s.voiceState === 'speaking'
+        ? (s.micListening ? 'listening' : 'idle')
+        : s.voiceState,
+    // Track when TTS ended so the echo gate can suppress mic transcripts
+    // that arrive in the speaker-reverb tail (~1.5s after playback ends).
+    lastTtsEndAt: !playing && s.isPlaying ? Date.now() : s.lastTtsEndAt,
   })),
   setVoiceState: (voiceState) => set({ voiceState }),
 

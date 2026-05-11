@@ -91,7 +91,13 @@ export class CassetteLLMAdapter implements LLMAdapter {
       kind: 'llm.response',
       sessionId: null,
       durationMs: Date.now() - t0,
-      payload: { id: response.id, cacheHit: true, cassetteKey: key, preview: response.text.slice(0, 140) },
+      payload: {
+        id: response.id,
+        cacheHit: true,
+        cassetteKey: key,
+        text: response.text,
+        toolInput: response.toolInput,
+      },
     });
 
     return response;

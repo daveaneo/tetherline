@@ -155,9 +155,17 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
   toggleComprehensionOverlay: () => set(s => ({ showComprehensionOverlay: !s.showComprehensionOverlay })),
 
-  addConversation: (speaker, text) => set(s => ({
-    conversationHistory: [...s.conversationHistory.slice(-49), { speaker, text, timestamp: Date.now() }],
-  })),
+  // Dedupe consecutive same-speaker / same-text entries. Backend emits
+  // both `narration:greeting` and `narration:briefing` (or two
+  // briefings) with identical text on warm-cache replay, which was
+  // showing as "AI / AI" duplicates in the conversation log.
+  addConversation: (speaker, text) => set(s => {
+    const last = s.conversationHistory[s.conversationHistory.length - 1];
+    if (last && last.speaker === speaker && last.text === text) return s;
+    return {
+      conversationHistory: [...s.conversationHistory.slice(-49), { speaker, text, timestamp: Date.now() }],
+    };
+  }),
 
   clearError: () => set({ error: null }),
   setConnected: (v: boolean) => set({ connected: v }),
@@ -373,6 +381,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             resumePrefix: event.payload.resumePrefix,
             receivedAt: Date.now(),
           },
+          greeting: event.payload.text,
         });
         get().addConversation('ai', event.payload.text);
         break;

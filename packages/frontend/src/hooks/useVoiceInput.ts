@@ -89,13 +89,23 @@ function isLikelyNoiseArtifact(text: string): boolean {
   return false;
 }
 
+/** Echo-gate window in ms. Whisper buffers ~1s of audio before transcribing,
+ *  and speakers can reverb for several hundred ms after playback ends, so
+ *  the most common echo case is a transcript that arrives just after
+ *  isPlaying flips false. Suppress anything within ECHO_GATE_MS of TTS end. */
+const ECHO_GATE_MS = 1500;
+
 function handleTranscript(text: string) {
   // Drop transcripts that arrived while the AI was speaking — those are
   // echo from speakers bleeding into the mic, not a user utterance.
   // Without this guard the AI would "hear" itself and trigger another
   // Q&A round, producing the self-interrupt loop the user reported.
   // PTT (hold space) is the explicit way to talk over the AI.
-  if (useAudioStore.getState().isPlaying) {
+  const audio = useAudioStore.getState();
+  if (audio.isPlaying) return;
+  if (audio.lastTtsEndAt && Date.now() - audio.lastTtsEndAt < ECHO_GATE_MS) {
+    // Echo-gate: speakers may still be reverberating or Whisper may be
+    // flushing a buffer that includes the tail of the AI's TTS. Drop.
     return;
   }
 
@@ -185,6 +195,11 @@ export function useVoiceInput() {
     };
   }, []);
 
+  // When start() hasn't resolved yet but the user already released space,
+  // we need to wait before calling stop() — otherwise we kill the capture
+  // before it ever ran. PTT keyup awaits this ref to avoid that race.
+  const captureStartPromiseRef = useRef<Promise<void> | null>(null);
+
   // Register startListening with the audio store
   const startListening = useCallback(() => {
     if (listening) {
@@ -221,7 +236,13 @@ export function useVoiceInput() {
           useAudioStore.getState().addSpeechToast(`[${state}]`);
         },
       });
-      capture.start();
+      // Capture mic permission + AudioContext setup is async (~100ms). Stash
+      // the promise so PTT keyup can wait for it — otherwise a fast tap
+      // (down + up within 50ms) tears down the capture before it ever ran,
+      // producing the "no transcript ever arrived" failure mode.
+      captureStartPromiseRef.current = capture.start().catch(err => {
+        useAudioStore.getState().addSpeechToast(`[Mic start failed: ${err.message ?? err}]`);
+      });
       captureRef.current = capture;
       setListening(true);
       useAudioStore.getState().addSpeechToast('[Mic: started (Whisper + echo cancellation)]');
@@ -300,7 +321,7 @@ export function useVoiceInput() {
       return false;
     };
 
-    const onKeyDown = (e: KeyboardEvent) => {
+    const onKeyDown = async (e: KeyboardEvent) => {
       if (e.code !== 'Space') return;
       if (e.repeat) { e.preventDefault(); return; }
       if (isTypingTarget(e.target)) return;
@@ -313,17 +334,37 @@ export function useVoiceInput() {
       ptMicWasListeningRef.current = listeningRef.current;
       audioStore.setVoiceState('hearing');
       audioStore.flushOnInterrupt();
+      // Reset the post-TTS echo gate: the user is now deliberately
+      // speaking, so suppressing their transcript because TTS ended
+      // recently would be wrong. The gate exists for AMBIENT echo, not
+      // intentional PTT speech.
+      useAudioStore.setState({ lastTtsEndAt: 0 });
       sendEvent({ type: 'user:speaking_started' });
       if (!listeningRef.current) startListening();
+      // Wait for capture.start() to fully resolve, then explicitly mark
+      // the speech boundary. Without this, the VAD-driven flow only
+      // ships audio to Whisper when it detects silence-after-confirmed-
+      // speech — for short PTT holds, VAD never confirms and the audio
+      // buffer is trimmed before transcription. Explicit start/end
+      // bypasses the VAD state machine entirely.
+      await captureStartPromiseRef.current;
+      captureRef.current?.forceSpeechStart();
     };
 
-    const onKeyUp = (e: KeyboardEvent) => {
+    const onKeyUp = async (e: KeyboardEvent) => {
       if (e.code !== 'Space') return;
       if (isTypingTarget(e.target)) return;
       e.preventDefault();
       if (!ptHoldActiveRef.current) return;
       ptHoldActiveRef.current = false;
       sendEvent({ type: 'user:speaking_stopped' });
+      // Wait for the start to complete (race with fast taps), then close
+      // the PTT recording window — this triggers the Whisper POST and
+      // surfaces the transcript via the onTranscript callback. Awaiting
+      // here ensures the capture isn't torn down before transcription
+      // finishes.
+      await captureStartPromiseRef.current;
+      await captureRef.current?.forceSpeechEnd();
       // If we turned the mic on for this hold only, turn it back off so
       // ambient sound never reaches the AI. The toggle (chrome button)
       // is the only way to leave the mic continuously hot.
@@ -332,8 +373,10 @@ export function useVoiceInput() {
         captureRef.current = null;
         recognizerRef.current?.stop();
         setListening(false);
+        // We just stopped the mic, so the orb should NOT claim it's
+        // listening. Drop to 'idle' so the UI matches reality.
         if (useAudioStore.getState().voiceState === 'hearing') {
-          useAudioStore.getState().setVoiceState('listening');
+          useAudioStore.getState().setVoiceState('idle');
         }
       }
     };

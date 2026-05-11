@@ -74,30 +74,8 @@ export class DevSessionRegistry {
       });
     }
 
-    // Voice-timing instrumentation: record every server-side "AI wants to
-    // speak" moment as a `tts.emit` trace event, so the measurement layer can
-    // compute interruption/self-interrupt metrics over any exchange.
-    if (
-      event.type === 'narration:greeting' ||
-      event.type === 'narration:segment_ready' ||
-      event.type === 'narration:quick_answer' ||
-      event.type === 'narration:briefing' ||
-      event.type === 'narration:text' ||
-      event.type === 'qa:answer_chunk'
-    ) {
-      const payload = event.payload as Record<string, unknown>;
-      getTraceRecorder()?.emit({
-        kind: 'tts.emit',
-        sessionId: session.backendId,
-        payload: {
-          eventType: event.type,
-          textPreview:
-            (typeof payload.text === 'string' ? payload.text :
-             typeof payload.answer === 'string' ? payload.answer :
-             '').slice(0, 120),
-        },
-      });
-    }
+    // tts.emit tracing now lives inside SessionManager so it fires for WS
+    // sessions too — see traceNarrationEvent in session/manager.ts.
     if (event.type.startsWith('visual:')) {
       getTraceRecorder()?.emit({
         kind: 'visual.update',

@@ -133,7 +133,31 @@ export class SessionManager {
       });
       return;
     }
+    this.traceNarrationEvent(event);
     this.rawEmit(event);
+  }
+
+  private traceNarrationEvent(event: ServerEvent): void {
+    if (
+      event.type !== 'narration:greeting' &&
+      event.type !== 'narration:segment_ready' &&
+      event.type !== 'narration:quick_answer' &&
+      event.type !== 'narration:briefing' &&
+      event.type !== 'narration:text' &&
+      event.type !== 'narration:stream_chunk' &&
+      event.type !== 'qa:answer_chunk'
+    ) return;
+    const payload = event.payload as Record<string, unknown>;
+    const text =
+      typeof payload.text === 'string' ? payload.text :
+      typeof payload.answer === 'string' ? payload.answer :
+      typeof (payload.segment as any)?.text === 'string' ? (payload.segment as any).text :
+      '';
+    getTraceRecorder()?.emit({
+      kind: 'tts.emit',
+      sessionId: this.context.sessionId || null,
+      payload: { eventType: event.type, text },
+    });
   }
 
   handleEvent(event: ClientEvent): void {
@@ -609,12 +633,28 @@ export class SessionManager {
         // Initialize the intent classifier
         this.intentClassifier = new IntentClassifier(aiClient!);
 
-        // Step 1: Semantic clustering
+        // Step 1: Semantic clustering. Cached by commit-SHA set: re-runs
+        // ONLY when the user's commit window changes. The cluster output
+        // is a function of the commits alone, so the cache is sound across
+        // sessions for the same repo + same commits.
         this.emit({
           type: 'analysis:progress',
           payload: { phase: 'clustering', progress: 0.5, message: 'AI is grouping commits into areas...' },
         });
-        areas = await intelligence.clusterCommits(commits, sessionId);
+        const { llmCacheWrap } = await import('../intelligence/llm-cache.js');
+        const llmCache = this.db.getLlmCallCacheRepo();
+        const commitShas = commits.map(c => c.commit.hash).sort();
+        areas = await llmCacheWrap(
+          { cache: llmCache, repoPath: effectivePath, phase: 'cluster-commits', inputs: { commitShas } },
+          () => intelligence.clusterCommits(commits, sessionId),
+        );
+        // Cached clusterCommits embeds the sessionId from the FIRST run
+        // into each area; rewrite it to the current session so DB
+        // foreign-key constraints (areas.session_id → sessions.id) hold.
+        for (const area of areas) {
+          area.sessionId = sessionId;
+          area.id = `${sessionId}-${area.orderIndex}`;
+        }
 
         // Store areas in DB
         const areaRepo = this.db.getAreaRepo();
@@ -645,9 +685,20 @@ export class SessionManager {
         const fileTree = fileTreeRaw.split('\n').filter(Boolean);
         this.fileTree = fileTree;
 
-        // Run narrative generation for each area, concerns detection, and architecture in parallel
+        // Run narrative generation for each area, concerns detection, and architecture in parallel.
+        // Each per-area narrative is cached by (areaCommitShas, areaName) —
+        // if the same commits cluster into the same area on a re-run, the
+        // narrative is identical, so reuse.
         const narrativePromises = areasWithContent.map(async (area, idx) => {
-          const segments = await intelligence.generateNarrative(area, commits);
+          const segments = await llmCacheWrap(
+            {
+              cache: llmCache,
+              repoPath: effectivePath,
+              phase: 'generate-narrative',
+              inputs: { areaName: area.name, areaCommitShas: [...area.commitHashes].sort() },
+            },
+            () => intelligence.generateNarrative(area, commits),
+          );
           const overview = segments.length > 0 ? segments[0].text : area.description;
           areaRepo.updateArea(area.id, {
             narrativeText: overview,
@@ -676,7 +727,13 @@ export class SessionManager {
             type: 'analysis:progress',
             payload: { phase: 'detecting_concerns', progress: 0.7, message: 'Detecting concerns...' },
           });
-          return intelligence.detectConcerns(commits, sessionId);
+          // Cached by commit-SHA set — same commits → same concerns.
+          // Rewrite sessionId on cache-hit so the per-area FK still resolves.
+          const cached = await llmCacheWrap(
+            { cache: llmCache, repoPath: effectivePath, phase: 'detect-concerns', inputs: { commitShas } },
+            () => intelligence.detectConcerns(commits, sessionId),
+          );
+          return cached.map(c => ({ ...c, sessionId }));
         })();
 
         const architecturePromise = (async () => {
@@ -684,12 +741,29 @@ export class SessionManager {
             type: 'analysis:progress',
             payload: { phase: 'generating_architecture', progress: 0.75, message: 'Generating architecture diagram...' },
           });
-          return intelligence.generateArchitecture(fileTree, areas);
+          // Cached by fileTree content + the area names it's diagramming.
+          return llmCacheWrap(
+            {
+              cache: llmCache,
+              repoPath: effectivePath,
+              phase: 'generate-architecture',
+              inputs: { fileTree: [...fileTree].sort(), areaNames: areas.map(a => a.name).sort() },
+            },
+            () => intelligence.generateArchitecture(fileTree, areas),
+          );
         })();
 
         const impactRankingPromise = (async () => {
           try {
-            return await intelligence.rankByImpact(areas);
+            return await llmCacheWrap(
+              {
+                cache: llmCache,
+                repoPath: effectivePath,
+                phase: 'rank-impact',
+                inputs: { areas: areas.map(a => ({ name: a.name, commitShas: [...a.commitHashes].sort() })) },
+              },
+              () => intelligence.rankByImpact(areas),
+            );
           } catch {
             // Non-critical — skip if impact ranking fails
             return null;
@@ -762,8 +836,23 @@ export class SessionManager {
         this.context.concerns = concerns;
 
         // Generate and store session summary for next time's "Previously on..."
+        // Cached on (areaNames, concernTitles) — the recap is a function of
+        // those inputs alone, so warm runs reuse it. Without this cache,
+        // every session paid ~3s for an LLM call that produced an
+        // identical recap.
         try {
-          const sessionSummaryText = await intelligence.generateSessionSummary(areas, concerns);
+          const sessionSummaryText = await llmCacheWrap(
+            {
+              cache: llmCache,
+              repoPath: effectivePath,
+              phase: 'session-summary',
+              inputs: {
+                areaNames: areas.map(a => a.name).sort(),
+                concernTitles: concerns.map(c => c.title).sort(),
+              },
+            },
+            () => intelligence.generateSessionSummary(areas, concerns),
+          );
           this.db.getSessionRepo().updateSession(sessionId, { summary: sessionSummaryText });
         } catch {
           // Non-critical — skip if summary generation fails
@@ -1712,7 +1801,6 @@ export class SessionManager {
         resumePrefix,
       },
     });
-    this.emit({ type: 'narration:greeting', payload: { text: briefing.opener } });
     this.lastBriefingEmittedAt = Date.now();
     this.lastBriefingId = briefing.id;
     // Hearing a briefing only counts as 'heard'. To progress to 'explained'
@@ -2214,10 +2302,33 @@ export class SessionManager {
   }
 
   private async handleUtterance(text: string): Promise<void> {
+    getTraceRecorder()?.emit({
+      kind: 'utterance.received',
+      sessionId: this.context.sessionId || null,
+      payload: {
+        text,
+        phase: this.state.phase,
+        areaName: this.state.areaIndex !== undefined ? this.areas[this.state.areaIndex]?.name : null,
+      },
+    });
+
     // During PROPOSAL phase, handle utterances with proposal-specific logic
     if (this.state.phase === 'PROPOSAL') {
       if (this.handleProposalUtterance(text)) return;
-      // If not recognized as a proposal response, accept and proceed
+      // If the utterance is clearly a real question (>4 words and not a
+      // short confirmation), accept the proposal silently AND route the
+      // question through the normal pipeline so it actually gets answered.
+      // The old behavior — fall through to acceptProposal() with a stock
+      // "Go ahead." — swallowed substantive questions like "tell me what
+      // X does" because the user happened to be in PROPOSAL phase.
+      const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
+      if (wordCount > 4) {
+        this.acceptProposal();
+        // After acceptProposal the phase has changed; fall through to the
+        // normal handleUtterance pipeline below by recursing.
+        await this.handleUtterance(text);
+        return;
+      }
       this.acceptProposal();
       return;
     }
@@ -2259,6 +2370,18 @@ export class SessionManager {
     const contextStr = `Phase: ${this.state.phase}. Area: ${currentArea?.name ?? 'none'}. Areas: ${this.areas.map(a => a.name).join(', ')}.`;
 
     const classification = await this.intentClassifier.classify(text, contextStr);
+
+    getTraceRecorder()?.emit({
+      kind: 'intent.classified',
+      sessionId: this.context.sessionId || null,
+      payload: {
+        text,
+        skillName: classification.skillName,
+        navigationCommand: classification.navigationCommand ?? null,
+        params: classification.params,
+        confidence: classification.confidence,
+      },
+    });
 
     // Handle navigation commands
     if (classification.skillName === 'navigation' && classification.navigationCommand) {
@@ -2377,6 +2500,19 @@ export class SessionManager {
 
       this.emit({ type: 'skill:result', payload: { result } });
 
+      // Speak the skill's narration. The skill:result event carries the
+      // narration to the UI for the conversation log, but the speak-
+      // pipeline only fires on `narration:greeting` / `narration:stream_chunk`
+      // / `narration:briefing`. Without this emit, skills like summarize
+      // and explain produced an answer that the user could read but
+      // never hear — defeating the voice-first contract.
+      if (result.narration && result.narration.trim().length > 0) {
+        this.emit({
+          type: 'narration:greeting',
+          payload: { text: result.narration },
+        });
+      }
+
       // Persist understanding updates from skill execution (e.g., explain/teach/critique)
       if (result.understandingUpdates) {
         const effectivePath = this.activeRepoPath ?? this.config.repoPath;
@@ -2401,10 +2537,15 @@ export class SessionManager {
         );
       }
 
-      // After skill completes, check in (once per deviation)
-      if (this.tourPlan?.isInDeviation() && !this.tourPlan.hasCheckedIn()) {
+      // After skill completes, check in (once per deviation) — but ONLY
+      // if the skill itself was silent. Skills that produce narration
+      // (summarize, explain, critique, teach) have already spoken; firing
+      // a nudge here races them through the orchestrator's 250ms greeting
+      // coalesce, and the user hears the nudge instead of the answer.
+      // The nudge exists to fill silence, not to talk over the answer.
+      const skillWasSilent = !result.narration || result.narration.trim().length === 0;
+      if (skillWasSilent && this.tourPlan?.isInDeviation() && !this.tourPlan.hasCheckedIn()) {
         this.tourPlan.markDeviationCheckedIn();
-        // Emit a gentle nudge so the user knows how to get back
         this.emit({
           type: 'narration:greeting',
           payload: { text: 'Take your time exploring. Say "back to the tour" whenever you\'re ready to continue.' },

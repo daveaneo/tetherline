@@ -128,6 +128,32 @@ export class AudioCapture {
     if (this.audioContext) { this.audioContext.close(); this.audioContext = null; }
   }
 
+  /** PTT-only: mark the start of an explicit recording window, bypassing
+   *  VAD. VAD-driven flow requires onSoundDetected → confirmTimer →
+   *  isRecordingSpeech=true to fire before audio is retained — but a
+   *  PTT user already told us "I'm speaking" by holding space. Calling
+   *  this immediately starts retaining audio into pcmBuffer (without
+   *  the trim-to-pre-buffer logic that runs while !isRecordingSpeech). */
+  forceSpeechStart(): void {
+    if (!this.isCapturing) return;
+    this.isSpeaking = true;
+    this.isRecordingSpeech = true;
+    this.speechStartTime = Date.now();
+    this.speechStartSampleCount = Math.max(0, this.pcmSampleCount - PRE_BUFFER_SAMPLES);
+  }
+
+  /** PTT-only: explicitly end the recording window and ship the buffer
+   *  to Whisper. Returns the transcript promise so callers can await it
+   *  before tearing down the capture stream. VAD never had to fire. */
+  async forceSpeechEnd(): Promise<void> {
+    if (!this.isRecordingSpeech) return;
+    this.isSpeaking = false;
+    this.isRecordingSpeech = false;
+    if (this.silenceTimer) { clearTimeout(this.silenceTimer); this.silenceTimer = null; }
+    if (this.confirmTimer) { clearTimeout(this.confirmTimer); this.confirmTimer = null; }
+    await this.processSpeech();
+  }
+
   // --- Echo calibration ---
 
   private startEchoCalibration(): void {
