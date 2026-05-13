@@ -17,11 +17,13 @@
  * so first paint is immediate. Cache miss → loading state while the
  * backend composes on the fly.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSessionStore } from '../../state/session-store.js';
 import { useAudioStore } from '../../state/audio-store.js';
 import { sendEvent } from '../../lib/ws-client.js';
 import { API_PREFIX } from '@tetherline/shared';
+
+type Level = 'unknown' | 'mentioned' | 'heard' | 'engaged' | 'explained' | 'confirmed';
 
 interface DiagramNode {
   id: string;
@@ -29,7 +31,7 @@ interface DiagramNode {
   description?: string;
   role?: string;
   weight?: number;
-  level?: 'unknown' | 'mentioned' | 'heard' | 'engaged' | 'explained' | 'confirmed';
+  level?: Level;
   briefingId?: string;
 }
 interface DiagramEdge {
@@ -54,6 +56,19 @@ interface PositionedNode extends DiagramNode {
   isCenter: boolean;
 }
 
+interface ChildrenInfo {
+  /** Levels of the first PIP_MAX children, in descending-weight order. */
+  visible: (Level | undefined)[];
+  /** Total number of direct children (may exceed PIP_MAX). */
+  total: number;
+  /** How many children are at level=confirmed. Drives the crown. */
+  confirmed: number;
+}
+
+/** Maximum pips shown below a node before overflowing as "+N". Miller's
+ *  law — 5 reads as a glance-count without subitizing failure. */
+const PIP_MAX = 5;
+
 const VIEWBOX_W = 1200;
 const VIEWBOX_H = 760;
 const CENTER_X = VIEWBOX_W / 2;
@@ -76,7 +91,7 @@ export function HermesDiagram() {
   // refetches that module's diagram. For now wire to project until the
   // navigator integration lands; the structure is here for it.
   const [scope, setScope] = useState<string>('project');
-  const [view] = useState<'logic' | 'file'>('file'); // logic-toggle in next round
+  const [view, setView] = useState<'logic' | 'file'>('file');
   const [payload, setPayload] = useState<DiagramPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -113,6 +128,36 @@ export function HermesDiagram() {
       });
     return () => { cancelled = true; };
   }, [repoPath, scope, view, phase]);
+
+  // Pre-compute direct-children info for each node: an ordered list of
+  // child levels (capped at PIP_MAX, sorted by weight desc) + the total
+  // count + how many are confirmed. The list drives the pip row below
+  // each node; the totals drive the "+N" overflow indicator and the
+  // crown trigger.
+  const childrenInfo = useMemo<Map<string, ChildrenInfo>>(() => {
+    const out = new Map<string, ChildrenInfo>();
+    if (!payload) return out;
+    const childrenOf = new Map<string, string[]>();
+    for (const e of payload.edges) {
+      if (e.kind !== 'contains') continue;
+      const list = childrenOf.get(e.from) ?? [];
+      list.push(e.to);
+      childrenOf.set(e.from, list);
+    }
+    const byId = new Map(payload.nodes.map(n => [n.id, n]));
+    for (const n of payload.nodes) {
+      const childIds = childrenOf.get(n.id) ?? [];
+      const children = childIds
+        .map(id => byId.get(id))
+        .filter((c): c is DiagramNode => !!c)
+        .sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0));
+      const total = children.length;
+      const visible = children.slice(0, PIP_MAX).map(c => c.level);
+      const confirmed = children.filter(c => levelOrdinal(c.level) >= 5).length;
+      out.set(n.id, { visible, total, confirmed });
+    }
+    return out;
+  }, [payload]);
 
   const positioned = useMemo<PositionedNode[]>(() => {
     if (!payload) return [];
@@ -166,6 +211,46 @@ export function HermesDiagram() {
     const pad = 48;
     return { x: minX - pad, y: minY - pad, w: (maxX - minX) + pad * 2, h: (maxY - minY) + pad * 2 };
   }, [positioned]);
+
+  // ─── Hierarchical navigation ─────────────────────────────────────
+  // The diagram scope has a hierarchy: project → module/X → (later) file/Y.
+  // "Back" moves up exactly one level; the breadcrumb's "Project" jumps
+  // all the way to the root. Both stay in sync with the backend
+  // navigator stack via command:level_up so voice ("go back") and the
+  // button hit the same path.
+  // IMPORTANT: these hooks live ABOVE the early returns below — Rules of
+  // Hooks requires a stable call count across renders. Moving them down
+  // changes the hook count between "loading" and "loaded" frames.
+  const inSubScope = scope !== 'project';
+  // useCallback (not useMemo) for a function reference — useMemo works
+  // here but useCallback documents intent and avoids the "function in
+  // memo" smell. Closure reads `scope` directly (not the derived
+  // `inSubScope`) to be defensive against stale closures on rapid
+  // navigations.
+  const goBack = useCallback(() => {
+    if (scope === 'project') return;
+    // Single-level fallback today: any sub-scope (module/X) pops to project.
+    // When file-scope drilling lands this becomes module/X → project,
+    // file/Y → module/parent — driven by parent pointers in the briefing.
+    setScope('project');
+    sendEvent({ type: 'command:level_up' });
+  }, [scope]);
+
+  // Esc anywhere (outside typing targets) acts as "back". Mirrors voice
+  // "go back" and the chevron button so all three paths converge.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      const t = e.target;
+      if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) return;
+      if (t instanceof HTMLElement && t.isContentEditable) return;
+      if (!inSubScope) return;
+      e.preventDefault();
+      goBack();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [inSubScope, goBack]);
 
   if (phase === 'IDLE') return null;
   if (error) {
@@ -222,37 +307,16 @@ export function HermesDiagram() {
           className="flex flex-col items-start"
           style={{ padding: '24px 32px 12px' }}
         >
-          <div
-            className="font-mono flex items-center gap-2"
-            style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--cream-500)', opacity: 0.85 }}
-          >
-            {scope.startsWith('module/') && (
-              <button
-                type="button"
-                onClick={() => setScope('project')}
-                className="font-mono"
-                style={{
-                  padding: '2px 8px',
-                  borderRadius: 999,
-                  background: 'oklch(1 0 0 / 0.04)',
-                  border: '1px solid oklch(1 0 0 / 0.08)',
-                  color: 'var(--cream-500)',
-                  fontSize: 10,
-                  letterSpacing: '0.12em',
-                  textTransform: 'uppercase',
-                  cursor: 'pointer',
-                }}
-                aria-label="Back to project view"
-                data-testid="hermes-diagram-back"
-              >
-                ← Project
-              </button>
-            )}
-            <span>
-              {scope === 'project' ? 'Project' : scope.replace(/^module\//, 'Module · ')}
-              {' · '}
-              {view === 'logic' ? 'Logic flow' : 'File map'}
-            </span>
+          <div className="flex items-center justify-between w-full">
+            <Breadcrumb
+              scope={scope}
+              view={view}
+              onJumpToProject={() => { setScope('project'); sendEvent({ type: 'command:level_up' }); }}
+              onToggleView={() => setView(v => v === 'logic' ? 'file' : 'logic')}
+              onBack={goBack}
+              canGoBack={inSubScope}
+            />
+            <KnowledgeStats nodes={payload.nodes} />
           </div>
           <h1
             className="font-serif"
@@ -326,12 +390,18 @@ export function HermesDiagram() {
             </marker>
           </defs>
 
-          {/* Edges first — under nodes */}
+          {/* Edges first — under nodes.
+           *  The center node is intentionally NOT rendered as a pill
+           *  (it duplicates the page title — see Nodes section below),
+           *  so containment spokes that converge on it would dangle
+           *  into empty space. Skip them. Imports and other semantic
+           *  edges between satellites stay. */}
           <g>
             {payload.edges.map((edge, i) => {
               const a = nodeById.get(edge.from);
               const b = nodeById.get(edge.to);
               if (!a || !b) return null;
+              if (edge.kind === 'contains' && (a.isCenter || b.isCenter)) return null;
               const path = curvedPath(a, b);
               const stroke = edgeStroke(edge.kind);
               // Containment spokes are structural — the radial layout
@@ -357,13 +427,23 @@ export function HermesDiagram() {
             })}
           </g>
 
-          {/* Nodes */}
+          {/* Nodes — skip the center entirely. The center node's label
+           *  is always the current scope (e.g., "PersonalForge" for the
+           *  project view), which already appears in the title bar
+           *  directly above the canvas. Rendering it again as a big
+           *  pill duplicates the page title for no gain AND it was
+           *  the only non-interactive pill in the diagram, which read
+           *  as a broken-looking affordance. The satellites stand
+           *  alone now; the radial layout still orbits the same
+           *  invisible center coordinate so spacing/positioning is
+           *  unchanged. */}
           <g>
-            {positioned.map(n => (
+            {positioned.filter(n => !n.isCenter).map(n => (
               <DiagramNodeView
                 key={n.id}
                 node={n}
                 active={n.briefingId !== null && n.briefingId === currentBriefingId}
+                childrenInfo={childrenInfo.get(n.id) ?? null}
                 onClick={() => onNodeClick(n)}
               />
             ))}
@@ -378,23 +458,42 @@ export function HermesDiagram() {
 interface NodeViewProps {
   node: PositionedNode;
   active: boolean;
+  childrenInfo: ChildrenInfo | null;
   onClick: () => void;
 }
 
-function DiagramNodeView({ node, active, onClick }: NodeViewProps) {
+function DiagramNodeView({ node, active, childrenInfo, onClick }: NodeViewProps) {
   const [hover, setHover] = useState(false);
-  const fill = active
-    ? 'url(#hd-fill-active)'
-    : node.isCenter
-      ? 'url(#hd-fill-center)'
-      : 'url(#hd-fill-default)';
-  const haloColor = levelColor(node.level);
+  // Own-layer comprehension drives the BATTERY FILL of the node body.
+  // The whole shape changes with knowledge — `unknown` is an empty
+  // outline, `confirmed` is fully warm gold. The peripheral bar +
+  // halo treatment never read intuitively; the body fill makes the
+  // signal impossible to miss.
+  const ownLevel: Level | undefined = node.level;
+  const ownOrdinal = levelOrdinal(ownLevel);  // 0..5
+  const ownFraction = ownOrdinal / 5;
+  const ownColor = levelColor(ownLevel);
+  // Per-node gradient id — must be unique per node so each node's fill
+  // line lands at its own ownFraction. SVG gradients are referenced by
+  // id; collision would make every node share one fill height.
+  const gradId = `hd-fill-${nodeIdToSafeCssId(node.id)}`;
   // Title size tracks node size — center has the biggest type. The
   // satellite size was bumped from 14→17 because file-scope drill views
   // (n=5+ filename satellites) were unreadable at the default zoom.
   const titleSize = node.isCenter ? 24 : 17;
   const subSize = node.isCenter ? 13 : 12;
   const lineHeight = subSize * 1.4;
+
+  // Crown ★ — fires when both own=confirmed AND every visible child pip
+  // is confirmed (i.e., what the user can SEE on this node is fully
+  // known). Doesn't require transitive completeness, just the visible
+  // set. The reward is glance-readable: a node is "done" when crowned.
+  const visibleChildrenAllConfirmed =
+    !!childrenInfo &&
+    childrenInfo.visible.length > 0 &&
+    childrenInfo.visible.every(l => levelOrdinal(l) >= 5);
+  const ownConfirmed = ownOrdinal >= 5;
+  const showCrown = ownConfirmed && (childrenInfo?.visible.length === 0 || visibleChildrenAllConfirmed);
 
   // Polished layout: wider rect (3.6× radius vs old 3.1×) so subtitle
   // text has horizontal room to breathe. Height grows with line count
@@ -407,8 +506,13 @@ function DiagramNodeView({ node, active, onClick }: NodeViewProps) {
   const titleSubGap = 10; // breathing room between title and first subtitle line
   const rectWidth = node.radius * 3.6;
   const innerWidth = rectWidth - 2 * innerPadX;
+  // Allow up to 4 lines for the center node (more legroom) and 3 for
+  // satellites. The user's complaint was subtitles being cut off with
+  // ellipses; with oneLineDescription bounded to ~200 chars upstream,
+  // 3-4 wrapped lines comfortably fit the full sentence.
+  const maxLines = node.isCenter ? 4 : 3;
   const lines = node.description
-    ? wrapForRect(node.description, innerWidth, subSize, 3)
+    ? wrapForRect(node.description, innerWidth, subSize, maxLines)
     : [];
   const contentHeight =
     titleSize + (lines.length > 0 ? titleSubGap + lines.length * lineHeight : 0);
@@ -434,7 +538,31 @@ function DiagramNodeView({ node, active, onClick }: NodeViewProps) {
       data-testid={`hd-node-${node.id}`}
       data-active={active ? 'true' : 'false'}
     >
-      {/* Pulse ring — only for the active (currently-narrated) node */}
+      {/* Per-node battery-fill gradient. Hard color stops at the
+       *  own-knowledge level create a "fill line" — below = warm
+       *  comprehension color, above = dim base. y1=1, y2=0 makes the
+       *  gradient flow bottom→top so fill rises like a battery. */}
+      <defs>
+        <linearGradient id={gradId} x1="0" y1="1" x2="0" y2="0">
+          {ownOrdinal === 0 ? (
+            <>
+              <stop offset="0" stopColor="oklch(0.18 0.012 60)" />
+              <stop offset="1" stopColor="oklch(0.14 0.008 60)" />
+            </>
+          ) : (
+            <>
+              <stop offset="0" stopColor={ownColor ?? 'oklch(0.5 0.07 60)'} stopOpacity="0.85" />
+              <stop offset={String(ownFraction)} stopColor={ownColor ?? 'oklch(0.5 0.07 60)'} stopOpacity="0.55" />
+              <stop offset={String(ownFraction)} stopColor="oklch(0.20 0.014 60)" stopOpacity="0.95" />
+              <stop offset="1" stopColor="oklch(0.16 0.010 60)" stopOpacity="0.95" />
+            </>
+          )}
+        </linearGradient>
+      </defs>
+      {/* Pulse ring — only for the active (currently-narrated) node.
+       *  Distinct from any comprehension signal: focus is the only
+       *  ring on the diagram now, so a ring always means "Hermes is
+       *  talking about this right now". */}
       {active && (
         <circle
           r={node.radius + 14}
@@ -447,18 +575,10 @@ function DiagramNodeView({ node, active, onClick }: NodeViewProps) {
           <animate attributeName="opacity" values="0.65;0.1;0.65" dur="2.4s" repeatCount="indefinite" />
         </circle>
       )}
-      {/* Comprehension halo — thin colored ring around the node */}
-      {haloColor && (
-        <circle
-          r={node.radius + 4}
-          fill="none"
-          stroke={haloColor}
-          strokeWidth={2}
-          opacity={0.65}
-        />
-      )}
-      {/* Node body — pill (rounded rect) tall enough for the title +
-       *  wrapped subtitle with consistent inner padding. */}
+      {/* Node body — pill (rounded rect). Fill comes from the per-node
+       *  battery gradient so the body itself carries the own-knowledge
+       *  signal. No halo (was the children-rollup before; that role
+       *  moved to the pip row below). */}
       <rect
         x={-rectWidth / 2}
         y={-rectHeight / 2}
@@ -466,8 +586,8 @@ function DiagramNodeView({ node, active, onClick }: NodeViewProps) {
         height={rectHeight}
         rx={14}
         ry={14}
-        fill={fill}
-        stroke={hover ? 'oklch(0.55 0.10 70)' : 'oklch(0.40 0.03 70)'}
+        fill={`url(#${gradId})`}
+        stroke={hover ? 'oklch(0.55 0.10 70)' : ownConfirmed ? 'oklch(0.62 0.10 75)' : 'oklch(0.40 0.03 70)'}
         strokeWidth={hover ? 1.5 : 1}
         filter="url(#hd-shadow)"
       />
@@ -506,8 +626,99 @@ function DiagramNodeView({ node, active, onClick }: NodeViewProps) {
           ))}
         </text>
       )}
+      {/* Pip row — one dot per direct child, capped at PIP_MAX, colored
+       *  by that child's comprehension level. Reads as a scoreboard:
+       *  glance to see how many sub-things you know. "+N" suffix when
+       *  there are more children than pips. Stays below the node so it
+       *  doesn't compete with the body fill for visual real estate. */}
+      {childrenInfo && childrenInfo.visible.length > 0 && (() => {
+        const pipR = 4;
+        const pipGap = 10;
+        const overflow = childrenInfo.total - childrenInfo.visible.length;
+        const overflowExtra = overflow > 0 ? 22 : 0; // room for "+N"
+        const rowWidth = childrenInfo.visible.length * (pipR * 2) + (childrenInfo.visible.length - 1) * pipGap + overflowExtra;
+        const startX = -rowWidth / 2 + pipR;
+        const rowY = rectHeight / 2 + 14;
+        return (
+          <g data-testid={`hd-pips-${node.id}`}>
+            {childrenInfo.visible.map((lvl, i) => {
+              const ord = levelOrdinal(lvl);
+              const col = levelColor(lvl) ?? 'oklch(0.30 0.015 65)';
+              return (
+                <circle
+                  key={i}
+                  cx={startX + i * (pipR * 2 + pipGap)}
+                  cy={rowY}
+                  r={pipR}
+                  fill={ord >= 1 ? col : 'oklch(0.22 0.012 65)'}
+                  stroke={ord >= 1 ? col : 'oklch(0.32 0.020 65)'}
+                  strokeWidth={1}
+                  opacity={ord >= 1 ? 0.95 : 0.6}
+                />
+              );
+            })}
+            {overflow > 0 && (
+              <text
+                x={startX + childrenInfo.visible.length * (pipR * 2 + pipGap)}
+                y={rowY + 0.5}
+                dominantBaseline="middle"
+                style={{
+                  fontFamily: 'var(--mono, "Geist Mono", ui-monospace, monospace)',
+                  fontSize: 10,
+                  fill: 'var(--cream-500, #b8a99a)',
+                  opacity: 0.7,
+                }}
+              >
+                +{overflow}
+              </text>
+            )}
+          </g>
+        );
+      })()}
+      {/* Crown ★ — small mark above the title when the user has
+       *  confirmed this node AND every visible child. The "done"
+       *  beat — borrowed from Duolingo / skill-tree mastery icons. */}
+      {showCrown && (
+        <text
+          textAnchor="middle"
+          x={0}
+          y={-rectHeight / 2 - 10}
+          style={{
+            fontSize: 14,
+            fill: 'oklch(0.85 0.18 90)',
+            filter: 'drop-shadow(0 0 6px oklch(0.78 0.16 90 / 0.6))',
+          }}
+          aria-label="Mastered"
+        >
+          ★
+        </text>
+      )}
     </g>
   );
+}
+
+/** Strip characters that aren't safe in an SVG id (`/`, etc.). Some
+ *  node ids look like `module/core` or `file/core/loader.py` — those
+ *  break gradient lookups via `url(#id)` if used raw. */
+function nodeIdToSafeCssId(id: string): string {
+  return id.replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
+function levelOrdinal(l: Level | undefined): number {
+  switch (l) {
+    case 'confirmed': return 5;
+    case 'explained': return 4;
+    case 'engaged':   return 3;
+    case 'heard':     return 2;
+    case 'mentioned': return 1;
+    default:          return 0;
+  }
+}
+
+function ordinalToLevel(o: number): Level | undefined {
+  if (o <= 0) return undefined;
+  if (o >= 5) return 'confirmed';
+  return (['mentioned', 'heard', 'engaged', 'explained'][o - 1] as Level) ?? undefined;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -633,15 +844,202 @@ function wrapForRect(text: string, maxPx: number, fontSize: number, maxLines: nu
     if (lines.length >= maxLines) break;
   }
   if (current && lines.length < maxLines) lines.push(current);
-  // If we ran out of room mid-text, append an ellipsis to the last line.
-  if (lines.length === maxLines) {
-    const consumed = lines.join(' ').length;
-    if (consumed < text.length - 1) {
-      const last = lines[lines.length - 1];
-      lines[lines.length - 1] = last.length > maxChars - 2
-        ? last.slice(0, maxChars - 2) + '…'
-        : last + '…';
-    }
-  }
+  // No ellipsis on overflow. oneLineDescription upstream caps input at
+  // ~200 chars, which fits comfortably in 3-4 wrapped lines at the node
+  // sizes we render. If the cap is ever lifted, the visual will simply
+  // hard-cut at the last full word — the trailing "…" was the specific
+  // visual the user asked us to remove.
   return lines;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Breadcrumb
+// ─────────────────────────────────────────────────────────────────────
+
+interface BreadcrumbProps {
+  scope: string;
+  view: 'logic' | 'file';
+  onJumpToProject: () => void;
+  onToggleView: () => void;
+  onBack: () => void;
+  canGoBack: boolean;
+}
+
+/** Hierarchical breadcrumb. Every segment is clickable: Project jumps to
+ *  the root; module name re-centers the current scope (a no-op today but
+ *  reserved for refresh / file-scope drill); view label toggles between
+ *  Logic flow and File map. A persistent "← Back" chevron on the left
+ *  pops one level — works at any scope, mirrors the Esc keybind and the
+ *  voice phrase "go back". */
+function Breadcrumb({ scope, view, onJumpToProject, onToggleView, onBack, canGoBack }: BreadcrumbProps) {
+  const moduleName = scope.startsWith('module/') ? scope.slice('module/'.length) : null;
+  return (
+    <nav
+      className="font-mono flex items-center gap-1"
+      style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--cream-500)', opacity: 0.92 }}
+      aria-label="Diagram navigation"
+    >
+      {/* Show the Back button only when there's somewhere to go back to.
+       *  Greying it out at the project root was confusing — the user
+       *  read "doesn't respond to clicks" as a broken button rather than
+       *  "you're already at the top." Hiding makes the affordance honest. */}
+      {canGoBack && (
+        <>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onBack(); }}
+            title="Go back one level (Esc)"
+            aria-label="Go back one level"
+            className="font-mono"
+            style={{
+              padding: '3px 9px',
+              borderRadius: 999,
+              background: 'oklch(1 0 0 / 0.05)',
+              border: '1px solid oklch(1 0 0 / 0.10)',
+              color: 'var(--cream-300)',
+              fontSize: 10,
+              letterSpacing: '0.12em',
+              textTransform: 'uppercase',
+              cursor: 'pointer',
+            }}
+            data-testid="hermes-diagram-back"
+          >
+            ← Back
+          </button>
+          <CrumbSeparator />
+        </>
+      )}
+
+      <CrumbButton
+        onClick={onJumpToProject}
+        active={!moduleName}
+        title="Jump to the project view"
+        testid="crumb-project"
+      >
+        Project
+      </CrumbButton>
+
+      {moduleName && (
+        <>
+          <CrumbSeparator />
+          <span style={{ color: 'var(--cream-500)' }}>Module</span>
+          <CrumbSeparator dot />
+          <CrumbButton
+            onClick={() => { /* already on this module — no-op for now */ }}
+            active
+            title={`Currently viewing module: ${moduleName}`}
+            testid="crumb-module"
+          >
+            {moduleName}
+          </CrumbButton>
+        </>
+      )}
+
+      <CrumbSeparator />
+
+      <CrumbButton
+        onClick={onToggleView}
+        active={false}
+        title={`Switch to ${view === 'logic' ? 'File map' : 'Logic flow'}`}
+        testid="crumb-view-toggle"
+      >
+        {view === 'logic' ? 'Logic flow' : 'File map'} ⇄
+      </CrumbButton>
+    </nav>
+  );
+}
+
+function CrumbSeparator({ dot }: { dot?: boolean }) {
+  return (
+    <span aria-hidden style={{ color: 'var(--cream-500)', opacity: 0.45, padding: '0 2px' }}>
+      {dot ? '·' : '›'}
+    </span>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Knowledge stats strip
+// ─────────────────────────────────────────────────────────────────────
+
+/** Compact knowledge summary that lives on the right side of the
+ *  breadcrumb row. Counts nodes by comprehension level so the user gets
+ *  an at-a-glance answer to "how much of this view do I actually know?"
+ *  Pairs with the per-node progress bar (own knowledge) and the halo
+ *  (children rollup) to form the knowledge-map signal stack. */
+function KnowledgeStats({ nodes }: { nodes: DiagramNode[] }) {
+  const buckets = useMemo(() => {
+    const cold = nodes.filter(n => levelOrdinal(n.level) <= 0).length;
+    const warm = nodes.filter(n => {
+      const o = levelOrdinal(n.level);
+      return o >= 1 && o <= 3;
+    }).length;
+    const known = nodes.filter(n => levelOrdinal(n.level) >= 4).length;
+    return { cold, warm, known, total: nodes.length };
+  }, [nodes]);
+
+  if (buckets.total === 0) return null;
+  const knownPct = Math.round((buckets.known / buckets.total) * 100);
+
+  return (
+    <div
+      className="font-mono flex items-center gap-3"
+      style={{ fontSize: 10, letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--cream-500)', opacity: 0.85 }}
+      title="Comprehension across the visible nodes"
+      aria-label="Knowledge stats"
+      data-testid="hermes-diagram-stats"
+    >
+      <Pip color={levelColor('confirmed')!} count={buckets.known} label="known" />
+      <Pip color={levelColor('heard')!}     count={buckets.warm}  label="heard" />
+      <Pip color="oklch(0.40 0.02 70)"       count={buckets.cold}  label="cold" />
+      <span style={{ opacity: 0.6 }}>·</span>
+      <span style={{ color: 'var(--cream-300)' }}>{knownPct}%</span>
+    </div>
+  );
+}
+
+function Pip({ color, count, label }: { color: string; count: number; label: string }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+      <span style={{
+        width: 7, height: 7, borderRadius: '50%',
+        background: color, boxShadow: `0 0 4px ${color}`, opacity: count > 0 ? 1 : 0.35,
+      }} />
+      <span style={{ color: count > 0 ? 'var(--cream-400)' : 'var(--cream-500)' }}>{count} {label}</span>
+    </span>
+  );
+}
+
+function CrumbButton({
+  children, onClick, active, title, testid,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  active: boolean;
+  title: string;
+  testid: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      data-testid={testid}
+      className="font-mono"
+      style={{
+        background: 'transparent',
+        border: 'none',
+        padding: '2px 4px',
+        color: active ? 'var(--cream-200)' : 'var(--cream-500)',
+        fontSize: 11,
+        letterSpacing: '0.18em',
+        textTransform: 'uppercase',
+        cursor: 'pointer',
+        opacity: active ? 1 : 0.85,
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--cream-100)')}
+      onMouseLeave={(e) => (e.currentTarget.style.color = active ? 'var(--cream-200)' : 'var(--cream-500)')}
+    >
+      {children}
+    </button>
+  );
 }

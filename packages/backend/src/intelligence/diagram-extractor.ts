@@ -26,6 +26,10 @@ export interface ExtractParams {
 }
 
 const MAX_SATELLITES = 6;
+// Bump this whenever the diagram payload SHAPE changes (new node fields,
+// new edge kinds, layout-affecting logic). Mixed into every source hash
+// so cached rows from prior shapes get re-warmed automatically.
+const DIAGRAM_SCHEMA_VERSION = 'v4-no-ellipsis-subtitle';
 
 /** Project-level FILE view — top-level modules orbit the project. */
 export function extractProjectFileView(p: ExtractParams): DiagramRow {
@@ -54,10 +58,13 @@ export function extractProjectFileView(p: ExtractParams): DiagramRow {
     briefingId: `module/${m.modulePath}`,
   }));
 
-  // Edges: import relationships between modules. Where both endpoints
-  // are present in the satellite set, draw an edge.
+  // Edges: ALWAYS connect center→satellite (parent-of relationship)
+  // so the canvas never floats with disconnected nodes. Cross-module
+  // imports layer on top with a stronger style.
   const ids = new Set([center.id, ...satellites.map(s => s.id)]);
-  const edges: DiagramEdge[] = [];
+  const edges: DiagramEdge[] = satellites.map(s => ({
+    from: center.id, to: s.id, kind: 'contains' as const,
+  }));
   for (const m of modules) {
     for (const target of m.imports ?? []) {
       const targetId = `module/${target}`;
@@ -75,6 +82,7 @@ export function extractProjectFileView(p: ExtractParams): DiagramRow {
     nodes: [center, ...satellites],
     edges,
     sourceHash: hashOf([
+      DIAGRAM_SCHEMA_VERSION,
       projectName,
       ...modules.map(m => `${m.modulePath}:${m.impactScore}:${(m.imports ?? []).join(',')}`),
     ]),
@@ -115,8 +123,9 @@ export function extractModuleFileView(p: ExtractParams, modulePath: string): Dia
     title: modulePath,
     subtitle: oneLineDescription(undefined, mod.summary) ?? `${keyFiles.length} key files`,
     nodes: [center, ...satellites],
-    edges: [], // file-internal imports are derivable but noisy at this scale
-    sourceHash: hashOf([modulePath, mod.summary, ...keyFiles]),
+    // center→file containment edges so the canvas isn't disconnected.
+    edges: satellites.map(s => ({ from: center.id, to: s.id, kind: 'contains' as const })),
+    sourceHash: hashOf([DIAGRAM_SCHEMA_VERSION, modulePath, mod.summary, ...keyFiles]),
     generatedAt: new Date().toISOString(),
   };
 }
@@ -162,6 +171,7 @@ export async function extractProjectLogicView(p: ExtractParams): Promise<Diagram
     nodes: enriched,
     edges: result.edges,
     sourceHash: hashOf([
+      DIAGRAM_SCHEMA_VERSION,
       fileView.title,
       project.summary,
       ...result.nodes.map(n => `${n.id}:${n.label}`),
@@ -200,7 +210,7 @@ export async function extractModuleLogicView(
     nodes: result.nodes,
     edges: result.edges,
     sourceHash: hashOf([
-      modulePath, mod.summary,
+      DIAGRAM_SCHEMA_VERSION, modulePath, mod.summary,
       ...result.nodes.map(n => `${n.id}:${n.label}`),
       ...result.edges.map(e => `${e.from}->${e.to}`),
     ]),
@@ -331,15 +341,23 @@ function normalizeWeight(impact: number, all: ModuleCacheRow[]): number {
 function oneLineDescription(purpose: string | undefined, summary: string | undefined): string | undefined {
   const candidate = (purpose || summary || '').trim();
   if (!candidate) return undefined;
-  // Strip markdown noise + take the first sentence.
+  // Strip markdown noise + take the first sentence. The cap was 80 chars
+  // which truncated even single grammatical sentences ("The core module
+  // is the data-pipeline and hardware-intelligence backbone of
+  // PersonalForge." = 92 chars) and appended "…". The diagram and the
+  // header BOTH wrap text now, so the cap is loosened — give the
+  // sentence room to breathe across 2-3 wrapped lines instead of
+  // chopping it mid-thought.
   const cleaned = candidate.replace(/[*_`#>]+/g, '').replace(/\s+/g, ' ').trim();
-  const firstSentence = cleaned.match(/^[^.!?]{8,200}[.!?]/)?.[0] ?? cleaned;
-  if (firstSentence.length <= 80) return firstSentence.trim();
-  // Truncate at a word boundary near 80 chars (no ellipsis — caller can
-  // decide how to render long lines).
-  const truncated = firstSentence.slice(0, 80);
+  const firstSentence = cleaned.match(/^[^.!?]{8,220}[.!?]/)?.[0] ?? cleaned;
+  if (firstSentence.length <= 200) return firstSentence.trim();
+  // Only truncate when the first "sentence" is genuinely runaway prose
+  // (>200 chars with no period). Hard-cut at the last word boundary —
+  // still no ellipsis, since the rendering layer wraps multi-line and
+  // the trailing "…" is visual noise the user explicitly didn't want.
+  const truncated = firstSentence.slice(0, 200);
   const lastSpace = truncated.lastIndexOf(' ');
-  return (lastSpace > 40 ? truncated.slice(0, lastSpace) : truncated).trim() + '…';
+  return (lastSpace > 100 ? truncated.slice(0, lastSpace) : truncated).trim();
 }
 
 function extractName(summary: string, repoPath: string): string {
