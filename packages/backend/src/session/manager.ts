@@ -2442,20 +2442,24 @@ export class SessionManager {
       return;
     }
 
-    // Low confidence -- ask for clarification
+    // Explicit "no skill matches" → route to the general conversational
+    // handler. This is the escape hatch that prevents force-fitting
+    // creative/off-menu requests ("write me a poem", "what if...", "no
+    // try again differently") into the nearest available skill.
+    // handleQuestion sends the utterance + project context + recent
+    // turns to the LLM and emits the reply naturally.
+    if (classification.skillName === 'none') {
+      this.handleQuestion(text);
+      return;
+    }
+
+    // Low confidence -- also route to general conversation. The
+    // classifier was told to prefer 'none' when uncertain, but when it
+    // still hedges below 0.7 we trust the conversational handler over a
+    // forced skill rather than asking for clarification (the user just
+    // told us what they want; making them rephrase is bad UX).
     if (classification.confidence < 0.7) {
-      this.emit({
-        type: 'skill:clarify',
-        payload: {
-          message: `I'm not sure what you'd like. Could you rephrase? I think you might want to:`,
-          options: [
-            `Explain ${classification.params.target ?? 'this'}`,
-            `Visualize the architecture`,
-            `Compare the changes`,
-            `Summarize the current area`,
-          ],
-        },
-      });
+      this.handleQuestion(text);
       return;
     }
 
@@ -2598,19 +2602,34 @@ export class SessionManager {
     return `I found ${this.areas.length} area${this.areas.length !== 1 ? 's' : ''} of change. The biggest is ${this.areas[0]?.name ?? 'unknown'}. I'd suggest starting there. Want to go in that order, or would you prefer something different?`;
   }
 
-  /** Handle user utterance during PROPOSAL phase. Returns true if handled. */
+  /** Handle user utterance during PROPOSAL phase. Returns true if handled.
+   *
+   *  The matchers below previously used unanchored `^token` regexes, which
+   *  let "okay, in under 10 words..." match as an ack and silently
+   *  swallowed the real question. Now every matcher requires the trigger
+   *  phrase to be the WHOLE utterance (or at most a couple trailing
+   *  words) — anything longer or with substantive content trailing the
+   *  ack falls through, so the caller's "wordCount > 4 → accept-and-
+   *  recurse" path can route it to QA. */
   private handleProposalUtterance(text: string): boolean {
-    const lower = text.toLowerCase().trim();
+    const lower = text.toLowerCase().trim().replace(/[.!?,;]+$/, '');
+    const wordCount = lower.split(/\s+/).filter(Boolean).length;
 
-    // "yes" / "sounds good" / "let's go" → accept
-    if (/^(yes|yeah|yep|sure|sounds? good|let'?s go|ok|okay|go ahead|start|begin|looks? good)/.test(lower)) {
+    // "yes" / "sounds good" / "let's go" → accept. Match only when the
+    // utterance IS an ack (≤3 words AND end-anchored). "okay" passes;
+    // "okay, in under 10 words tell me what this project does" does not.
+    const ACK_PATTERN = /^(yes|yeah|yep|sure|sure thing|sounds? good|let'?s go|ok|okay|go ahead|start|begin|begin tour|looks? good|do it|please|alright|all right)$/;
+    if (wordCount <= 3 && ACK_PATTERN.test(lower)) {
       this.acceptProposal();
       return true;
     }
 
-    // "just the highlights" → set condensed flag and accept
-    if (/highlight|brief|quick|short|condensed|summary only|skim/.test(lower)) {
-      // Filter to major/minor areas only when condensed
+    // "just the highlights" → set condensed flag and accept. Require the
+    // condensed trigger to be a meaningful share of the utterance
+    // (≤4 words) so it doesn't match a 12-word question that happens to
+    // contain "brief".
+    const CONDENSED_PATTERN = /^(just )?(the )?(highlights?|brief(?: version)?|quick(?: version)?|short(?: version)?|condensed|summary only|skim|tldr)$/;
+    if (wordCount <= 4 && CONDENSED_PATTERN.test(lower)) {
       const filtered = this.areas.filter(a => a.significance === 'major' || a.significance === 'minor');
       if (filtered.length > 0) {
         this.areas = filtered;
@@ -2622,8 +2641,10 @@ export class SessionManager {
       return true;
     }
 
-    // "focus on [X]" → filter to matching area and accept
-    const focusMatch = lower.match(/focus (?:on )?(.+)/);
+    // "focus on [X]" → filter to matching area and accept. The match
+    // must start the utterance (it's a directive, not a phrase that
+    // might appear inside a question).
+    const focusMatch = lower.match(/^focus (?:on )?(.+)$/);
     if (focusMatch) {
       const target = focusMatch[1];
       const matching = this.areas.filter(a =>
@@ -2639,24 +2660,30 @@ export class SessionManager {
       return true;
     }
 
-    // "skip" → go to wrap up
-    if (/^skip/.test(lower)) {
+    // "skip" → go to wrap up. Standalone command only.
+    if (/^skip( (it|this|the tour))?$/.test(lower)) {
       this.setState({ phase: 'WRAP_UP' });
       return true;
     }
 
-    // Check if user named a specific area → reorder to start there
-    const matchedArea = this.areas.find(a =>
-      lower.includes(a.name.toLowerCase()),
-    );
-    if (matchedArea) {
-      const reordered = [matchedArea, ...this.areas.filter(a => a.id !== matchedArea.id)];
-      this.areas = reordered;
-      this.proposalSuggestedOrder = reordered.map(a => a.id);
-      this.tourPlan = TourPlan.fromAreas(this.areas);
-      this.context.totalAreas = this.areas.length;
-      this.acceptProposal();
-      return true;
+    // Check if user named a specific area as a SHORT request to start
+    // there (e.g. "core" / "tell me about core"). Require ≤6 words so
+    // a 20-word question like "summarize what the core module does"
+    // doesn't hijack into proposal acceptance — that should go through
+    // the normal QA pipeline.
+    if (wordCount <= 6) {
+      const matchedArea = this.areas.find(a =>
+        lower.includes(a.name.toLowerCase()),
+      );
+      if (matchedArea) {
+        const reordered = [matchedArea, ...this.areas.filter(a => a.id !== matchedArea.id)];
+        this.areas = reordered;
+        this.proposalSuggestedOrder = reordered.map(a => a.id);
+        this.tourPlan = TourPlan.fromAreas(this.areas);
+        this.context.totalAreas = this.areas.length;
+        this.acceptProposal();
+        return true;
+      }
     }
 
     return false;

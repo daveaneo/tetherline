@@ -186,12 +186,13 @@ export class BriefingComposer {
 
   private buildProjectOpener(name: string, purpose: string | undefined, summary: string): string {
     const cleanedSummary = stripMarkdownForSpeech(summary);
-    // Keep up to 4 sentences for the project briefing — this is where the
-    // architectural shape + the "watch out for" detail lives, and capping
-    // at 2 routinely chopped off the substance line. The 45s spoken-time
-    // cap (enforced downstream) is the real ceiling.
-    const summarySentences = splitSentences(cleanedSummary).slice(0, 4).join(' ').trim();
-    const firstTwoSentences = summarySentences;
+    // Keep up to 2 sentences for the project briefing — the voice-first
+    // contract calls for "concise, relevant, prompt" replies, and ~30s
+    // monologues at session start bait the user into interrupting
+    // before the AI even gets to a question. The architectural-shape
+    // detail moves to the architecture briefing, which the user can
+    // opt into by saying "walk me through the architecture".
+    const firstTwoSentences = splitSentences(cleanedSummary).slice(0, 2).join(' ').trim();
     const cleanedPurpose = purpose ? stripMarkdownForSpeech(purpose).trim() : '';
 
     // Shape the lead sentence around what `purpose` actually looks like.
@@ -222,6 +223,21 @@ export class BriefingComposer {
     const purposeLooksLikeFragment =
       FRAGMENT_LEADERS.has(firstWord) ||
       /\.\s/.test(cleanedPurpose); // contains a sentence break — not a single noun phrase
+    // Fast path: if there's no purpose to lead with AND the summary
+    // already starts with the project name, use the summary verbatim.
+    // The legacy "strip 'X is' from summary, then rejoin as 'X. body'"
+    // path produced the awkward "PersonalForge. A Python tool…" opener
+    // — period-after-name reads as a label, not a sentence. Keeping
+    // the summary intact preserves the natural "PersonalForge is a
+    // Python tool…" sentence the LLM already wrote.
+    const summaryStartsWithName = firstTwoSentences.toLowerCase().startsWith(name.toLowerCase() + ' ');
+    if ((!cleanedPurpose || purposeLooksLikeFragment) && summaryStartsWithName) {
+      return ensureSuffixPrompt(
+        firstTwoSentences,
+        "Say \"walk me through the architecture\" whenever you're ready.",
+      );
+    }
+
     const lead = !cleanedPurpose || purposeLooksLikeFragment
       ? name
       : purposeLooksLikeTagline
@@ -230,7 +246,6 @@ export class BriefingComposer {
 
     // Avoid immediately repeating the project name if it already appears at
     // the start of the summary.
-    const summaryStartsWithName = firstTwoSentences.toLowerCase().startsWith(name.toLowerCase() + ' ');
     let body = summaryStartsWithName
       ? firstTwoSentences.slice(name.length).replace(/^\s+(is|is a|is the)\s+/i, '').trim()
       : firstTwoSentences || 'Let me walk you through it from the top.';

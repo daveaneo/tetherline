@@ -54,11 +54,21 @@ export class IntentClassifier {
   constructor(private claude: IClaudeClient) {}
 
   async classify(utterance: string, context: string): Promise<IntentClassification> {
-    const normalized = utterance.toLowerCase().trim();
+    // Strip trailing punctuation so "next." and "next!" still match the
+    // dictionary's "next" entry. Whitespace + casing are already
+    // normalized below.
+    const normalized = utterance.toLowerCase().trim().replace(/[.!?,;:]+$/, '');
 
-    // Check for navigation commands first
+    // Check for navigation commands first — STRICT EXACT MATCH only.
+    // The previous `startsWith(phrase + ' ')` matcher hijacked longer
+    // utterances: "skip the boring parts" → navigation:skip; "next,
+    // tell me about X" → navigation:next; "back to the basics of how
+    // this works" → navigation:previous. Any prefix-style match is a
+    // foot-gun because real conversation regularly opens with common
+    // command words. Only treat as a deterministic command when the
+    // entire utterance is the phrase.
     for (const [phrase, command] of Object.entries(NAVIGATION_PHRASES)) {
-      if (normalized === phrase || normalized.startsWith(phrase + ' ')) {
+      if (normalized === phrase) {
         return { skillName: 'navigation', confidence: 1.0, params: {}, navigationCommand: command };
       }
     }
@@ -99,25 +109,40 @@ ${context}`;
 - visualize: user wants to SEE a diagram or visual representation ("show me", "draw", "what does X look like")
 - explain: user wants something EXPLAINED ("what does this do", "why", "how does X work")
 - compare: user wants to see DIFFERENCES ("how did this change", "before and after", "diff")
-- critique: user wants the AI's OPINION ("is this good", "what do you think", "any issues")
-- summarize: user wants a BRIEF overview ("give me the quick version", "summarize", "tldr")
+- critique: user wants the AI's OPINION on something specific ("is this good", "what do you think of X", "any issues with Y")
+- summarize: user wants a BRIEF prose overview ("give me the quick version", "summarize", "tldr") — flat sentences, NOT creative formats
 - navigate: user wants to MOVE somewhere in the codebase ("go to", "show me the file", "open")
 - teach: user wants to LEARN a concept ("what is", "explain the pattern", "teach me about")
 - annotate: user wants to MARK something ("flag this", "remember this", "note")
 - create_issue: user wants to CREATE a GitHub issue ("create a ticket", "file an issue", "open a bug")
 - share_explanation: user wants to SHARE or COPY the current explanation ("share this", "copy this")
+- none: NONE OF THE ABOVE fits cleanly. Use 'none' for:
+   • Creative output requests (write a poem, joke, story, haiku, song, rap)
+   • Hypotheticals or thought experiments ("what if we...", "imagine that...")
+   • Conversational follow-ups that don't restart a task ("that wasn't a poem", "try again with X", "no, more like Y")
+   • Meta / chit-chat ("can you hear me", "thanks", "good morning")
+   • Anything where forcing a skill match would distort the user's intent
+  When you return 'none', the general conversational handler responds freely with the project context. This is OFTEN the right answer — don't force-fit.
 
-Return the skill name, a confidence score from 0 to 1, and any extracted parameters (like file names, component names, etc).`,
+Return the skill name, a confidence score from 0 to 1, and any extracted parameters (like file names, component names, format hints, length hints, etc).
+
+Confidence guidance:
+- 0.9–1.0: utterance maps cleanly to exactly one skill, no ambiguity.
+- 0.7–0.9: skill is likely but some ambiguity. The session manager will execute it but log the lower confidence.
+- < 0.7: prefer 'none' over guessing — the general handler will do better than a wrong skill.`,
         messages: [{
           role: 'user',
           content: `Context: ${context}\n\nUser said: "${utterance}"`,
         }],
         toolName: 'classify_intent',
-        toolDescription: 'Classify user intent into a skill',
+        toolDescription: 'Classify user intent into a skill (or none)',
         inputSchema: {
           type: 'object' as const,
           properties: {
-            skillName: { type: 'string', enum: ['visualize', 'explain', 'compare', 'critique', 'summarize', 'navigate', 'teach', 'annotate', 'create_issue', 'share_explanation'] },
+            skillName: {
+              type: 'string',
+              enum: ['visualize', 'explain', 'compare', 'critique', 'summarize', 'navigate', 'teach', 'annotate', 'create_issue', 'share_explanation', 'none'],
+            },
             confidence: { type: 'number', description: 'Confidence score from 0 to 1' },
             params: { type: 'object', additionalProperties: { type: 'string' }, description: 'Extracted parameters' },
           },
@@ -132,8 +157,11 @@ Return the skill name, a confidence score from 0 to 1, and any extracted paramet
         params: result.params,
       };
     } catch {
-      // Fallback: treat as explain
-      return { skillName: 'explain', confidence: 0.5, params: {} };
+      // Fallback: 'none' routes to general conversation. Was 'explain'
+      // with confidence 0.5 — but that locked the response into the
+      // explain skill's hand-tuned prompt instead of letting the
+      // conversational handler do its thing.
+      return { skillName: 'none', confidence: 0.5, params: {} };
     }
   }
 }

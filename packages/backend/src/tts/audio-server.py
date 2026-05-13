@@ -2,7 +2,7 @@
 Local audio server: Kokoro TTS + Whisper STT.
 Runs as a sidecar process, called by the Node.js backend.
 
-Usage: python audio-server.py [--port 3848] [--voice af_heart] [--whisper-model tiny]
+Usage: python audio-server.py [--port 3848] [--voice af_heart] [--whisper-model base.en]
 
 Endpoints:
   POST /tts       { "text": "...", "voice": "af_heart" }  → audio/wav
@@ -20,7 +20,42 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 # Lazy-load models
 _tts_pipeline = None
 _whisper_model = None
-_whisper_model_size = 'tiny'
+_whisper_model_size = 'base.en'
+
+# Import probe results — populated lazily on the first /health call (and
+# every subsequent /health call) so the endpoint reports HONEST
+# availability instead of an unconditional `True`. Caching the result
+# avoids re-importing on every probe. `None` = not yet checked.
+_tts_probe = None      # tuple[bool, str | None]
+_stt_probe = None      # tuple[bool, str | None]
+
+
+def probe_tts():
+    """Try to import the TTS backend. Returns (ok, error_message)."""
+    global _tts_probe
+    if _tts_probe is not None:
+        return _tts_probe
+    try:
+        import importlib
+        importlib.import_module('kokoro')
+        _tts_probe = (True, None)
+    except Exception as e:
+        _tts_probe = (False, f"{type(e).__name__}: {e}")
+    return _tts_probe
+
+
+def probe_stt():
+    """Try to import the STT backend. Returns (ok, error_message)."""
+    global _stt_probe
+    if _stt_probe is not None:
+        return _stt_probe
+    try:
+        import importlib
+        importlib.import_module('faster_whisper')
+        _stt_probe = (True, None)
+    except Exception as e:
+        _stt_probe = (False, f"{type(e).__name__}: {e}")
+    return _stt_probe
 
 AVAILABLE_VOICES = [
     'af_heart', 'af_alloy', 'af_aoede', 'af_bella', 'af_jessica', 'af_kore',
@@ -49,6 +84,17 @@ def get_whisper_model():
 
 
 class AudioHandler(BaseHTTPRequestHandler):
+    def send_json_error(self, status, message):
+        """Return a small JSON error body instead of the stdlib's default
+        HTML. The Node backend forwards `upstream` to the frontend toast
+        verbatim; HTML there reads as garbage."""
+        body = json.dumps({"error": message}).encode()
+        self.send_response(status)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_POST(self):
         if self.path == '/tts':
             self.handle_tts()
@@ -59,12 +105,26 @@ class AudioHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == '/health':
-            response = json.dumps({
+            # Honest probe: tts/stt are TRUE only when the backing
+            # libraries are importable. The previous unconditional
+            # `True` lied to the Node backend, which lied to the
+            # frontend — every transcription silently failed because
+            # /health said STT worked when faster_whisper wasn't even
+            # installed. Cached in _tts_probe / _stt_probe so this
+            # endpoint stays cheap on repeat hits.
+            tts_ok, tts_err = probe_tts()
+            stt_ok, stt_err = probe_stt()
+            body = {
                 "status": "ok",
                 "engine": "kokoro+whisper",
-                "tts": True,
-                "stt": True,
-            }).encode()
+                "tts": tts_ok,
+                "stt": stt_ok,
+            }
+            if not tts_ok:
+                body["ttsError"] = tts_err
+            if not stt_ok:
+                body["sttError"] = stt_err
+            response = json.dumps(body).encode()
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Content-Length', str(len(response)))
@@ -87,14 +147,14 @@ class AudioHandler(BaseHTTPRequestHandler):
         try:
             data = json.loads(body)
         except json.JSONDecodeError:
-            self.send_error(400, 'Invalid JSON')
+            self.send_json_error(400, 'Invalid JSON')
             return
 
         text = data.get('text', '').strip()
         voice = data.get('voice', 'af_heart')
 
         if not text:
-            self.send_error(400, 'text is required')
+            self.send_json_error(400, 'text is required')
             return
 
         try:
@@ -107,7 +167,7 @@ class AudioHandler(BaseHTTPRequestHandler):
                 audio_segments.append(audio)
 
             if not audio_segments:
-                self.send_error(500, 'No audio generated')
+                self.send_json_error(500, 'No audio generated')
                 return
 
             full_audio = np.concatenate(audio_segments)
@@ -123,12 +183,12 @@ class AudioHandler(BaseHTTPRequestHandler):
 
         except Exception as e:
             print(f"[audio] TTS error: {e}", flush=True)
-            self.send_error(500, str(e))
+            self.send_json_error(500, str(e))
 
     def handle_transcribe(self):
         content_length = int(self.headers.get('Content-Length', 0))
         if content_length == 0:
-            self.send_error(400, 'No audio data')
+            self.send_json_error(400, 'No audio data')
             return
 
         audio_data = self.rfile.read(content_length)
@@ -188,7 +248,7 @@ class AudioHandler(BaseHTTPRequestHandler):
                 os.unlink(tmp_path)
             except (OSError, NameError):
                 pass
-            self.send_error(500, str(e))
+            self.send_json_error(500, str(e))
 
     def log_message(self, format, *args):
         pass
@@ -200,9 +260,11 @@ def main():
     parser = argparse.ArgumentParser(description='Local Audio Server (TTS + STT)')
     parser.add_argument('--port', type=int, default=3848)
     parser.add_argument('--voice', type=str, default='af_heart')
-    parser.add_argument('--whisper-model', type=str, default='tiny',
-                        choices=['tiny', 'base', 'small', 'medium', 'large-v3'],
-                        help='Whisper model size (tiny=fastest, large-v3=best)')
+    parser.add_argument('--whisper-model', type=str, default='base.en',
+                        choices=['tiny', 'tiny.en', 'base', 'base.en', 'small', 'small.en', 'medium', 'medium.en', 'large-v3'],
+                        help='Whisper model size. Default base.en — sweet spot for English-only voice input '
+                             '(~10% more accurate on long-form than tiny, ~1s extra latency on CPU). '
+                             'Use tiny for fastest, small/medium for best accuracy.')
     parser.add_argument('--preload', action='store_true', help='Load models on startup')
     args = parser.parse_args()
 
@@ -213,10 +275,32 @@ def main():
         get_tts_pipeline()
         get_whisper_model()
 
+    # Probe dependencies on startup (before HTTPServer.listen) so:
+    #   1. The operator sees failures immediately, not via baffling
+    #      "transcription failed" toasts later.
+    #   2. The first /health hit is fast. Lazy probing imported
+    #      kokoro + faster_whisper synchronously on first call,
+    #      which loads torch (~5s). The Node backend's /health probe
+    #      has a 2s timeout — so the FIRST /health from the frontend
+    #      timed out, the frontend cached voiceMode='none', and PTT
+    #      silently dropped utterances even though the sidecar was
+    #      actually fine. Eager probe means /health is always sub-ms.
+    print("[audio] Probing dependencies...", flush=True)
+    tts_ok, tts_err = probe_tts()
+    stt_ok, stt_err = probe_stt()
+
     server = HTTPServer(('127.0.0.1', args.port), AudioHandler)
     print(f"[audio] Server running on http://127.0.0.1:{args.port}", flush=True)
-    print(f"[audio] TTS: Kokoro (voice: {args.voice})", flush=True)
-    print(f"[audio] STT: Whisper ({args.whisper_model})", flush=True)
+    if tts_ok:
+        print(f"[audio] TTS: Kokoro (voice: {args.voice})", flush=True)
+    else:
+        print(f"[audio] TTS: UNAVAILABLE — {tts_err}", flush=True)
+        print("[audio]      → install: pip install kokoro (use the repo .venv)", flush=True)
+    if stt_ok:
+        print(f"[audio] STT: Whisper ({args.whisper_model})", flush=True)
+    else:
+        print(f"[audio] STT: UNAVAILABLE — {stt_err}", flush=True)
+        print("[audio]      → install: pip install faster-whisper (use the repo .venv)", flush=True)
 
     try:
         server.serve_forever()

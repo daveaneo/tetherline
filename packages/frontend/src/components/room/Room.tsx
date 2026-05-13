@@ -8,6 +8,7 @@ import { ContentDrawer } from './ContentDrawer.js';
 import { NarrationBar } from './NarrationBar.js';
 import { QuickChips } from './QuickChips.js';
 import { GapsPanel } from './GapsPanel.js';
+import { ListeningPill } from './ListeningPill.js';
 import { CodePanel } from './CodePanel.js';
 import { HermesText } from './HermesText.js';
 import { useGapsStore } from '../../state/gaps-store.js';
@@ -149,6 +150,7 @@ export function Room() {
 
         <GapsPanel />
         <CodePanel />
+        <ListeningPill />
       </div>
 
       <ComprehensionOverlay />

@@ -90,14 +90,28 @@ export function createAudioRoutes(db: Database, config: AppConfig): Router {
       });
 
       if (!response.ok) {
-        res.status(502).json({ error: 'Transcription service unavailable' });
+        // Forward the sidecar's actual error so the frontend can show
+        // *why* — not a generic "unavailable". Common cases:
+        //   - upstream returned 500 with "No module named 'faster_whisper'"
+        //   - upstream returned 500 with a model-load error
+        // Without this, every failure mode looked identical to the user.
+        const body = await response.text().catch(() => '');
+        let upstream = body;
+        try { upstream = JSON.parse(body)?.error ?? body; } catch {}
+        res.status(502).json({
+          error: 'Transcription service error',
+          upstream: upstream || `HTTP ${response.status}`,
+        });
         return;
       }
 
       const result = await response.json() as any;
       res.json(result);
     } catch (err: any) {
-      res.status(503).json({ error: 'Transcription failed: ' + err.message });
+      res.status(503).json({
+        error: 'Transcription failed',
+        upstream: err.message ?? String(err),
+      });
     }
   });
 
@@ -114,6 +128,9 @@ export function createAudioRoutes(db: Database, config: AppConfig): Router {
     const whisperAvailable = !!sidecarStatus?.stt;
     const openaiAvailable = !!(config.openaiApiKey ?? db.getSettingsRepo().get('openaiApiKey'));
 
+    // Propagate the sidecar's diagnostic strings (set by the honest
+    // import-probes in audio-server.py) so callers can show WHY each
+    // backend is unavailable — not just that it is.
     res.json({
       kokoro: kokoroAvailable,
       whisper: whisperAvailable,
@@ -121,6 +138,9 @@ export function createAudioRoutes(db: Database, config: AppConfig): Router {
       browser: true,
       activeTts: kokoroAvailable ? 'kokoro' : openaiAvailable ? 'openai' : 'browser',
       activeStt: whisperAvailable ? 'whisper' : 'browser',
+      sidecarReachable: !!sidecarStatus,
+      ttsError: sidecarStatus?.ttsError ?? null,
+      sttError: sidecarStatus?.sttError ?? null,
     });
   });
 

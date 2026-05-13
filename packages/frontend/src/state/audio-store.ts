@@ -49,6 +49,19 @@ interface AudioStore {
   _stopMicFn: (() => void) | null;
   setStopMicFn: (fn: () => void) => void;
   requestMicStop: () => void;
+  /** Which STT backend is wired up. 'none' = nothing works → mic toggle
+   *  + PTT should report unavailable with actionable instructions, not
+   *  silently fail. Mirrored from useVoiceInput so MicToggle / banners
+   *  can read it without depending on the hook. */
+  voiceMode: 'whisper' | 'browser' | 'none' | 'unknown';
+  setVoiceMode: (m: 'whisper' | 'browser' | 'none' | 'unknown') => void;
+
+  /** Timestamp when the user's current PTT hold began, or null when not
+   *  holding. Mirrored from useVoiceInput so a listening pill can render
+   *  a live "🎙 Listening · 00:14" elapsed counter without coupling to
+   *  the hook. Cleared on PTT release. */
+  pttHoldStartedAt: number | null;
+  setPttHoldStartedAt: (t: number | null) => void;
 
   setCurrentSegment: (segment: NarrationSegment | null) => void;
   setPlaying: (playing: boolean) => void;
@@ -75,6 +88,8 @@ export const useAudioStore = create<AudioStore>((set, get) => ({
   _startMicFn: null,
   _stopMicFn: null,
   micListening: false,
+  voiceMode: 'unknown',
+  pttHoldStartedAt: null,
 
   setAudioElement: (el) => set({ audioElement: el }),
   muteOutput: () => {
@@ -104,6 +119,8 @@ export const useAudioStore = create<AudioStore>((set, get) => ({
   setStopMicFn: (fn) => set({ _stopMicFn: fn }),
   requestMicStop: () => { get()._stopMicFn?.(); },
   setMicListening: (v) => set({ micListening: v }),
+  setVoiceMode: (m) => set({ voiceMode: m }),
+  setPttHoldStartedAt: (t) => set({ pttHoldStartedAt: t }),
 
   setCurrentSegment: (segment) => set({ currentSegment: segment }),
   setPlaying: (playing) => set((s) => ({

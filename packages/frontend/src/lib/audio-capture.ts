@@ -48,6 +48,13 @@ export class AudioCapture {
   private pcmSampleCount = 0;
   private isRecordingSpeech = false;
   private speechStartSampleCount = 0;
+  /** True between forceSpeechStart and forceSpeechEnd. While held, the
+   *  VAD's silence-detection MUST NOT call processSpeech — otherwise a
+   *  single PTT hold gets sliced into N partial transcripts at every
+   *  natural pause (breath, thinking gap), each routed as a separate
+   *  question. The user explicitly told us "I'm speaking now" by holding
+   *  space; trust that, and only ship audio at release. */
+  private pttHeld = false;
 
   // Dynamic threshold
   private dynamicThreshold = BASE_THRESHOLD;
@@ -138,6 +145,11 @@ export class AudioCapture {
     if (!this.isCapturing) return;
     this.isSpeaking = true;
     this.isRecordingSpeech = true;
+    this.pttHeld = true;
+    // Cancel any in-flight VAD silence timer so a pre-existing
+    // segmentation can't fire after we entered PTT mode.
+    if (this.silenceTimer) { clearTimeout(this.silenceTimer); this.silenceTimer = null; }
+    if (this.confirmTimer) { clearTimeout(this.confirmTimer); this.confirmTimer = null; }
     this.speechStartTime = Date.now();
     this.speechStartSampleCount = Math.max(0, this.pcmSampleCount - PRE_BUFFER_SAMPLES);
   }
@@ -149,6 +161,7 @@ export class AudioCapture {
     if (!this.isRecordingSpeech) return;
     this.isSpeaking = false;
     this.isRecordingSpeech = false;
+    this.pttHeld = false;
     if (this.silenceTimer) { clearTimeout(this.silenceTimer); this.silenceTimer = null; }
     if (this.confirmTimer) { clearTimeout(this.confirmTimer); this.confirmTimer = null; }
     await this.processSpeech();
@@ -206,6 +219,12 @@ export class AudioCapture {
   }
 
   private onSoundDetected(): void {
+    // While the user is holding PTT, VAD must NOT auto-segment. The
+    // user explicitly told us when speech started (forceSpeechStart);
+    // a re-trigger here would needlessly reset speechStartSampleCount
+    // and could discard pre-buffer audio.
+    if (this.pttHeld) return;
+
     const store = useAudioStore.getState();
     if (store.isPlaying && !this.isMuted) {
       store.muteOutput();
@@ -226,6 +245,16 @@ export class AudioCapture {
   }
 
   private onSilenceDetected(): void {
+    // While the user is holding PTT, VAD silence detection MUST NOT fire
+    // processSpeech. Otherwise a single hold gets sliced into N partial
+    // transcripts at every natural pause (breath, thinking gap), each
+    // routed to the backend as a separate question. Confirmed in the
+    // trace: one PTT hold produced "Alright. Personal." / "or is a pipe.
+    // All right I want you to..." / "using 10 words." / "it should be a
+    // pole." — four fragments fired four wrong skill calls.
+    // Only forceSpeechEnd (PTT release) ships audio in PTT mode.
+    if (this.pttHeld) return;
+
     if (this.confirmTimer) {
       clearTimeout(this.confirmTimer);
       this.confirmTimer = null;
@@ -281,7 +310,19 @@ export class AudioCapture {
       });
 
       if (!response.ok) {
-        this.callbacks.onError('Transcription failed');
+        // Surface the upstream cause when the backend gives one.
+        // Previously this swallowed every failure into a bare
+        // "Transcription failed" — the user had to grep server logs to
+        // discover the actual reason (missing faster_whisper module,
+        // model load error, etc.). Now the real text reaches the toast.
+        let detail = '';
+        try {
+          const body = await response.clone().json() as { upstream?: string; error?: string };
+          detail = body.upstream ?? body.error ?? '';
+        } catch {
+          try { detail = await response.text(); } catch { /* ignore */ }
+        }
+        this.callbacks.onError(detail ? `Transcription failed: ${detail}` : 'Transcription failed');
         return;
       }
 

@@ -159,40 +159,42 @@ export function useVoiceInput() {
   const [supported, setSupported] = useState(false);
   const [mode, setMode] = useState<'whisper' | 'browser' | 'none'>('none');
 
-  // Check which STT backend is available
-  useEffect(() => {
-    fetch(`${API_PREFIX}/audio/status`)
-      .then(r => r.json())
-      .then((data: any) => {
-        if (data.whisper) {
-          setMode('whisper');
-          setSupported(true);
-        } else {
-          // Fall back to Web Speech API
-          const recognizer = new VoiceCommandRecognizer();
-          if (recognizer.isSupported()) {
-            recognizerRef.current = recognizer;
-            setMode('browser');
-            setSupported(true);
-            wireWebSpeechCallbacks(recognizer);
-          }
-        }
-      })
-      .catch(() => {
-        // Sidecar not running — try Web Speech API
-        const recognizer = new VoiceCommandRecognizer();
-        if (recognizer.isSupported()) {
-          recognizerRef.current = recognizer;
-          setMode('browser');
-          setSupported(true);
-          wireWebSpeechCallbacks(recognizer);
-        }
-      });
+  // Shared status-probe — used both on mount AND on demand (PTT keydown
+  // calls it when mode === 'none' to recover from a stale negative
+  // mount-time result, e.g. when the sidecar comes online AFTER page
+  // load). Returns the resolved mode so callers can branch on success.
+  const probeAudioStatus = useCallback(async (): Promise<'whisper' | 'browser' | 'none'> => {
+    try {
+      const r = await fetch(`${API_PREFIX}/audio/status`);
+      const data: any = await r.json();
+      if (data.whisper) {
+        setMode('whisper');
+        setSupported(true);
+        return 'whisper';
+      }
+    } catch {
+      // fall through to browser fallback
+    }
+    const recognizer = new VoiceCommandRecognizer();
+    if (recognizer.isSupported()) {
+      recognizerRef.current = recognizer;
+      setMode('browser');
+      setSupported(true);
+      wireWebSpeechCallbacks(recognizer);
+      return 'browser';
+    }
+    setMode('none');
+    return 'none';
+  }, []);
 
+  // Check which STT backend is available on mount.
+  useEffect(() => {
+    void probeAudioStatus();
     return () => {
       recognizerRef.current?.stop();
       captureRef.current?.stop();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // When start() hasn't resolved yet but the user already released space,
@@ -201,13 +203,23 @@ export function useVoiceInput() {
   const captureStartPromiseRef = useRef<Promise<void> | null>(null);
 
   // Register startListening with the audio store
-  const startListening = useCallback(() => {
+  const startListening = useCallback(async () => {
     if (listening) {
       useAudioStore.getState().addSpeechToast('[Mic: already listening]');
       return;
     }
 
-    if (mode === 'whisper') {
+    // Stale-negative recovery: if mount-time probe timed out (e.g. the
+    // sidecar booted but its first /health call was slow), mode would
+    // stick at 'none' and PTT would silently drop everything. Re-probe
+    // on every actual mic-start so the user recovers once the backend
+    // becomes reachable, without having to refresh the page.
+    let effectiveMode = mode;
+    if (effectiveMode === 'none') {
+      effectiveMode = await probeAudioStatus();
+    }
+
+    if (effectiveMode === 'whisper') {
       // Use AudioCapture with echo cancellation + Whisper.
       // Voice barge-in is INTENTIONALLY disabled — the AI's own audio
       // bleeds into the mic and triggers self-interrupt. Push-to-talk
@@ -247,7 +259,7 @@ export function useVoiceInput() {
       setListening(true);
       useAudioStore.getState().addSpeechToast('[Mic: started (Whisper + echo cancellation)]');
 
-    } else if (mode === 'browser') {
+    } else if (effectiveMode === 'browser') {
       // Fall back to Web Speech API
       try {
         recognizerRef.current?.start();
@@ -257,9 +269,24 @@ export function useVoiceInput() {
         useAudioStore.getState().addSpeechToast(`[Mic error: ${err.message}]`);
       }
     } else {
-      useAudioStore.getState().addSpeechToast('[Mic: not available]');
+      // Actionable failure message — bare "[Mic: not available]"
+      // didn't tell the user WHY or HOW to fix. Two common causes:
+      // (a) Whisper sidecar isn't running, (b) browser doesn't support
+      // Web Speech API (Firefox/Safari). Toast surfaces both fix paths
+      // so the user can self-serve without grepping the codebase.
+      const store = useAudioStore.getState();
+      store.addSpeechToast('Voice input unavailable — see top banner for fix');
+      store.addSpeechToast('Run: python3 packages/backend/src/tts/audio-server.py');
+      store.addSpeechToast('Or open the app in Chrome/Edge (Web Speech API)');
     }
-  }, [listening, mode]);
+  }, [listening, mode, probeAudioStatus]);
+
+  // Mirror `mode` into the audio store so MicToggle / banners can
+  // show an honest "unavailable" state instead of pretending the
+  // mic is just off. Source of truth is still useVoiceInput.
+  useEffect(() => {
+    useAudioStore.getState().setVoiceMode(mode);
+  }, [mode]);
 
   useEffect(() => {
     useAudioStore.getState().setStartMicFn(startListening);
@@ -339,6 +366,9 @@ export function useVoiceInput() {
       // recently would be wrong. The gate exists for AMBIENT echo, not
       // intentional PTT speech.
       useAudioStore.setState({ lastTtsEndAt: 0 });
+      // Mark the start of the hold so the listening pill knows when to
+      // render and how long the user has been pressing. Cleared in keyup.
+      audioStore.setPttHoldStartedAt(Date.now());
       sendEvent({ type: 'user:speaking_started' });
       if (!listeningRef.current) startListening();
       // Wait for capture.start() to fully resolve, then explicitly mark
@@ -357,6 +387,7 @@ export function useVoiceInput() {
       e.preventDefault();
       if (!ptHoldActiveRef.current) return;
       ptHoldActiveRef.current = false;
+      useAudioStore.getState().setPttHoldStartedAt(null);
       sendEvent({ type: 'user:speaking_stopped' });
       // Wait for the start to complete (race with fast taps), then close
       // the PTT recording window — this triggers the Whisper POST and
