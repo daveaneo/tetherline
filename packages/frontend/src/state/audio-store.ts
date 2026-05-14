@@ -36,6 +36,16 @@ interface AudioStore {
    *  not the user speaking. */
   lastTtsEndAt: number;
 
+  /** Timestamp when ANY narration event (greeting / briefing / stream
+   *  chunk) most recently arrived. Stronger echo-gate signal than
+   *  lastTtsEndAt because it doesn't depend on the audio element's
+   *  onended firing — the synchronous TTS path (greeting → speak via
+   *  speechSynthesis) sometimes doesn't update the audio element at
+   *  all, so lastTtsEndAt stays stale and Whisper-mishears slip
+   *  through. lastNarrationAt covers ALL paths. */
+  lastNarrationAt: number;
+  setLastNarrationAt: (t: number) => void;
+
   // Mic start function — set by useVoiceInput, callable from anywhere (e.g. Lobby click)
   _startMicFn: (() => void) | null;
   setStartMicFn: (fn: () => void) => void;
@@ -85,6 +95,7 @@ export const useAudioStore = create<AudioStore>((set, get) => ({
   audioElement: null,
   interruptBackoffUntil: 0,
   lastTtsEndAt: 0,
+  lastNarrationAt: 0,
   _startMicFn: null,
   _stopMicFn: null,
   micListening: false,
@@ -121,6 +132,7 @@ export const useAudioStore = create<AudioStore>((set, get) => ({
   setMicListening: (v) => set({ micListening: v }),
   setVoiceMode: (m) => set({ voiceMode: m }),
   setPttHoldStartedAt: (t) => set({ pttHoldStartedAt: t }),
+  setLastNarrationAt: (t) => set({ lastNarrationAt: t }),
 
   setCurrentSegment: (segment) => set({ currentSegment: segment }),
   setPlaying: (playing) => set((s) => ({

@@ -106,7 +106,16 @@ ${context}`;
       }>({
         system: `You are an intent classifier for a code review tool. The user is talking during an interactive code review session. Classify their utterance into one of these skills:
 
-- visualize: user wants to SEE a diagram or visual representation ("show me", "draw", "what does X look like")
+- visualize: user wants to SEE something visually. ANY of these fire it:
+   • "show me" / "show me X" / "can you show me" / "let me see"
+   • "draw" / "draw me X" / "sketch"
+   • "visualize X" / "visualization of X"
+   • "what does X look like" / "picture this"
+   • "where is X" (asking to locate something visually)
+   When the target is vague ("show me"), still pick visualize — the
+   skill will highlight the current scope rather than need a specific
+   subject. Always prefer visualize over none/explain when the user
+   hints at wanting to SEE rather than READ/HEAR.
 - explain: user wants something EXPLAINED ("what does this do", "why", "how does X work")
 - compare: user wants to see DIFFERENCES ("how did this change", "before and after", "diff")
 - critique: user wants the AI's OPINION on something specific ("is this good", "what do you think of X", "any issues with Y")

@@ -7,7 +7,7 @@
  *   • Headline zone (HermesText) stays the LIVE conversation surface;
  *     the rail is the persistent record. They never compete.
  */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useSessionStore, type ConversationEntry } from '../../state/session-store.js';
 import { useHistoryStore } from '../../state/history-store.js';
 
@@ -17,6 +17,17 @@ export function HistoryRail() {
   const open = useHistoryStore(s => s.open);
   const setOpen = useHistoryStore(s => s.setOpen);
   const conversationHistory = useSessionStore(s => s.conversationHistory);
+
+  // Map each AI answer text → its referencedNodes from the matching
+  // turn snapshot, so cards can show a 📊 thumbnail when the answer
+  // touched diagram nodes. Falls back to 'undefined' when the
+  // snapshot doesn't match (e.g., unsolicited greetings).
+  const turnSnapshots = useSessionStore(s => s.turnSnapshots);
+  const refsByAnswer = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const t of turnSnapshots) m.set(t.answer, t.referencedNodes);
+    return m;
+  }, [turnSnapshots]);
 
   if (!open) return null;
 
@@ -109,7 +120,11 @@ export function HistoryRail() {
           // Reverse so most recent is at the top — voice-first
           // conversation, scroll DOWN to go back in time.
           [...turns].reverse().map((turn, i) => (
-            <TurnCard key={turns.length - 1 - i} turn={turn} />
+            <TurnCard
+              key={turns.length - 1 - i}
+              turn={turn}
+              refs={turn.answer ? refsByAnswer.get(turn.answer) : undefined}
+            />
           ))
         )}
       </div>
@@ -146,7 +161,7 @@ function groupTurns(entries: ConversationEntry[]): Turn[] {
   return out;
 }
 
-function TurnCard({ turn }: { turn: Turn }) {
+function TurnCard({ turn, refs }: { turn: Turn; refs?: string[] }) {
   const [expanded, setExpanded] = useState(false);
   const answerPreview = turn.answer && turn.answer.length > PREVIEW_CHARS
     ? turn.answer.slice(0, PREVIEW_CHARS) + '…'
@@ -194,6 +209,20 @@ function TurnCard({ turn }: { turn: Turn }) {
             you
           </span>
           {turn.question}
+          {refs && refs.length > 0 && (
+            <span
+              title={`This answer referenced: ${refs.join(', ')}`}
+              aria-label="Includes a diagram visual"
+              style={{
+                marginLeft: 8,
+                fontSize: 11,
+                color: 'var(--amber-400, oklch(0.74 0.12 65))',
+                opacity: 0.85,
+              }}
+            >
+              ◉
+            </span>
+          )}
         </div>
       )}
       {turn.answer && (

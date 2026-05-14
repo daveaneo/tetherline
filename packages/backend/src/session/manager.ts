@@ -156,7 +156,13 @@ export class SessionManager {
     getTraceRecorder()?.emit({
       kind: 'tts.emit',
       sessionId: this.context.sessionId || null,
-      payload: { eventType: event.type, text },
+      payload: {
+        eventType: event.type,
+        text,
+        // Pass through karaoke-ball anchors when present so the trace
+        // shows which nodes will pulse during this chunk's playback.
+        referencedNodes: (payload.referencedNodes as string[] | undefined) ?? undefined,
+      },
     });
   }
 
@@ -1401,6 +1407,69 @@ export class SessionManager {
     });
   }
 
+  /** Emit a long narration as sequential narration:stream_chunk events
+   *  with the same chunker handleQuestion uses. Single source of truth
+   *  for "speak this AI text aloud" — was duplicated as raw greeting
+   *  emits in skills, the grill loop, and a few other call sites,
+   *  each producing the robotic single-shot TTS the user hated.
+   *
+   *  Also tags each chunk with `referencedNodes` (diagram node labels
+   *  mentioned in the chunk's text). Drives the karaoke-ball: as the
+   *  AI says "FileLoader handles X, then PairGenerator does Y", the
+   *  frontend pulses FileLoader for the first chunk's audio duration,
+   *  then PairGenerator for the next. The visual follows the words. */
+  private async emitNarrationChunked(text: string): Promise<void> {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const { chunkAnswerWithAnchors } = await import('../intelligence/sentence-chunker.js');
+    const nodeLabels = await this.knownNodeLabels();
+    const tagged = chunkAnswerWithAnchors(trimmed, nodeLabels);
+    if (tagged.length <= 1) {
+      // Trivial: one chunk → fall back to greeting (preserves legacy
+      // tests/UI flows that listen for narration:greeting on short
+      // replies). The user-facing concern (robotic 250-word blobs) is
+      // about LONG narrations; one-chunk is fine as a greeting.
+      this.emit({ type: 'narration:greeting', payload: { text: trimmed } });
+      return;
+    }
+    const streamId = `nar-${Date.now()}`;
+    for (let i = 0; i < tagged.length; i++) {
+      this.emit({
+        type: 'narration:stream_chunk',
+        payload: {
+          streamId,
+          seq: i,
+          text: tagged[i].text,
+          isFinal: i === tagged.length - 1,
+          referencedNodes: tagged[i].referencedNodes,
+        },
+      });
+    }
+  }
+
+  /** Pulls the diagram node labels for the active scope so the chunker
+   *  can anchor-tag narration. Cached per-call (the diagram cache is
+   *  cheap to read). Falls back to module names from the context cache
+   *  when no diagram is loaded yet. */
+  private async knownNodeLabels(): Promise<string[]> {
+    const repoPath = this.activeRepoPath || this.config.repoPath;
+    if (!repoPath) return [];
+    try {
+      // Pull all diagram views for this repo and union their labels.
+      // Module names + file basenames + concept names all become
+      // anchor-able tokens in the karaoke ball.
+      const labels = new Set<string>();
+      const modules = this.db.getContextCacheRepo().getModulesForRepo(repoPath);
+      for (const m of modules) labels.add(m.modulePath);
+      // Also add a few aliasable variants so "the FileLoader" / "file_loader.py" both anchor.
+      for (const m of modules) {
+        const base = m.modulePath.split('/').pop();
+        if (base) labels.add(base);
+      }
+      return [...labels].filter(l => l.length >= 3); // skip 1-2 char noise
+    } catch { return []; }
+  }
+
   private async handleQuestion(question: string, classifierParams: Record<string, string> = {}) {
     // Voice-first: answer inline via narration, don't transition to QA modal.
     // The answer is spoken aloud and shown in the narration bar.
@@ -1433,11 +1502,13 @@ export class SessionManager {
       // still being TTS-generated — perceived first-word time drops a lot
       // on long answers. Short answers (1 chunk) behave identically to the
       // pre-streaming flow.
-      const { chunkAnswerForStreaming } = await import('../intelligence/sentence-chunker.js');
-      const answerChunks = chunkAnswerForStreaming(answer);
+      const { chunkAnswerWithAnchors } = await import('../intelligence/sentence-chunker.js');
+      const nodeLabels = await this.knownNodeLabels();
+      const answerChunks = chunkAnswerWithAnchors(answer, nodeLabels);
       // Prepend the depth-change ack as a leading chunk so it plays
       // before the answer (greetings coalesce; stream chunks queue).
-      const allChunks = depthAck ? [depthAck, ...answerChunks] : answerChunks;
+      const ackChunk = depthAck ? [{ text: depthAck, referencedNodes: [] as string[] }] : [];
+      const allChunks = [...ackChunk, ...answerChunks];
       const streamId = `qa-${Date.now()}`;
       if (allChunks.length <= 1) {
         // Trivial answer: keep the legacy greeting path so existing
@@ -1452,8 +1523,9 @@ export class SessionManager {
           payload: {
             streamId,
             seq: i,
-            text: allChunks[i],
+            text: allChunks[i].text,
             isFinal: i === allChunks.length - 1,
+            referencedNodes: allChunks[i].referencedNodes,
           },
         });
       }
@@ -1736,11 +1808,12 @@ export class SessionManager {
         tone: opts.tone,
       });
       this.activeGrill = session;
-      // Ack + first question, spoken aloud.
+      // Ack + first question, chunked so the question reads naturally
+      // (the lead becomes one short chunk, the question another).
       const lead = opts.tone === 'strict'
         ? `Alright. Let's grill you on ${opts.topic}.`
         : `Cool — let's see what you know about ${opts.topic}.`;
-      this.emit({ type: 'narration:greeting', payload: { text: `${lead} ${firstQuestion}` } });
+      await this.emitNarrationChunked(`${lead} ${firstQuestion}`);
     } catch (err: any) {
       this.emit({ type: 'narration:greeting', payload: { text: `Couldn't start the grill — ${err.message ?? 'unknown error'}.` } });
       this.activeGrill = null;
@@ -1752,7 +1825,7 @@ export class SessionManager {
     const { respondToAnswer } = await import('../intelligence/grill.js');
     try {
       const result = await respondToAnswer(this.activeAnalyzer.getClient(), this.activeGrill, answer);
-      this.emit({ type: 'narration:greeting', payload: { text: result.spoken } });
+      await this.emitNarrationChunked(result.spoken);
       // Update comprehension based on the running pattern. Strong
       // answers across consecutive turns earn a bump from 'heard' or
       // 'engaged' toward 'explained' / 'confirmed' on the topic.
@@ -2662,17 +2735,16 @@ export class SessionManager {
         return;
       }
 
-      // Speak the skill's narration. The skill:result event carries the
-      // narration to the UI for the conversation log, but the speak-
-      // pipeline only fires on `narration:greeting` / `narration:stream_chunk`
-      // / `narration:briefing`. Without this emit, skills like summarize
-      // and explain produced an answer that the user could read but
-      // never hear — defeating the voice-first contract.
+      // Speak the skill's narration. Was emitting as a single
+      // narration:greeting which hits the synchronous TTS path —
+      // a 250-word answer rendered as one Kokoro blob sounded robotic,
+      // couldn't be interrupted mid-sentence, and overlapped with any
+      // concurrent stream_chunk audio. Chunking it via
+      // chunkAnswerForStreaming gives the same paced playback as
+      // handleQuestion: sentence-sized clips queued sequentially,
+      // each interruptible on PTT, with a single coherent voice.
       if (result.narration && result.narration.trim().length > 0) {
-        this.emit({
-          type: 'narration:greeting',
-          payload: { text: result.narration },
-        });
+        await this.emitNarrationChunked(result.narration);
       }
 
       // Persist understanding updates from skill execution (e.g., explain/teach/critique)

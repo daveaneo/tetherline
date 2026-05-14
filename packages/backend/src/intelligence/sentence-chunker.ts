@@ -8,6 +8,46 @@
  * Emits chunks in order so the frontend can queue and play them as audio
  * clips are ready.
  */
+
+export interface TaggedChunk {
+  text: string;
+  /** Node labels mentioned in this chunk's text (case-insensitive,
+   *  word-boundary match). Drives the karaoke-ball visual: as the
+   *  chunk's TTS plays, the frontend pulses the matching diagram nodes
+   *  so the user's eye follows the AI's words across the architecture
+   *  map. */
+  referencedNodes: string[];
+}
+
+/** Tag chunks with the diagram-node labels they mention. `nodeLabels`
+ *  is the set of currently-known node display names (e.g. ["core",
+ *  "FileLoader", "PairGenerator"]) — the chunker matches on word
+ *  boundary, case-insensitive. */
+export function chunkAnswerWithAnchors(
+  answer: string,
+  nodeLabels: string[],
+): TaggedChunk[] {
+  const chunks = chunkAnswerForStreaming(answer);
+  if (nodeLabels.length === 0) {
+    return chunks.map(text => ({ text, referencedNodes: [] }));
+  }
+  // Sort longer labels first so "FileLoader" matches before "File".
+  const sorted = [...nodeLabels].sort((a, b) => b.length - a.length);
+  return chunks.map(text => {
+    const found = new Set<string>();
+    for (const label of sorted) {
+      // Escape regex metas; match as a whole word, case-insensitive.
+      const safe = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      // Allow node labels with internal punctuation (file.py); use
+      // lookarounds for non-word boundaries so "FileLoader" inside
+      // "FileLoader." still matches.
+      const re = new RegExp(`(^|[^A-Za-z0-9_])${safe}([^A-Za-z0-9_]|$)`, 'i');
+      if (re.test(text)) found.add(label);
+    }
+    return { text, referencedNodes: [...found] };
+  });
+}
+
 export function chunkAnswerForStreaming(answer: string): string[] {
   const sentences = splitIntoSentences(answer);
   if (sentences.length === 0) return [];

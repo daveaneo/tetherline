@@ -6,6 +6,25 @@ import type {
   ComprehensionLevel, NarrationSegment,
 } from '@tetherline/shared';
 import { DEFAULT_MODES } from '@tetherline/shared';
+import { useAudioStore } from './audio-store.js';
+
+/** Per-turn snapshot of the visual state. Drives the time slider that
+ *  lets the user scrub back to any prior moment in the conversation
+ *  and rehydrate the diagram to that point. */
+export interface TurnSnapshot {
+  turnIndex: number;
+  timestamp: number;
+  /** What the user said (or '' for AI-initiated turns like the welcome). */
+  question: string;
+  /** What the AI said (the full assembled answer). */
+  answer: string;
+  /** Diagram scope active when this turn ended. */
+  scope: string;
+  /** Node ids referenced anywhere in the AI's answer — used to:
+   *  (a) compute the persistent "touched" halo set,
+   *  (b) thumbnail the history cards. */
+  referencedNodes: string[];
+}
 
 interface ProposalData {
   message: string;
@@ -44,6 +63,17 @@ interface SessionStore {
   error: { code: string; message: string; recoverable: boolean } | null;
   connected: boolean;
   conversationHistory: ConversationEntry[];
+
+  /** Turn-by-turn visual snapshots — drives the time slider + history
+   *  thumbnails. Appended to whenever a stream completes. */
+  turnSnapshots: TurnSnapshot[];
+
+  /** Set of node ids the user has "touched" this session (referenced
+   *  in any AI reply). Drives the persistent halo effect — touched
+   *  nodes get a brighter base color forever after, so the diagram
+   *  becomes a heat-map of the user's attention as the conversation
+   *  progresses. */
+  touchedNodes: Set<string>;
 
   // ─── Vision mechanics ────────────────────────────────────
   currentBriefing: {
@@ -92,13 +122,13 @@ interface SessionStore {
    *  entries via `consumeStreamChunk` once it starts speaking that chunk —
    *  so the queue length tracks unspoken backlog. `streamingFinal` flips on
    *  the last chunk so the orchestrator knows when to stop the player. */
-  streamChunks: Array<{ streamId: string; seq: number; text: string; range?: [number, number]; filePath?: string }>;
+  streamChunks: Array<{ streamId: string; seq: number; text: string; range?: [number, number]; filePath?: string; referencedNodes?: string[] }>;
   streamingFinal: boolean;
   /** The chunk currently being spoken. Written by the orchestrator's
    *  stream player — `consumeStreamChunk` returns the head AND records
    *  it here so the CodePanel can highlight the live line range. */
-  currentStreamChunk: { streamId: string; seq: number; text: string; range?: [number, number]; filePath?: string } | null;
-  consumeStreamChunk: () => { streamId: string; seq: number; text: string; range?: [number, number]; filePath?: string } | null;
+  currentStreamChunk: { streamId: string; seq: number; text: string; range?: [number, number]; filePath?: string; referencedNodes?: string[] } | null;
+  consumeStreamChunk: () => { streamId: string; seq: number; text: string; range?: [number, number]; filePath?: string; referencedNodes?: string[] } | null;
   showComprehensionOverlay: boolean;
   toggleComprehensionOverlay: () => void;
 
@@ -134,6 +164,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   error: null,
   connected: false,
   conversationHistory: [],
+  turnSnapshots: [],
+  touchedNodes: new Set<string>(),
   currentBriefing: null,
   breadcrumb: { text: '', depth: 0, frames: [] },
   comprehensionMap: new Map(),
@@ -194,6 +226,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     lastIssueResult: null,
     error: null,
     conversationHistory: [],
+    turnSnapshots: [],
+    touchedNodes: new Set<string>(),
     currentBriefing: null,
     breadcrumb: { text: '', depth: 0, frames: [] },
     comprehensionMap: new Map(),
@@ -272,14 +306,18 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         // dropping perceived first-word time on long answers. Code-layer
         // chunks also carry the line range + filePath so the CodePanel
         // can advance the highlight live as Hermes walks each one.
-        const { streamId, seq, text, isFinal, range, filePath } = event.payload;
+        // Echo-gate signal: stamp lastNarrationAt so transcripts
+        // arriving inside the echo window get suppressed (the AI's TTS
+        // is about to play; any mic capture is speaker-bleed).
+        useAudioStore.getState().setLastNarrationAt(Date.now());
+        const { streamId, seq, text, isFinal, range, filePath, referencedNodes } = event.payload;
         set(s => {
           // First chunk of a new stream resets the prior queue + final flag.
           const isNewStream = s.streamChunks.length === 0
             || s.streamChunks[0].streamId !== streamId;
           const queue = isNewStream
-            ? [{ streamId, seq, text, range, filePath }]
-            : [...s.streamChunks, { streamId, seq, text, range, filePath }];
+            ? [{ streamId, seq, text, range, filePath, referencedNodes }]
+            : [...s.streamChunks, { streamId, seq, text, range, filePath, referencedNodes }];
           const updates: Partial<SessionStore> = {
             streamChunks: queue,
             streamingFinal: isFinal,
@@ -291,6 +329,28 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
               ...s.conversationHistory.slice(-49),
               { speaker: 'ai', text: fullText, timestamp: Date.now() },
             ];
+            // Turn snapshot for the time slider + history thumbnails.
+            // Pull the previous user utterance (last 'you' entry) to
+            // pair the AI answer with its question.
+            const lastUser = [...s.conversationHistory].reverse().find(e => e.speaker === 'you');
+            const allReferenced = new Set<string>();
+            for (const c of queue) {
+              for (const n of c.referencedNodes ?? []) allReferenced.add(n);
+            }
+            const snapshot: TurnSnapshot = {
+              turnIndex: s.turnSnapshots.length,
+              timestamp: Date.now(),
+              question: lastUser?.text ?? '',
+              answer: fullText,
+              scope: 'project', // tracked elsewhere; placeholder for v1
+              referencedNodes: [...allReferenced],
+            };
+            updates.turnSnapshots = [...s.turnSnapshots, snapshot];
+            // Persistent halo: union into the touchedNodes set so the
+            // diagram renders these nodes brighter forever after.
+            const merged = new Set(s.touchedNodes);
+            for (const n of allReferenced) merged.add(n);
+            updates.touchedNodes = merged;
           }
           return updates;
         });
@@ -327,6 +387,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         break;
 
       case 'narration:greeting':
+        // Echo-gate signal — see narration:stream_chunk handler.
+        useAudioStore.getState().setLastNarrationAt(Date.now());
         set({ greeting: event.payload.text });
         get().addConversation('ai', event.payload.text);
         break;
@@ -368,6 +430,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         break;
 
       case 'narration:briefing':
+        // Echo-gate signal — see narration:stream_chunk handler.
+        useAudioStore.getState().setLastNarrationAt(Date.now());
         set({
           currentBriefing: {
             briefingId: event.payload.briefingId,

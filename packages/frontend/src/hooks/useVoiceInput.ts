@@ -89,11 +89,21 @@ function isLikelyNoiseArtifact(text: string): boolean {
   return false;
 }
 
-/** Echo-gate window in ms. Whisper buffers ~1s of audio before transcribing,
- *  and speakers can reverb for several hundred ms after playback ends, so
- *  the most common echo case is a transcript that arrives just after
- *  isPlaying flips false. Suppress anything within ECHO_GATE_MS of TTS end. */
-const ECHO_GATE_MS = 1500;
+/** Echo-gate windows in ms. Two signals to gate on:
+ *
+ *  TTS_END_GATE_MS — speakers reverb / Whisper buffer after isPlaying
+ *  flips false. Short window (1.5s) post-playback-end.
+ *
+ *  NARRATION_GATE_MS — covers the time between when a narration EVENT
+ *  arrives and when its TTS audio finishes. The synchronous
+ *  narration:greeting path can play 5-10+ seconds of audio without
+ *  ever updating isPlaying / lastTtsEndAt (it goes through
+ *  speechSynthesis or a separate audio element). Without this
+ *  longer gate, the AI's own playback gets transcribed mid-stream
+ *  ("carries your knowledge" → "parries your knowledge"), triggering
+ *  another round of replies and a self-interrupt loop. */
+const TTS_END_GATE_MS = 1500;
+const NARRATION_GATE_MS = 12_000;
 
 function handleTranscript(text: string) {
   // Drop transcripts that arrived while the AI was speaking — those are
@@ -103,9 +113,14 @@ function handleTranscript(text: string) {
   // PTT (hold space) is the explicit way to talk over the AI.
   const audio = useAudioStore.getState();
   if (audio.isPlaying) return;
-  if (audio.lastTtsEndAt && Date.now() - audio.lastTtsEndAt < ECHO_GATE_MS) {
+  if (audio.lastTtsEndAt && Date.now() - audio.lastTtsEndAt < TTS_END_GATE_MS) {
     // Echo-gate: speakers may still be reverberating or Whisper may be
     // flushing a buffer that includes the tail of the AI's TTS. Drop.
+    return;
+  }
+  if (audio.lastNarrationAt && Date.now() - audio.lastNarrationAt < NARRATION_GATE_MS) {
+    // Stronger gate: a narration event recently arrived; its audio
+    // is likely still playing even if isPlaying says otherwise.
     return;
   }
 
@@ -361,11 +376,11 @@ export function useVoiceInput() {
       ptMicWasListeningRef.current = listeningRef.current;
       audioStore.setVoiceState('hearing');
       audioStore.flushOnInterrupt();
-      // Reset the post-TTS echo gate: the user is now deliberately
+      // Reset BOTH echo-gate signals: the user is now deliberately
       // speaking, so suppressing their transcript because TTS ended
-      // recently would be wrong. The gate exists for AMBIENT echo, not
-      // intentional PTT speech.
-      useAudioStore.setState({ lastTtsEndAt: 0 });
+      // recently / a narration was just emitted would be wrong. The
+      // gates exist for AMBIENT echo, not intentional PTT speech.
+      useAudioStore.setState({ lastTtsEndAt: 0, lastNarrationAt: 0 });
       // Mark the start of the hold so the listening pill knows when to
       // render and how long the user has been pressing. Cleared in keyup.
       audioStore.setPttHoldStartedAt(Date.now());

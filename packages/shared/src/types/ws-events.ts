@@ -148,6 +148,11 @@ export type ServerEvent =
         /** For code-layer streams: the file the range applies to,
          *  used when the panel needs to scroll into view. */
         filePath?: string;
+        /** Diagram node labels referenced in this chunk's text — drives
+         *  the karaoke-ball visual: as the chunk's TTS plays, the
+         *  frontend pulses the matching nodes so the user's eye
+         *  follows the AI's words across the architecture map. */
+        referencedNodes?: string[];
       };
     }
   | { type: 'session:heatmap'; payload: { heatmap: HeatmapData } }

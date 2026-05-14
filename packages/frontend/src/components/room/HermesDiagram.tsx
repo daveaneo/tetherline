@@ -20,6 +20,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSessionStore } from '../../state/session-store.js';
 import { useAudioStore } from '../../state/audio-store.js';
+import { TimeSlider } from './TimeSlider.js';
 import { sendEvent } from '../../lib/ws-client.js';
 import { API_PREFIX } from '@tetherline/shared';
 
@@ -87,6 +88,20 @@ export function HermesDiagram() {
   const phase = useSessionStore(s => s.state.phase);
   const currentBriefingId = useSessionStore(s => s.currentBriefing?.briefingId ?? null);
   const skillResult = useSessionStore(s => s.skillResult);
+  // Karaoke-ball: when a stream chunk is playing, the backend tagged
+  // it with diagram-node labels mentioned in its text. These nodes
+  // glow during the chunk's audio playback so the user's eye follows
+  // the AI's words across the diagram. Computed from the head of the
+  // stream queue (currently-playing chunk).
+  const currentChunkNodes = useSessionStore(
+    s => s.currentStreamChunk?.referencedNodes
+       ?? s.streamChunks[0]?.referencedNodes
+       ?? [],
+  );
+  // Persistent "touched" set — nodes mentioned in any prior AI reply.
+  // The diagram becomes a heat-map of attention as the conversation
+  // accumulates: touched nodes get a brighter base color forever after.
+  const touchedNodes = useSessionStore(s => s.touchedNodes);
 
   // Active scope walks the navigator stack — drilling into a module
   // refetches that module's diagram. For now wire to project until the
@@ -469,6 +484,7 @@ export function HermesDiagram() {
             })}
           </g>
 
+          {/* Time slider mounted as a sibling of the SVG below */}
           {/* Nodes — skip the center entirely. The center node's label
            *  is always the current scope (e.g., "PersonalForge" for the
            *  project view), which already appears in the title bar
@@ -485,26 +501,58 @@ export function HermesDiagram() {
                 key={n.id}
                 node={n}
                 active={n.briefingId !== null && n.briefingId === currentBriefingId}
+                anchorPulse={isAnchorMatch(n, currentChunkNodes)}
+                touched={isTouched(n, touchedNodes)}
                 childrenInfo={childrenInfo.get(n.id) ?? null}
                 onClick={() => onNodeClick(n)}
               />
             ))}
           </g>
         </svg>
+        {/* Time slider — bottom of canvas. Scrubs through turn snapshots
+         *  so the user can rehydrate any prior moment in the conversation.
+         *  Hidden until there are 2+ turns. */}
+        <TimeSlider onRehydrateScope={(s) => setScope(s)} />
         </div>
       </div>
     </div>
   );
 }
 
+/** Returns true if this node's id or label matches any anchor token
+ *  the backend tagged the currently-playing chunk with. The chunker
+ *  matches against module display names; we test both the satellite's
+ *  label and the module-id-without-prefix so "core" and "module/core"
+ *  both work. */
+function isAnchorMatch(node: PositionedNode, anchors: string[]): boolean {
+  if (anchors.length === 0) return false;
+  const normalized = anchors.map(a => a.toLowerCase());
+  const idWithoutPrefix = node.id.replace(/^(module|file|concept)\//, '').toLowerCase();
+  const label = node.label.toLowerCase();
+  return normalized.includes(idWithoutPrefix) || normalized.includes(label);
+}
+
+/** Persistent-halo membership check — node was referenced in any
+ *  prior AI reply this session. */
+function isTouched(node: PositionedNode, touched: Set<string>): boolean {
+  if (touched.size === 0) return false;
+  const idWithoutPrefix = node.id.replace(/^(module|file|concept)\//, '');
+  for (const t of touched) {
+    if (t === node.id || t === idWithoutPrefix || t.toLowerCase() === node.label.toLowerCase()) return true;
+  }
+  return false;
+}
+
 interface NodeViewProps {
   node: PositionedNode;
   active: boolean;
+  anchorPulse?: boolean;
+  touched?: boolean;
   childrenInfo: ChildrenInfo | null;
   onClick: () => void;
 }
 
-function DiagramNodeView({ node, active, childrenInfo, onClick }: NodeViewProps) {
+function DiagramNodeView({ node, active, anchorPulse, touched, childrenInfo, onClick }: NodeViewProps) {
   const [hover, setHover] = useState(false);
   // Own-layer comprehension drives the BATTERY FILL of the node body.
   // The whole shape changes with knowledge — `unknown` is an empty
@@ -602,9 +650,9 @@ function DiagramNodeView({ node, active, childrenInfo, onClick }: NodeViewProps)
         </linearGradient>
       </defs>
       {/* Pulse ring — only for the active (currently-narrated) node.
-       *  Distinct from any comprehension signal: focus is the only
-       *  ring on the diagram now, so a ring always means "Hermes is
-       *  talking about this right now". */}
+       *  Distinct from any comprehension signal: a slow steady pulse
+       *  always means "Hermes is talking about this right now (whole
+       *  conversation context)". */}
       {active && (
         <circle
           r={node.radius + 14}
@@ -617,10 +665,51 @@ function DiagramNodeView({ node, active, childrenInfo, onClick }: NodeViewProps)
           <animate attributeName="opacity" values="0.65;0.1;0.65" dur="2.4s" repeatCount="indefinite" />
         </circle>
       )}
+      {/* Anchor pulse — fires when the CURRENT chunk's text mentions
+       *  this node by name. Sharper, faster animation than the focus
+       *  pulse (1s vs 2.4s) — visually reads as "the AI is saying
+       *  THIS WORD right now", a karaoke-ball effect across the
+       *  diagram. Stops when the next chunk arrives without this
+       *  node in its anchors. Coexists with the focus pulse (different
+       *  cadence, different color so they don't visually fight). */}
+      {anchorPulse && !active && (
+        <circle
+          r={node.radius + 6}
+          fill="none"
+          stroke="oklch(0.86 0.18 95)"
+          strokeWidth={2.5}
+          opacity={0.85}
+        >
+          <animate attributeName="r" values={`${node.radius + 4};${node.radius + 14};${node.radius + 4}`} dur="1s" repeatCount="indefinite" />
+          <animate attributeName="opacity" values="0.95;0.35;0.95" dur="1s" repeatCount="indefinite" />
+        </circle>
+      )}
+      {/* Frontier pulse — very subtle slow glow on nodes the user
+       *  has heard about but not yet engaged with. The "one ask away
+       *  from explained" affordance: signals where the natural next
+       *  question lies. Off when the node is also active or anchor-
+       *  pulsing (those signals are stronger and shouldn't fight). */}
+      {!active && !anchorPulse && node.level === 'heard' && (
+        <circle
+          r={node.radius + 3}
+          fill="none"
+          stroke="oklch(0.55 0.07 60)"
+          strokeWidth={1}
+          opacity={0.35}
+        >
+          <animate attributeName="opacity" values="0.15;0.45;0.15" dur="3.6s" repeatCount="indefinite" />
+        </circle>
+      )}
       {/* Node body — pill (rounded rect). Fill comes from the per-node
        *  battery gradient so the body itself carries the own-knowledge
        *  signal. No halo (was the children-rollup before; that role
-       *  moved to the pip row below). */}
+       *  moved to the pip row below).
+       *
+       *  When `touched` (this node was referenced in any prior AI reply
+       *  this session), the stroke shifts to a brighter warm tone —
+       *  the diagram gradually warms up where the conversation has
+       *  been. Persistent across the session. The "heat-map of your
+       *  attention" effect from the design jam. */}
       <rect
         x={-rectWidth / 2}
         y={-rectHeight / 2}
@@ -629,8 +718,16 @@ function DiagramNodeView({ node, active, childrenInfo, onClick }: NodeViewProps)
         rx={14}
         ry={14}
         fill={`url(#${gradId})`}
-        stroke={hover ? 'oklch(0.55 0.10 70)' : ownConfirmed ? 'oklch(0.62 0.10 75)' : 'oklch(0.40 0.03 70)'}
-        strokeWidth={hover ? 1.5 : 1}
+        stroke={
+          hover
+            ? 'oklch(0.55 0.10 70)'
+            : ownConfirmed
+              ? 'oklch(0.62 0.10 75)'
+              : touched
+                ? 'oklch(0.55 0.08 75)'
+                : 'oklch(0.40 0.03 70)'
+        }
+        strokeWidth={hover ? 1.5 : touched ? 1.25 : 1}
         filter="url(#hd-shadow)"
       />
       {/* Title — top-aligned with consistent padding from the rect edge. */}
