@@ -48,10 +48,31 @@ export interface GrillSession {
 
 const MAX_QUESTIONS = 6;
 
-/** Phrases that signal the user wants to end the grill. */
+/** Phrases that signal the user wants to end the grill OR navigate
+ *  away from it. Once a grill is active, handleUtterance routes
+ *  everything to the grill loop — so the only way the user can
+ *  cleanly exit is by us recognising their intent here. Includes
+ *  both explicit stops ("stop", "enough") AND common navigation
+ *  intents ("exit", "back to project", "go back") so the user is
+ *  never trapped in a grill.
+ *  Matches as standalone phrases only (≤4 words, end-anchored) to
+ *  avoid swallowing a real answer that happens to contain a stop
+ *  word in passing. */
 const STOP_PATTERNS = [
-  /^stop\b/i, /^enough\b/i, /^that'?s enough\b/i, /\bi give up\b/i,
-  /^no more\b/i, /^okay (i'?m )?done\b/i, /^end (the )?grill\b/i,
+  /^stop\.?$/i,
+  /^enough\.?$/i,
+  /^that'?s enough\.?$/i,
+  /^i give up\.?$/i,
+  /^no more\.?$/i,
+  /^okay (i'?m )?done\.?$/i,
+  /^end (the )?grill\.?$/i,
+  /^exit\.?$/i,
+  /^quit\.?$/i,
+  /^back\.?$/i,
+  /^go back\.?$/i,
+  /^back to project\.?$/i,
+  /^cancel\.?$/i,
+  /^pause\.?$/i,
 ];
 
 export function userSaidStop(text: string): boolean {

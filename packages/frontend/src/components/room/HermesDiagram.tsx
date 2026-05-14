@@ -17,7 +17,7 @@
  * so first paint is immediate. Cache miss → loading state while the
  * backend composes on the fly.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSessionStore } from '../../state/session-store.js';
 import { useAudioStore } from '../../state/audio-store.js';
 import { sendEvent } from '../../lib/ws-client.js';
@@ -110,16 +110,26 @@ export function HermesDiagram() {
   // ("this module" / "these files" land on the right thing).
   // 200ms framer-motion crossfade is handled by the diagram fetch
   // effect's natural re-render.
+  //
+  // Dedupe via ref: the effect's deps are [skillResult, payload], but
+  // setScope changes the payload (after refetch), which re-runs this
+  // effect with the SAME skillResult against the new node set. The
+  // fuzzy substring match would then drill again, e.g. "core" → first
+  // matches `module/core`, then re-fires and matches `file/core/loader.py`
+  // (which also contains the substring "core"). Track the last-acted
+  // skillResult reference and only react when it actually changes.
   const knownNodeIds = useMemo(() => new Set(payload?.nodes.map(n => n.id) ?? []), [payload]);
+  const lastSteeredSkillResultRef = useRef<unknown>(null);
   useEffect(() => {
     if (!skillResult) return;
+    if (lastSteeredSkillResultRef.current === skillResult) return;
+    lastSteeredSkillResultRef.current = skillResult;
     const target = (skillResult.visualPayload?.target as string | undefined)?.toLowerCase().trim();
     if (!target) return;
     // Match the skill's free-form target string to a node id. Try
     // direct id, then module/X, then a substring match against any
     // known node label.
-    const candidate =
-      `module/${target}`;
+    const candidate = `module/${target}`;
     if (knownNodeIds.has(candidate)) {
       setScope(candidate);
       return;

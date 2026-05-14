@@ -132,14 +132,23 @@ export function Room() {
             </button>
             <div className="flex items-center gap-2 pointer-events-auto opacity-40 hover:opacity-100 transition-opacity">
               <button
-                onClick={() => useGapsStore.getState().toggle()}
+                onClick={() => {
+                  // Mutually exclusive with HistoryRail — both are
+                  // right-side panels; opening one closes the other so
+                  // they don't stack invisibly.
+                  useHistoryStore.getState().setOpen(false);
+                  useGapsStore.getState().toggle();
+                }}
                 className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
                 title="Show what you haven't reviewed"
               >
                 Gaps
               </button>
               <button
-                onClick={() => useHistoryStore.getState().toggle()}
+                onClick={() => {
+                  useGapsStore.getState().setOpen(false);
+                  useHistoryStore.getState().toggle();
+                }}
                 className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
                 title="Show conversation history"
               >

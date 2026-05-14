@@ -6,13 +6,24 @@ export const compareSkill: Skill = {
   name: 'compare',
   description: 'Show before/after differences for code changes',
   async execute(context: SkillContext, params: Record<string, string>): Promise<SkillResult> {
-    const target = params.target ?? params.file ?? params.module1
-      ? `${params.module1}${params.module2 ? ` and ${params.module2}` : ''}`
-      : 'the recent changes';
-    const finalTarget = typeof target === 'string' ? target : 'the recent changes';
+    // Resolve the comparison target from the classifier's free-form
+    // params. Most common shapes: `target` (single string),
+    // `file` (a file path), or `module1` + optional `module2` (pair).
+    // Fall back to "the recent changes" so the prompt always has a
+    // subject even when params are sparse.
+    let target: string;
+    if (params.target) {
+      target = params.target;
+    } else if (params.file) {
+      target = params.file;
+    } else if (params.module1) {
+      target = params.module2 ? `${params.module1} and ${params.module2}` : params.module1;
+    } else {
+      target = 'the recent changes';
+    }
 
     const prompt = [
-      `Compare ${finalTarget}. What's different and why does it matter?`,
+      `Compare ${target}. What's different and why does it matter?`,
       constraintInstruction(
         params,
         ['target', 'file', 'module1', 'module2'],
@@ -30,7 +41,7 @@ export const compareSkill: Skill = {
       skillName: 'compare',
       type: 'diff',
       narration,
-      visualPayload: { target: finalTarget, filePath: params.file },
+      visualPayload: { target, filePath: params.file },
     };
   },
 };

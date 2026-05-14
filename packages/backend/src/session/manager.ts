@@ -1885,17 +1885,24 @@ export class SessionManager {
     }
 
     // Re-entry suppression: when the SAME briefing was just delivered
-    // recently AND the user didn't explicitly ask for it, abbreviate
-    // (or skip outright) instead of re-narrating the full opener.
+    // recently as part of a SESSION START (not user-asked, not a
+    // tour-next that lands on this briefing for the first time, not
+    // a navigator pop that already has its own resumePrefix UX),
+    // abbreviate the opener instead of re-narrating the full thing.
     // The full briefing is a 30s+ monologue — playing it on every
     // session-start re-entry was the #1 voice-friction complaint.
+    //
+    // Scoped narrowly to `session_start` so:
+    //   - user_asked / dive_deeper: user explicitly invited it, play full
+    //   - tour_next: new area, briefing hasn't been delivered yet anyway
+    //   - resume_pop: already shows resumePrefix ("Back up here"); don't
+    //                 double-up with our abbreviation
     const repoPath = this.activeRepoPath || this.config.repoPath;
     const minutesSinceLast = repoPath
       ? this.db.getBriefingRepo().minutesSinceLastDelivery(repoPath, briefing.id)
       : null;
-    const userAsked = reason === 'user_asked' || reason === 'dive_deeper';
     let openerToEmit = briefing.opener;
-    if (!userAsked && minutesSinceLast !== null) {
+    if (reason === 'session_start' && minutesSinceLast !== null) {
       if (minutesSinceLast < 30) {
         // Quick re-entry — skip the briefing, just acknowledge.
         openerToEmit = `Welcome back to ${briefing.title}. Where do you want to pick up?`;
