@@ -9,6 +9,8 @@ import { NarrationBar } from './NarrationBar.js';
 import { QuickChips } from './QuickChips.js';
 import { GapsPanel } from './GapsPanel.js';
 import { ListeningPill } from './ListeningPill.js';
+import { HistoryRail } from './HistoryRail.js';
+import { useHistoryStore } from '../../state/history-store.js';
 import { CodePanel } from './CodePanel.js';
 import { HermesText } from './HermesText.js';
 import { useGapsStore } from '../../state/gaps-store.js';
@@ -136,6 +138,13 @@ export function Room() {
               >
                 Gaps
               </button>
+              <button
+                onClick={() => useHistoryStore.getState().toggle()}
+                className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
+                title="Show conversation history"
+              >
+                History
+              </button>
               <ComprehensionToggle />
               <span className="text-[10px] text-[var(--color-text-muted)] opacity-50 font-mono">v{VERSION}</span>
               <button
@@ -150,6 +159,7 @@ export function Room() {
 
         <GapsPanel />
         <CodePanel />
+        <HistoryRail />
         <ListeningPill />
       </div>
 

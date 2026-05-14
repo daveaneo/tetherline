@@ -22,6 +22,10 @@ export class IntelligenceAnalyzer {
   private claude: IClaudeClient;
   private systemPrompt: string;
 
+  /** Expose the underlying client so adjacent modules (grill.ts, etc.)
+   *  can issue ad-hoc LLM calls without wiring a separate adapter. */
+  getClient(): IClaudeClient { return this.claude; }
+
   constructor(
     client: IClaudeClient,
     private context: {

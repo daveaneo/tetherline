@@ -86,6 +86,7 @@ export function HermesDiagram() {
   const repoPath = useSessionStore(s => s.activeRepoPath);
   const phase = useSessionStore(s => s.state.phase);
   const currentBriefingId = useSessionStore(s => s.currentBriefing?.briefingId ?? null);
+  const skillResult = useSessionStore(s => s.skillResult);
 
   // Active scope walks the navigator stack — drilling into a module
   // refetches that module's diagram. For now wire to project until the
@@ -100,6 +101,37 @@ export function HermesDiagram() {
   useEffect(() => {
     if (phase === 'IDLE') setScope('project');
   }, [phase]);
+
+  // C1: skill executions with a target node steer the diagram. When a
+  // skill (explain, summarize, teach, compare, visualize, critique)
+  // returns a visualPayload.target that matches a known module name,
+  // drill the diagram there BEFORE the AI starts speaking — so the
+  // user has a visual referent for the words they're about to hear
+  // ("this module" / "these files" land on the right thing).
+  // 200ms framer-motion crossfade is handled by the diagram fetch
+  // effect's natural re-render.
+  const knownNodeIds = useMemo(() => new Set(payload?.nodes.map(n => n.id) ?? []), [payload]);
+  useEffect(() => {
+    if (!skillResult) return;
+    const target = (skillResult.visualPayload?.target as string | undefined)?.toLowerCase().trim();
+    if (!target) return;
+    // Match the skill's free-form target string to a node id. Try
+    // direct id, then module/X, then a substring match against any
+    // known node label.
+    const candidate =
+      `module/${target}`;
+    if (knownNodeIds.has(candidate)) {
+      setScope(candidate);
+      return;
+    }
+    // Fuzzy: any node id that includes the target word
+    for (const id of knownNodeIds) {
+      if (id.toLowerCase().includes(target)) {
+        setScope(id);
+        return;
+      }
+    }
+  }, [skillResult, knownNodeIds]);
 
   // Fetch the diagram payload whenever scope/view/repoPath changes.
   useEffect(() => {

@@ -121,4 +121,25 @@ export class BriefingRepository {
   deleteForRepo(repoPath: string): void {
     this.db.prepare('DELETE FROM briefings WHERE repo_path = ?').run(repoPath);
   }
+
+  /** Stamp a briefing as just delivered. The session manager calls this
+   *  every time it emits a briefing's narration so the next session
+   *  start can decide whether to re-deliver, abbreviate, or skip
+   *  based on how recently the user heard it. */
+  markDelivered(repoPath: string, id: string): void {
+    this.db
+      .prepare(`UPDATE briefings SET last_delivered_at = datetime('now') WHERE repo_path = ? AND id = ?`)
+      .run(repoPath, id);
+  }
+
+  /** Returns minutes since last delivery, or null if never delivered. */
+  minutesSinceLastDelivery(repoPath: string, id: string): number | null {
+    const row = this.db
+      .prepare('SELECT last_delivered_at FROM briefings WHERE repo_path = ? AND id = ?')
+      .get(repoPath, id) as { last_delivered_at: string | null } | undefined;
+    if (!row?.last_delivered_at) return null;
+    const last = new Date(row.last_delivered_at + 'Z').getTime();
+    if (Number.isNaN(last)) return null;
+    return Math.floor((Date.now() - last) / 60_000);
+  }
 }

@@ -1,5 +1,6 @@
 import type { Skill, SkillContext } from './registry.js';
 import type { SkillResult } from '@tetherline/shared';
+import { constraintInstruction, formatParamsAsConstraints } from './params-helper.js';
 
 export const summarizeSkill: Skill = {
   name: 'summarize',
@@ -25,9 +26,6 @@ export const summarizeSkill: Skill = {
               ? 'this project'
               : context.currentArea?.name ?? 'this project');
 
-    const constraintHints = formatParamsAsConstraints(params, ['scope', 'target']);
-    const defaultBrevity = '2-3 sentences. Hit the key points only.';
-
     const contextSummary = scope === 'project'
       ? (context.contextComposer?.getProjectContext()
           ?? `Areas: ${context.areas.map(a => `${a.name}: ${a.description}`).join('; ')}`)
@@ -35,9 +33,7 @@ export const summarizeSkill: Skill = {
 
     const prompt = [
       `Summarize ${target}.`,
-      constraintHints
-        ? `Honor these user constraints exactly: ${constraintHints}. Output ONLY the summary itself — no preamble like "here is" or "let me", no trailing commentary.`
-        : defaultBrevity,
+      constraintInstruction(params, ['scope', 'target'], '2-3 sentences. Hit the key points only.'),
       'This is spoken aloud — natural prose, no markdown, no bullet lists.',
     ].join(' ');
 
@@ -47,25 +43,10 @@ export const summarizeSkill: Skill = {
       skillName: 'summarize',
       type: 'explanation',
       narration,
-      visualPayload: { target, constraints: constraintHints || undefined },
+      visualPayload: {
+        target,
+        constraints: formatParamsAsConstraints(params, ['scope', 'target']) || undefined,
+      },
     };
   },
 };
-
-/** Stringify a params dict as a natural-language constraint list the
- *  LLM can honor verbatim. Filters out keys already used elsewhere in
- *  the prompt (e.g. `scope`, `target` — they're inlined into the lead
- *  sentence and don't need repeating).
- *
- *  Output shape: "key: value, key: value" — readable, no escaping
- *  needed for typical params. Returns '' if nothing meaningful. */
-function formatParamsAsConstraints(
-  params: Record<string, string>,
-  excludeKeys: string[],
-): string {
-  const exclude = new Set(excludeKeys);
-  return Object.entries(params)
-    .filter(([k, v]) => !exclude.has(k) && typeof v === 'string' && v.trim().length > 0)
-    .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v.trim()}`)
-    .join(', ');
-}

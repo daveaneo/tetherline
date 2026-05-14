@@ -9,6 +9,7 @@ import { teachSkill } from './teach.js';
 import { annotateSkill } from './annotate.js';
 import { createIssueSkill } from './create-issue.js';
 import { shareSkill } from './share.js';
+import { grillMeSkill } from './grill_me.js';
 
 export function createSkillRegistry(): SkillRegistry {
   const registry = new SkillRegistry();
@@ -22,6 +23,7 @@ export function createSkillRegistry(): SkillRegistry {
   registry.register(annotateSkill);
   registry.register(createIssueSkill);
   registry.register(shareSkill);
+  registry.register(grillMeSkill);
   return registry;
 }
 

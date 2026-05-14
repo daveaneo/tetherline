@@ -116,6 +116,7 @@ ${context}`;
 - annotate: user wants to MARK something ("flag this", "remember this", "note")
 - create_issue: user wants to CREATE a GitHub issue ("create a ticket", "file an issue", "open a bug")
 - share_explanation: user wants to SHARE or COPY the current explanation ("share this", "copy this")
+- grill_me: user wants the AI to QUIZ THEM with adaptive Socratic questions ("grill me on auth", "test my understanding of X", "quiz me hard on Y", "grill me strict"). Different from 'teach' — 'teach' is the AI explaining; 'grill_me' is the AI questioning the USER.
 - none: NONE OF THE ABOVE fits cleanly. Use 'none' for:
    • Creative output requests (write a poem, joke, story, haiku, song, rap)
    • Hypotheticals or thought experiments ("what if we...", "imagine that...")
@@ -141,7 +142,7 @@ Confidence guidance:
           properties: {
             skillName: {
               type: 'string',
-              enum: ['visualize', 'explain', 'compare', 'critique', 'summarize', 'navigate', 'teach', 'annotate', 'create_issue', 'share_explanation', 'none'],
+              enum: ['visualize', 'explain', 'compare', 'critique', 'summarize', 'navigate', 'teach', 'annotate', 'create_issue', 'share_explanation', 'grill_me', 'none'],
             },
             confidence: { type: 'number', description: 'Confidence score from 0 to 1' },
             params: { type: 'object', additionalProperties: { type: 'string' }, description: 'Extracted parameters' },

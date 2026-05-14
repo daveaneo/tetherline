@@ -9,7 +9,7 @@
  *  was producing the wrong output (e.g. poem requests → summarize skill,
  *  follow-up "that wasn't a poem" → critique skill firing a 500-word
  *  lecture). */
-export type SkillName = 'visualize' | 'explain' | 'compare' | 'critique' | 'summarize' | 'navigate' | 'teach' | 'annotate' | 'create_issue' | 'share_explanation' | 'none';
+export type SkillName = 'visualize' | 'explain' | 'compare' | 'critique' | 'summarize' | 'navigate' | 'teach' | 'annotate' | 'create_issue' | 'share_explanation' | 'grill_me' | 'none';
 
 export interface SkillResult {
   skillName: SkillName;

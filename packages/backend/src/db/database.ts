@@ -415,6 +415,17 @@ export class Database {
     if (!moduleColumnNames.has('impact_score')) {
       this.db.exec(`ALTER TABLE context_cache_module ADD COLUMN impact_score REAL DEFAULT 0`);
     }
+
+    // Migration: add last_delivered_at to briefings so the session
+    // manager can suppress / abbreviate the welcome briefing on quick
+    // re-entry. The full briefing every session was a 35s monologue
+    // the user had to interrupt to ask anything; ≤30 min re-entries
+    // now get a one-liner instead.
+    const briefingColumns = this.db.pragma('table_info(briefings)') as Array<{ name: string }>;
+    const briefingColumnNames = new Set(briefingColumns.map(c => c.name));
+    if (!briefingColumnNames.has('last_delivered_at')) {
+      this.db.exec(`ALTER TABLE briefings ADD COLUMN last_delivered_at TEXT`);
+    }
   }
 
   getSessionRepo(): SessionRepository { return this.sessionRepo; }

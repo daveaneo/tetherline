@@ -1401,7 +1401,7 @@ export class SessionManager {
     });
   }
 
-  private async handleQuestion(question: string) {
+  private async handleQuestion(question: string, classifierParams: Record<string, string> = {}) {
     // Voice-first: answer inline via narration, don't transition to QA modal.
     // The answer is spoken aloud and shown in the narration bar.
 
@@ -1477,16 +1477,31 @@ export class SessionManager {
     // scaffold's length guidance matches what the user just asked for.
     const depthSignal = detectDepth(question, this.depthTier);
     this.depthTier = depthSignal.tier;
-    // When the tier just changed, prepend a brief verbal ack to the
-    // reply via the stream_chunk pipeline (greeting would coalesce
-    // with the answer's own greeting and silently get dropped).
-    const depthAck = depthSignal.changed
+    // Suppress the depth-ack ("Got it — I'll keep it short.") when the
+    // user's request already specifies brevity — those 7 words eat
+    // most of a 10-word budget. The trigger words below are the same
+    // signals detectDepth uses to set tldr; we avoid double-narrating.
+    const userImpliesBrevity = /\b\d+\s+(words?|sentences?|lines?|paragraphs?)\b|\b(brief|brevity|short|terse|concise|tldr|tl;dr|one[\s-]?liner|in\s+a?\s*sentence)\b/i.test(question);
+    const depthAck = depthSignal.changed && !userImpliesBrevity
       ? (depthSignal.tier === 'tldr'
           ? "Got it — I'll keep it short."
           : depthSignal.tier === 'deep'
             ? 'Sure, going deeper.'
             : '')
       : '';
+
+    // Pull classifier params (if any) into the user message as
+    // natural-language constraints. The 'none' route reaches
+    // handleQuestion with the params dict the LLM extracted — handing
+    // them through means the conversational handler honors "format:
+    // poem, lines: two, length: 10 words" the same way summarize does
+    // for its own constraints. Without this, the 'none' path silently
+    // drops anything the classifier extracted.
+    const { formatParamsAsConstraints } = await import('../skills/params-helper.js');
+    const constraintHints = formatParamsAsConstraints(classifierParams, []);
+    const userMessage = constraintHints
+      ? `${question}\n\n[Honor these constraints exactly: ${constraintHints}. Output ONLY the answer — no preamble like "sure", "here is", "let me", and no trailing follow-up question.]`
+      : question;
 
     const priorTurns = this.db.getQAHistoryRepo().recent(repoPath, {
       excludeSessionId: this.context.sessionId,
@@ -1516,7 +1531,7 @@ export class SessionManager {
           const client = new ClaudeCodeClient('sonnet', repoPath);
           const answer = await client.streamText({
             system: baseSystem(true),
-            messages: [{ role: 'user' as const, content: question }],
+            messages: [{ role: 'user' as const, content: userMessage }],
           });
           await answerAndNarrate(answer);
           return;
@@ -1574,6 +1589,14 @@ export class SessionManager {
     answers: Array<{ questionId: string; correct: boolean }>;
     cursor: number;
   } | null = null;
+
+  // ─────────────────────────────────────────────────────────────
+  // grill_me: adaptive Socratic grill. Once a grill starts, the
+  // user's next utterances are answers to the current question, NOT
+  // fresh requests. handleUtterance checks this state at the top and
+  // routes accordingly. See intelligence/grill.ts for the LLM logic.
+  // ─────────────────────────────────────────────────────────────
+  private activeGrill: import('../intelligence/grill.js').GrillSession | null = null;
 
   private async handleQuizStart(): Promise<void> {
     const repoPath = this.activeRepoPath;
@@ -1683,6 +1706,80 @@ export class SessionManager {
     }
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // grill_me: stateful interactive grill. The skill itself is a
+  // one-shot trigger (returns visualPayload._action = 'start_grill');
+  // the methods below run the actual loop. handleUtterance routes
+  // user answers here while activeGrill is set.
+  // ─────────────────────────────────────────────────────────────
+
+  private async startGrillSession(opts: { topic: string; tone: 'coach' | 'strict' }): Promise<void> {
+    if (!this.activeAnalyzer) {
+      this.emit({ type: 'narration:greeting', payload: { text: "I need an active session to grill on. Try after the briefing finishes." } });
+      return;
+    }
+    const repoPath = this.activeRepoPath || this.config.repoPath;
+    // Pull project context to scope questions. Cheap — uses cached
+    // project + module summaries we already have in the DB.
+    const project = repoPath ? this.db.getContextCacheRepo().getProject(repoPath) : null;
+    const modules = repoPath ? this.db.getContextCacheRepo().getModulesForRepo(repoPath) : [];
+    const contextSummary = [
+      project?.summary ?? '',
+      ...modules.slice(0, 5).map(m => `${m.modulePath}: ${m.summary?.slice(0, 200) ?? ''}`),
+    ].filter(Boolean).join('\n\n');
+
+    const { startGrill } = await import('../intelligence/grill.js');
+    try {
+      const { session, firstQuestion } = await startGrill(this.activeAnalyzer.getClient(), {
+        topic: opts.topic,
+        context: contextSummary,
+        tone: opts.tone,
+      });
+      this.activeGrill = session;
+      // Ack + first question, spoken aloud.
+      const lead = opts.tone === 'strict'
+        ? `Alright. Let's grill you on ${opts.topic}.`
+        : `Cool — let's see what you know about ${opts.topic}.`;
+      this.emit({ type: 'narration:greeting', payload: { text: `${lead} ${firstQuestion}` } });
+    } catch (err: any) {
+      this.emit({ type: 'narration:greeting', payload: { text: `Couldn't start the grill — ${err.message ?? 'unknown error'}.` } });
+      this.activeGrill = null;
+    }
+  }
+
+  private async handleGrillAnswer(answer: string): Promise<void> {
+    if (!this.activeGrill || !this.activeAnalyzer) return;
+    const { respondToAnswer } = await import('../intelligence/grill.js');
+    try {
+      const result = await respondToAnswer(this.activeAnalyzer.getClient(), this.activeGrill, answer);
+      this.emit({ type: 'narration:greeting', payload: { text: result.spoken } });
+      // Update comprehension based on the running pattern. Strong
+      // answers across consecutive turns earn a bump from 'heard' or
+      // 'engaged' toward 'explained' / 'confirmed' on the topic.
+      const lastEvals = this.activeGrill.turns.slice(-3).map(t => t.evaluation);
+      const strongStreak = lastEvals.filter(e => e === 'strong').length;
+      if (strongStreak >= 2) {
+        // Two strong consecutive answers → bump comprehension. Reuse
+        // the 'confirmed_phrase' reason since "answered confidently
+        // under questioning" is the closest existing trigger; the
+        // type isn't extensible from here without a wider refactor.
+        this.observeComprehension(
+          `topic/${this.activeGrill.topic.replace(/\s+/g, '-').toLowerCase()}`,
+          this.activeGrill.topic,
+          'explained',
+          'confirmed_phrase',
+          {},
+        );
+      }
+      if (result.done) {
+        this.activeGrill = null;
+      }
+    } catch (err: any) {
+      this.emit({ type: 'narration:greeting', payload: { text: `Grill hit an error: ${err.message ?? 'unknown'}. Stopping.` } });
+      this.activeGrill = null;
+    }
+  }
+
   private async handleExport(format: 'slides' | 'markdown') {
     this.setState({ phase: 'EXPORTING', exportFormat: format });
 
@@ -1786,13 +1883,37 @@ export class SessionManager {
         });
       }
     }
+
+    // Re-entry suppression: when the SAME briefing was just delivered
+    // recently AND the user didn't explicitly ask for it, abbreviate
+    // (or skip outright) instead of re-narrating the full opener.
+    // The full briefing is a 30s+ monologue — playing it on every
+    // session-start re-entry was the #1 voice-friction complaint.
+    const repoPath = this.activeRepoPath || this.config.repoPath;
+    const minutesSinceLast = repoPath
+      ? this.db.getBriefingRepo().minutesSinceLastDelivery(repoPath, briefing.id)
+      : null;
+    const userAsked = reason === 'user_asked' || reason === 'dive_deeper';
+    let openerToEmit = briefing.opener;
+    if (!userAsked && minutesSinceLast !== null) {
+      if (minutesSinceLast < 30) {
+        // Quick re-entry — skip the briefing, just acknowledge.
+        openerToEmit = `Welcome back to ${briefing.title}. Where do you want to pick up?`;
+      } else if (minutesSinceLast < 24 * 60) {
+        // Same-day re-entry — keep just the first sentence + a re-engage prompt.
+        const firstSentence = briefing.opener.split(/(?<=[.!?])\s+/)[0] ?? briefing.opener;
+        openerToEmit = `${firstSentence} Ready to continue?`;
+      }
+      // ≥24 h → full opener (default). User likely wants the refresher.
+    }
+
     this.emit({
       type: 'narration:briefing',
       payload: {
         briefingId: briefing.id,
         layer: briefing.layer,
         title: briefing.title,
-        text: briefing.opener,
+        text: openerToEmit,
         estimatedSeconds: briefing.estimatedSeconds,
         talkingPoints: briefing.talkingPoints,
         children: briefing.children,
@@ -1803,6 +1924,11 @@ export class SessionManager {
     });
     this.lastBriefingEmittedAt = Date.now();
     this.lastBriefingId = briefing.id;
+    // Stamp the delivery so future re-entries can decide whether to
+    // suppress / abbreviate.
+    if (repoPath) {
+      try { this.db.getBriefingRepo().markDelivered(repoPath, briefing.id); } catch { /* best-effort */ }
+    }
     // Hearing a briefing only counts as 'heard'. To progress to 'explained'
     // / 'confirmed' the user has to actively engage — pass a quiz, ask a
     // follow-up, or confirm with a phrase. This is the depth lock: hearing
@@ -2312,6 +2438,17 @@ export class SessionManager {
       },
     });
 
+    // grill_me is in progress — the user's utterance is an ANSWER to
+    // the current grill question, not a fresh request. Route to the
+    // grill loop, which will evaluate and either ask the next question
+    // or wrap up. The skill classifier doesn't run while a grill is
+    // active so the user can answer naturally without their answer
+    // accidentally triggering a different skill.
+    if (this.activeGrill && !this.activeGrill.done) {
+      await this.handleGrillAnswer(text);
+      return;
+    }
+
     // During PROPOSAL phase, handle utterances with proposal-specific logic
     if (this.state.phase === 'PROPOSAL') {
       if (this.handleProposalUtterance(text)) return;
@@ -2449,7 +2586,10 @@ export class SessionManager {
     // handleQuestion sends the utterance + project context + recent
     // turns to the LLM and emits the reply naturally.
     if (classification.skillName === 'none') {
-      this.handleQuestion(text);
+      // Pass the classifier's extracted params through so the
+      // conversational handler can honor "format: poem, lines: two,
+      // length: 10 words" the same way summarize does for its skill.
+      this.handleQuestion(text, classification.params);
       return;
     }
 
@@ -2459,7 +2599,7 @@ export class SessionManager {
     // forced skill rather than asking for clarification (the user just
     // told us what they want; making them rephrase is bad UX).
     if (classification.confidence < 0.7) {
-      this.handleQuestion(text);
+      this.handleQuestion(text, classification.params);
       return;
     }
 
@@ -2503,6 +2643,17 @@ export class SessionManager {
       );
 
       this.emit({ type: 'skill:result', payload: { result } });
+
+      // Special handling: grill_me kicks off a stateful interactive
+      // grill. The skill itself returns no narration; the manager
+      // generates the FIRST question via grill.ts and parks the
+      // session in `activeGrill` mode so subsequent utterances are
+      // routed to the grill loop instead of being re-classified.
+      const action = (result.visualPayload as Record<string, unknown>)?._action;
+      if (result.skillName === 'grill_me' && action === 'start_grill') {
+        await this.startGrillSession(result.visualPayload as { topic: string; tone: 'coach' | 'strict' });
+        return;
+      }
 
       // Speak the skill's narration. The skill:result event carries the
       // narration to the UI for the conversation log, but the speak-
