@@ -57,6 +57,53 @@ export class TourPlan {
     return plan;
   }
 
+  /**
+   * The SECOND spine builder (B15). `fromAreas` walks recent-change
+   * areas (the weekly-review franchise); `fromArchitecture` walks the
+   * system TOP-DOWN — project → modules → files — for guided-learning
+   * mode ("how is this built?"). Same engine, same deviation stack
+   * (barge-in is unchanged); only the ordered item set differs.
+   * (User decision 2026-05-15: coexist, not replace.)
+   */
+  static fromArchitecture(arch: {
+    projectName: string;
+    modules: Array<{ id: string; name: string; files?: string[] }>;
+  }): TourPlan {
+    const plan = new TourPlan();
+    // Root first — the top of the spine.
+    plan.items.push({
+      id: 'project-root',
+      type: 'project',
+      name: arch.projectName,
+      covered: false,
+      skipped: false,
+    });
+    for (const mod of arch.modules) {
+      plan.items.push({
+        id: `arch-${mod.id}`,
+        parentId: 'project-root',
+        type: 'architecture',
+        name: mod.name,
+        nodeId: mod.id,
+        covered: false,
+        skipped: false,
+      });
+      for (const file of (mod.files ?? []).slice(0, 10)) {
+        plan.items.push({
+          id: `file-${mod.id}-${file}`,
+          parentId: `arch-${mod.id}`,
+          type: 'file',
+          name: file,
+          nodeId: mod.id,
+          filePath: file,
+          covered: false,
+          skipped: false,
+        });
+      }
+    }
+    return plan;
+  }
+
   markCovered(itemId: string): void {
     this.coveredIds.add(itemId);
     const item = this.items.find(i => i.id === itemId);
