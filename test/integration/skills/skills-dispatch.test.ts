@@ -27,7 +27,7 @@ const SKILLS: SkillCase[] = [
   { name: 'critique',        classifyAs: 'critique',        utterance: 'is this approach good' },
   { name: 'whats_changed',   classifyAs: 'whats_changed',   utterance: 'catch me up on what changed' },
   { name: 'navigate',        classifyAs: 'navigate',        utterance: 'take me to the payment module' },
-  { name: 'teach',           classifyAs: 'teach',           utterance: "what's the observer pattern they're using" },
+  { name: 'explain-concept', classifyAs: 'explain',         utterance: "what's the observer pattern they're using" },
   { name: 'annotate',        classifyAs: 'annotate',        utterance: 'flag this for the team' },
 ];
 
