@@ -10,6 +10,7 @@ export * from './types/understanding.js';
 export * from './types/skills.js';
 export * from './types/visual-layer.js';
 export * from './types/visual-dispatch.js';
+export * from './types/shelf.js';
 export * from './types/onboarding.js';
 export * from './types/briefing.js';
 export * from './types/comprehension.js';
