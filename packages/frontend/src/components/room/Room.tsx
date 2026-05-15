@@ -11,6 +11,8 @@ import { GapsPanel } from './GapsPanel.js';
 import { ListeningPill } from './ListeningPill.js';
 import { HistoryRail } from './HistoryRail.js';
 import { useHistoryStore } from '../../state/history-store.js';
+import { ReviewShelf } from './ReviewShelf.js';
+import { useShelfStore } from '../../state/shelf-store.js';
 import { CodePanel } from './CodePanel.js';
 import { HermesText } from './HermesText.js';
 import { useGapsStore } from '../../state/gaps-store.js';
@@ -154,6 +156,18 @@ export function Room() {
               >
                 History
               </button>
+              <button
+                onClick={() => {
+                  // Right-side panels are mutually exclusive.
+                  useGapsStore.getState().setOpen(false);
+                  useHistoryStore.getState().setOpen(false);
+                  useShelfStore.getState().setOpen(!useShelfStore.getState().open);
+                }}
+                className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
+                title="Notebook, deep dives, tasks, issues, comprehension"
+              >
+                Shelf
+              </button>
               <ComprehensionToggle />
               <span className="text-[10px] text-[var(--color-text-muted)] opacity-50 font-mono">v{VERSION}</span>
               <button
@@ -169,6 +183,7 @@ export function Room() {
         <GapsPanel />
         <CodePanel />
         <HistoryRail />
+        <ReviewShelf />
         <ListeningPill />
       </div>
 
