@@ -166,6 +166,34 @@ export function createDevRoutes(db: Database, config: AppConfig): Router {
     }
   });
 
+  /** POST /api/dev/skill { devSessionId, skillName, params? } — bypass
+   *  the intent classifier and run a named skill directly. Lets us fire
+   *  identical input at two skills and diff their real narration
+   *  (e.g. explain vs teach on the same target). Dev/eval only. */
+  router.post('/skill', (req, res) => {
+    try {
+      const { devSessionId, skillName, params } = req.body ?? {};
+      if (!devSessionId || typeof skillName !== 'string') {
+        res.status(400).json({ error: 'devSessionId + skillName required' });
+        return;
+      }
+      const eventsBefore = registry.getEvents(devSessionId).length;
+      registry.sendEvent(devSessionId, {
+        type: 'command:force_skill',
+        payload: { skillName, params: params ?? {} },
+      } as ClientEvent);
+      setTimeout(() => {
+        res.json({
+          ok: true,
+          newEvents: registry.getEvents(devSessionId, eventsBefore),
+          state: registry.getState(devSessionId),
+        });
+      }, 100);
+    } catch (err) {
+      sendErr(res, err);
+    }
+  });
+
   /** POST /api/dev/quiz/answer { devSessionId, questionId, answer } */
   router.post('/quiz/answer', (req, res) => {
     try {

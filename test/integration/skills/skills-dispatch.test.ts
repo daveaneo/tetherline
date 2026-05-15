@@ -25,7 +25,7 @@ const SKILLS: SkillCase[] = [
   { name: 'visualize',       classifyAs: 'visualize',       utterance: 'show me how auth connects to the db' },
   { name: 'compare',         classifyAs: 'compare',         utterance: 'how did this change from last week' },
   { name: 'critique',        classifyAs: 'critique',        utterance: 'is this approach good' },
-  { name: 'summarize',       classifyAs: 'summarize',       utterance: 'give me the quick version' },
+  { name: 'whats_changed',   classifyAs: 'whats_changed',   utterance: 'catch me up on what changed' },
   { name: 'navigate',        classifyAs: 'navigate',        utterance: 'take me to the payment module' },
   { name: 'teach',           classifyAs: 'teach',           utterance: "what's the observer pattern they're using" },
   { name: 'annotate',        classifyAs: 'annotate',        utterance: 'flag this for the team' },

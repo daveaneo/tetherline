@@ -119,7 +119,7 @@ ${context}`;
 - explain: user wants something EXPLAINED ("what does this do", "why", "how does X work")
 - compare: user wants to see DIFFERENCES ("how did this change", "before and after", "diff")
 - critique: user wants the AI's OPINION on something specific ("is this good", "what do you think of X", "any issues with Y")
-- summarize: user wants a BRIEF prose overview ("give me the quick version", "summarize", "tldr") — flat sentences, NOT creative formats
+- whats_changed: user wants to be CAUGHT UP on what moved recently ("what changed", "catch me up", "what's new", "what happened this week", "give me the quick version") — a recap of recent changes, NOT a timeless description and NOT creative formats
 - navigate: user wants to MOVE somewhere in the codebase ("go to", "show me the file", "open")
 - teach: user wants to LEARN a concept ("what is", "explain the pattern", "teach me about")
 - annotate: user wants to MARK something ("flag this", "remember this", "note")
@@ -151,7 +151,7 @@ Confidence guidance:
           properties: {
             skillName: {
               type: 'string',
-              enum: ['visualize', 'explain', 'compare', 'critique', 'summarize', 'navigate', 'teach', 'annotate', 'create_issue', 'share_explanation', 'grill_me', 'none'],
+              enum: ['visualize', 'explain', 'compare', 'critique', 'whats_changed', 'navigate', 'teach', 'annotate', 'create_issue', 'share_explanation', 'grill_me', 'none'],
             },
             confidence: { type: 'number', description: 'Confidence score from 0 to 1' },
             params: { type: 'object', additionalProperties: { type: 'string' }, description: 'Extracted parameters' },

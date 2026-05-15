@@ -6,10 +6,14 @@
  *  freely with project context. This prevents the classifier from
  *  force-fitting creative or off-menu requests ("write me a poem",
  *  "what would happen if...") into the nearest available skill, which
- *  was producing the wrong output (e.g. poem requests → summarize skill,
- *  follow-up "that wasn't a poem" → critique skill firing a 500-word
- *  lecture). */
-export type SkillName = 'visualize' | 'explain' | 'compare' | 'critique' | 'summarize' | 'navigate' | 'teach' | 'annotate' | 'create_issue' | 'share_explanation' | 'grill_me' | 'none';
+ *  was producing the wrong output (e.g. poem requests → whats_changed
+ *  skill, follow-up "that wasn't a poem" → critique skill firing a
+ *  500-word lecture).
+ *
+ *  'whats_changed' is the on-demand "catch me up" recap (formerly
+ *  'summarize'): what moved since last time, not generic summarization.
+ *  It is the user-initiated sibling of the auto-delivered briefing. */
+export type SkillName = 'visualize' | 'explain' | 'compare' | 'critique' | 'whats_changed' | 'navigate' | 'teach' | 'annotate' | 'create_issue' | 'share_explanation' | 'grill_me' | 'none';
 
 export interface SkillResult {
   skillName: SkillName;

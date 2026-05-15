@@ -203,6 +203,25 @@ export class SessionManager {
       case 'command:ask':
         this.handleQuestion(event.payload.question);
         break;
+      case 'command:force_skill': {
+        // Dev-only: bypass the intent classifier and run a named skill
+        // directly with given params. Lets us fire identical input at
+        // two skills and diff their real narration (explain vs teach,
+        // etc.) without the classifier collapsing it to one route.
+        const forcedArea = this.state.areaIndex !== undefined ? this.areas[this.state.areaIndex] : undefined;
+        if (!this.activeAnalyzer) {
+          this.emit({ type: 'error', payload: { code: 'SKILL_FAILED', message: 'No active analyzer — start a session first', recoverable: true } });
+          break;
+        }
+        this.executeSkillWithDeviation(
+          event.payload.skillName as SkillName,
+          event.payload.params ?? {},
+          forcedArea,
+        ).catch(err => {
+          this.emit({ type: 'error', payload: { code: 'SKILL_FAILED', message: err.message ?? 'Forced skill failed', recoverable: true } });
+        });
+        break;
+      }
       case 'command:toggle_mode':
         this.handleModeToggle(event.payload.mode, event.payload.enabled);
         break;

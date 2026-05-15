@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Litmus: a user request like "summarize the project in 5 words" must
-# produce a spoken summary that (a) honors the word-limit, (b) is
-# relevant to the project, (c) is actually audible (the narration must
-# flow through a path the speak-pipeline picks up).
+# Litmus: a user request like "catch me up on what changed in five
+# words" must produce a spoken recap that (a) honors the word-limit,
+# (b) is relevant to the project, (c) is actually audible (the
+# narration must flow through a path the speak-pipeline picks up).
 #
 # Failure modes this catches:
-#   - skill ignores params.word_limit (returns a long summary)
+#   - skill ignores params.word_limit (returns a long recap)
 #   - skill narration arrives in skill:result but never becomes audible
 #     (no narration:greeting / narration:stream_chunk fires)
 #   - the trailing deviation nudge ("Take your time exploring...") is
@@ -15,7 +15,7 @@ set -euo pipefail
 
 REPO="${REPO:-/home/david/.tetherline/repos/personalforge}"
 BASE="${BASE:-http://localhost:3847/api/dev}"
-QUESTION="${QUESTION:-summarize the project in 5 words}"
+QUESTION="${QUESTION:-catch me up on what changed in five words}"
 MAX_WORDS="${MAX_WORDS:-8}"   # allow a little slop (LLMs often give 4-7 for "5 words")
 MIN_WORDS="${MIN_WORDS:-2}"
 WAIT_MS="${WAIT_MS:-14}"      # seconds to wait for the skill output — natural
@@ -60,10 +60,10 @@ curl -sf -X POST "$BASE/session/reset" \
 
 # ── Assertions ──────────────────────────────────────────────────────
 
-# Pull the skill result for `summarize`.
+# Pull the skill result for `whats_changed`.
 SKILL_NARRATION=$(echo "$EVENTS_JSON" | jq -r '
   .events[]
-  | select(.type == "skill:result" and .payload.result.skillName == "summarize")
+  | select(.type == "skill:result" and .payload.result.skillName == "whats_changed")
   | .payload.result.narration
 ' | head -n 1)
 
@@ -85,11 +85,11 @@ SPOKEN=$(echo "$EVENTS_JSON" | jq -r '
 LAST_SPOKEN=$(echo "$SPOKEN" | tail -1)
 
 FAIL=0
-echo "─── Summarize-skill litmus ─────────────────────────────"
+echo "─── whats_changed-skill litmus ─────────────────────────"
 echo "  Question: $QUESTION"
 
 if [ -z "$SKILL_NARRATION" ] || [ "$SKILL_NARRATION" = "null" ]; then
-  echo "  ✗ skill:result event for summarize never fired"
+  echo "  ✗ skill:result event for whats_changed never fired"
   FAIL=1
 else
   WORD_COUNT=$(echo "$SKILL_NARRATION" | wc -w | tr -d ' ')

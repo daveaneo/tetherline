@@ -20,6 +20,7 @@ export type ClientEvent =
   | { type: 'command:pause' }
   | { type: 'command:resume' }
   | { type: 'command:ask'; payload: { question: string } }
+  | { type: 'command:force_skill'; payload: { skillName: string; params?: Record<string, string> } }
   | { type: 'command:toggle_mode'; payload: { mode: ModeKey; enabled: boolean } }
   | { type: 'command:export'; payload: { format: 'slides' | 'markdown' } }
   | { type: 'command:quiz_start' }
