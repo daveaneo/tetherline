@@ -22,6 +22,7 @@ import { useSessionStore } from '../../state/session-store.js';
 import { useAudioStore } from '../../state/audio-store.js';
 import { TimeSlider } from './TimeSlider.js';
 import { heatmapOverlayActive } from './heatmap-overlay.js';
+import { concernNodeIds, isConcernActive } from './concern-tint.js';
 import { motion } from 'framer-motion';
 import { motionVariantFor, scopeTransition, prefersReducedMotion } from './transition-motion.js';
 import { sendEvent } from '../../lib/ws-client.js';
@@ -139,9 +140,20 @@ export function HermesDiagram() {
   useEffect(() => {
     prevScopeRef.current = scope;
   }, [scope]);
+
   const [payload, setPayload] = useState<DiagramPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Critique concern tint (B5): the nodes the critique narration
+  // names get a worry tint. Derived from the spoken text so the
+  // visual cannot disagree with the audio. Additive — never clears.
+  const concernIds = useMemo(() => {
+    if (!isConcernActive(skillResult) || !skillResult?.narration) return new Set<string>();
+    return new Set(
+      concernNodeIds(skillResult.narration, (payload?.nodes ?? []).map(n => ({ id: n.id, label: n.label }))),
+    );
+  }, [skillResult, payload]);
 
   // Reset to project when phase resets to IDLE.
   useEffect(() => {
@@ -541,6 +553,7 @@ export function HermesDiagram() {
                 anchorPulse={isAnchorMatch(n, currentChunkNodes)}
                 touched={isTouched(n, touchedNodes)}
                 heatmapOverlay={heatmapOverlayActive(skillResult, scope)}
+                concern={concernIds.has(n.id)}
                 childrenInfo={childrenInfo.get(n.id) ?? null}
                 onClick={() => onNodeClick(n)}
               />
@@ -587,11 +600,12 @@ interface NodeViewProps {
   anchorPulse?: boolean;
   touched?: boolean;
   heatmapOverlay?: boolean;
+  concern?: boolean;
   childrenInfo: ChildrenInfo | null;
   onClick: () => void;
 }
 
-function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, childrenInfo, onClick }: NodeViewProps) {
+function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, concern, childrenInfo, onClick }: NodeViewProps) {
   const [hover, setHover] = useState(false);
   // Own-layer comprehension drives the BATTERY FILL of the node body.
   // The whole shape changes with knowledge — `unknown` is an empty
@@ -698,6 +712,20 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
           fill={ownColor ?? 'oklch(0.30 0.015 65)'}
           opacity={ownOrdinal === 0 ? 0.08 : 0.20}
         />
+      )}
+      {/* Critique concern tint (B5) — additive worry wash on nodes
+       *  the critique narration names. Never replaces the body fill
+       *  or the layout (IN_PLACE). */}
+      {concern && (
+        <circle
+          r={node.radius + 10}
+          fill="none"
+          stroke="oklch(0.62 0.19 25)"
+          strokeWidth={2.5}
+          opacity={0.7}
+        >
+          <animate attributeName="opacity" values="0.75;0.3;0.75" dur="1.8s" repeatCount="indefinite" />
+        </circle>
       )}
       {/* Pulse ring — only for the active (currently-narrated) node.
        *  Distinct from any comprehension signal: a slow steady pulse
