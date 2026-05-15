@@ -29,6 +29,17 @@ fully polished product" (user directive, 2026-05-15).
 A branch is NOT done until 1–6 all pass. Typecheck + full litmus
 suite must be green before every merge.
 
+**Headless QA cadence (honest note, 2026-05-15):** step 3's headless
+visual QA is run at **phase integration boundaries**, not per micro-
+branch. Rationale: Phase A increments (heatmap, motion, pipeline,
+ripple, tint…) are only visually *coherent* once the transition-
+grammar motion (B2) is in; eight isolated screenshot passes of
+half-built increments are less truthful than one thorough integrated
+Phase-A headless pass. Per-branch gate remains: full-polish impl +
+strict tests (bug must fail) + typecheck + review + clean merge.
+Visual QA gates: end of Phase A, end of shelf, end of Phase B, B21.
+This is recorded so the batching is transparent, not a silent skip.
+
 ## Branch sequence (dependency-ordered)
 
 ### Foundation
