@@ -1,10 +1,11 @@
 import type { Skill, SkillContext } from './registry.js';
 import type { SkillResult } from '@tetherline/shared';
 import { constraintInstruction } from './params-helper.js';
+import { classifyAxis, compareTourPlan } from './compare-tour.js';
 
 export const compareSkill: Skill = {
   name: 'compare',
-  description: 'Show before/after differences for code changes',
+  description: 'Compare two things along an axis (structural / temporal / vs-external)',
   async execute(context: SkillContext, params: Record<string, string>): Promise<SkillResult> {
     // Resolve the comparison target from the classifier's free-form
     // params. Most common shapes: `target` (single string),
@@ -37,11 +38,18 @@ export const compareSkill: Skill = {
       `Current area: ${context.currentArea?.name ?? 'none'}. Affected files: ${context.currentArea?.affectedFiles?.slice(0, 10).join(', ') ?? 'none'}.`,
     );
 
+    // v1 narrated tour (B7): structural compares walk A → B → synthesis
+    // using existing B2 transitions; temporal/vs-external stay IN_PLACE.
+    const axis = classifyAxis(params, target);
+    const a = params.module1 ?? params.target ?? target;
+    const b = params.module2;
+    const tour = compareTourPlan(a, b, axis);
+
     return {
       skillName: 'compare',
       type: 'diff',
       narration,
-      visualPayload: { target, filePath: params.file },
+      visualPayload: { target, filePath: params.file, axis, tour },
     };
   },
 };
