@@ -21,6 +21,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSessionStore } from '../../state/session-store.js';
 import { useAudioStore } from '../../state/audio-store.js';
 import { TimeSlider } from './TimeSlider.js';
+import { heatmapOverlayActive } from './heatmap-overlay.js';
 import { sendEvent } from '../../lib/ws-client.js';
 import { API_PREFIX } from '@tetherline/shared';
 
@@ -515,6 +516,7 @@ export function HermesDiagram() {
                 active={n.briefingId !== null && n.briefingId === currentBriefingId}
                 anchorPulse={isAnchorMatch(n, currentChunkNodes)}
                 touched={isTouched(n, touchedNodes)}
+                heatmapOverlay={heatmapOverlayActive(skillResult, scope)}
                 childrenInfo={childrenInfo.get(n.id) ?? null}
                 onClick={() => onNodeClick(n)}
               />
@@ -560,11 +562,12 @@ interface NodeViewProps {
   active: boolean;
   anchorPulse?: boolean;
   touched?: boolean;
+  heatmapOverlay?: boolean;
   childrenInfo: ChildrenInfo | null;
   onClick: () => void;
 }
 
-function DiagramNodeView({ node, active, anchorPulse, touched, childrenInfo, onClick }: NodeViewProps) {
+function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, childrenInfo, onClick }: NodeViewProps) {
   const [hover, setHover] = useState(false);
   // Own-layer comprehension drives the BATTERY FILL of the node body.
   // The whole shape changes with knowledge — `unknown` is an empty
@@ -661,6 +664,17 @@ function DiagramNodeView({ node, active, anchorPulse, touched, childrenInfo, onC
           )}
         </linearGradient>
       </defs>
+      {/* Heatmap overlay (B1) — additive cold→warm comprehension wash
+       *  behind the node body. Rendered FIRST so it sits behind all
+       *  content; purely additive, never replaces the body fill or the
+       *  layout. Active only during whats_changed project-scope. */}
+      {heatmapOverlay && (
+        <circle
+          r={node.radius + 8}
+          fill={ownColor ?? 'oklch(0.30 0.015 65)'}
+          opacity={ownOrdinal === 0 ? 0.08 : 0.20}
+        />
+      )}
       {/* Pulse ring — only for the active (currently-narrated) node.
        *  Distinct from any comprehension signal: a slow steady pulse
        *  always means "Hermes is talking about this right now (whole
