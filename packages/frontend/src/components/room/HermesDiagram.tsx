@@ -23,6 +23,8 @@ import { useAudioStore } from '../../state/audio-store.js';
 import { TimeSlider } from './TimeSlider.js';
 import { heatmapOverlayActive } from './heatmap-overlay.js';
 import { concernNodeIds, isConcernActive } from './concern-tint.js';
+import { grillScreenActive } from './grill-screen.js';
+import { GrillScreen } from './GrillScreen.js';
 import { motion } from 'framer-motion';
 import { motionVariantFor, scopeTransition, prefersReducedMotion } from './transition-motion.js';
 import { sendEvent } from '../../lib/ws-client.js';
@@ -564,6 +566,12 @@ export function HermesDiagram() {
          *  so the user can rehydrate any prior moment in the conversation.
          *  Hidden until there are 2+ turns. */}
         <TimeSlider onRehydrateScope={(s) => setScope(s)} />
+        {/* Grill quiz screen (B8) — overlay only; the diagram beneath
+         *  is untouched so exiting the grill restores it structurally
+         *  (no scope/payload mutation). */}
+        {grillScreenActive(skillResult) && (
+          <GrillScreen topic={(skillResult?.visualPayload?.topic as string | undefined)} />
+        )}
         </div>
       </div>
     </div>
