@@ -477,14 +477,41 @@ and task tray are siblings.
 
 ### `export` (consolidated superset — absorbs `share_explanation`)
 
-One skill. **Formats:** video, PDF, markdown, HTML website, slides
-(existing reveal.js path). **Scope:** the whole project *as mapped by
-initialization* (the navigator/architecture model), OR a named
-subsection. `share_explanation` ("current area as markdown") is just
+One skill. `share_explanation` ("current area as markdown") is just
 the smallest scope×format cell — it folds in, not a separate skill.
-Fronts the existing `export.ts` route; extends it with video/PDF/site
-generators. NO visual beat (it's an artifact action) — but the
-produced artifact appears on the shelf.
+NO visual beat (it's an artifact action) — but the produced artifact
+appears on the shelf.
+
+**Architecture (decided 2026-05-15): one export model, N renderers.**
+We already produce, per area, an **SVG** visual + a summary + file
+list. Serialize that into one ordered intermediate model
+(`[{title, svg, prose, files}]`); renderers consume it:
+
+- **markdown** — exists (`markdown-generator.ts`).
+- **slides** — exists (reveal.js `generateRevealSlides`).
+- **site** — NEW. HTML site ≠ slides: slides are a presenter deck
+  (one-per-screen), a site is navigable multi-page (sidebar/sections).
+  Same content, new *shell/template* — cheap but not "just a script".
+- **pdf** — NOT independent. HTML→PDF via print stylesheet / headless-
+  chrome print; a post-step on the site/print render.
+- **video** — **honest stub now.** A known format that throws a clean
+  `NotImplementedError` (fail honestly, never pretend/hang). Must be
+  stubbed **async-shaped**: when the real video library lands it is a
+  long-running render → a `task` (lands on the shelf), NOT synchronous.
+  Stubbing it async-shaped avoids a later rewrite.
+
+**Scope** (whole project *as mapped by initialization* vs a named
+subsection) is solved upstream: it just decides *which sections enter
+the model*. Every renderer is scope-agnostic for free.
+
+Cheap because visuals are **SVG** — embeds/prints crisply into
+HTML/PDF. The "keep custom SVG renderer" tooling decision pays off
+directly here. Fronts/extends the existing `export.ts` route.
+
+**OPEN (deferred to build time):** whole-project export defaults to
+the architecture spine or the change spine? (Spine-collision applies —
+"the system" vs "this week" are different documents.) Decide at
+build, likely a choice at export time.
 
 ### `create_issue` → `track_issue`; multi-tracker placeholder
 
@@ -497,12 +524,32 @@ category (Zendesk/ServiceNow), not dev issue trackers. `track_issue`
 pairs the category word (tracker) with the universal item noun, so
 it's self-documenting and tool-agnostic.
 
-**Placeholder now:** drafts only (GitHub-flavored today). **Roadmap:**
-write to Jira / Linear / GitHub. Code rename deferred until that
-buildout (placeholder rename = pure churn; unlike
-`summarize`→`whats_changed`, no behavior changes yet). Tighten the
-`description` to "File a follow-up issue to the configured tracker"
-when built. NO visual beat; result → shelf.
+**Product boundary (decided 2026-05-15): a review tool, NOT an issue
+manager.** `track_issue`'s entire job is *frictionless capture in the
+flow of reviewing* + a **glanceable read-only register** (which
+issues, what state). Deliberately dumb: NO triage, edit, status
+changes, comments, or management UI. This boundary exists to prevent
+scope creep into a mini-Jira.
+
+- **Surface:** the "issues" section of the review shelf (sibling to
+  the Notebook / task tray) — a minimal list of tracked issues + each
+  one's current state. Display only.
+- **Placeholder behavior:** create + persist + list **locally** with
+  state. Useful with zero integrations (a local follow-up register).
+  External sync becomes a later "flush to tracker" step, not a
+  rewrite.
+- **Promotion / management:** OUT of scope (annotate↔track_issue
+  promotion, editing, triage). Annotate = private Notebook note;
+  `track_issue` = an actionable item bound for the team tracker. They
+  stay distinct shelf sections.
+- **Roadmap:** write to Jira / Linear / GitHub via a tracker-adapter
+  seam (`IssueTracker` interface; skill stays tracker-agnostic). This
+  is a build-time detail, NOT a design priority — the priority is the
+  low-friction capture path + the glanceable list.
+- Code rename deferred until that buildout (placeholder rename = pure
+  churn; unlike `summarize`→`whats_changed`, no behavior change yet).
+  Tighten `description` to "File a follow-up to the configured
+  tracker" when built. NO visual beat; result → shelf.
 
 ### `task` (NEW skill — async agent dispatch)
 
@@ -515,10 +562,38 @@ the conversation**.
   (the third shelf section). User reviews on their own time.
 - This is the canonical test of the no-interrupt contract: a
   long-running agent MUST NOT speak over Hermes or yank the visual.
-- v1 scope is deliberately open — placeholder-grade like
-  `create_issue`; the *non-blocking report-back plumbing* is the part
-  that must be designed correctly from the start (it is shared shelf
-  infrastructure, not task-specific).
+  Failures ALSO just land on the shelf (error state) — never
+  interrupt. The shelf is the only channel; the conversation is never
+  preempted, at any tier.
+
+**Capability gated by a permission setting; default read-only
+(decided 2026-05-15).** The setting is a *ceiling*. Ladder:
+
+- **`read_only` (default)** — investigates; produces a report
+  artifact. Touches nothing (no fs/repo/network mutation).
+- **`draft`** — may compute changes; emits a **reviewable diff as a
+  shelf artifact**. Applies nothing.
+- **`write`** — may apply, but only on a **dedicated branch/worktree**
+  (never the working tree directly — always reversible), and crossing
+  into apply still drops a non-blocking confirm on the shelf rather
+  than auto-applying, unless explicitly set to full-auto.
+
+Design thesis: even the "rewrite my code" case, by default, becomes
+"agent proposes a diff, you review it" — Tetherline's own thesis
+(review before absorbing) applied to its own automation. Full power;
+danger is opt-in and branch-sandboxed. Permission lives in settings
+(global ceiling, not per-dispatch).
+
+- **Substrate v1:** in-process async LLM runner with a bounded step
+  budget, results→shelf. External-agent substrate (Claude Code/SDK)
+  is a later swap behind the same dispatch interface.
+- **Lifecycle:** reuse the `track_issue` boundary — the task tray is a
+  glanceable read-only register, NOT a job manager. Fire → runs to
+  completion/failure → shelf. No cancel UI in v1.
+- v1 scope deliberately placeholder-grade; the *non-blocking
+  report-back plumbing* + the *permission ceiling* are the parts that
+  must be correct from the start (shared shelf + safety infra, not
+  task-specific).
 
 ### Skill roster after this block
 
