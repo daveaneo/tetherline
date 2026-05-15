@@ -273,12 +273,27 @@ deep dive.
 
 ### Scoping handshake = intent gate + outline pass (one mechanism)
 
-ChatGPT-deep-research style: user triggers (button or "deep dive") →
-AI asks 1–2 clarifying questions → user confirms → it commits. This
-single handshake does **two jobs at once**: it is the deliberate-
-intent friction (deep_dive is expensive — ~12 LLM calls) AND the
-outline-planning pass (the answers scope the ≤10-slide structure).
-Not two separate steps.
+**Flow (decided 2026-05-15):**
+
+1. **Explicit trigger** — a **deep-dive button** OR the spoken phrase
+   "deep dive". NOT implicit escalation; Rung 2 is never entered by
+   accident. (The lower rung is separate and untouched: "tell me more
+   / go deeper" → existing `dive_deeper`, Rung 0→1.)
+2. **Exactly ONE question** — *"Please tell me what to focus on in
+   the deep dive."* (Supersedes the earlier "1–2 questions." One
+   question still does **both jobs**: deliberate-intent friction —
+   deep_dive is expensive, ~12 LLM calls — AND the outline-scoping
+   pass. Not two steps.)
+3. **Cancel** — a button OR a spoken option ("cancel" / "never
+   mind"). Must work BOTH at the question AND during the loading
+   screen — cancelling mid-compose aborts the in-flight LLM fan-out
+   (ties to foreground-priority: a changed mind must not burn ~12
+   calls).
+4. Unless cancelled → **run, behind a loading screen.** The loading
+   screen IS the pocket-enter moment — its visual is designed with
+   the pocket enter/exit transition (see Open UX problems), not
+   separately. On GENERATE failure it degrades to the text-skeleton
+   fallback (Cross-cutting: robustness) — never a blank wait.
 
 ### Pocket dimension — a first-class container
 
@@ -320,6 +335,70 @@ The resolution to the "linear tour vs deep-dives section" tension:
   parallel traversal model — a bookmark layer over pockets.
 
 Net: the spine never branches; branching lives *inside* pockets.
+
+### Station-index UI (decided 2026-05-15 — delegated, jammed)
+
+Iterated against every prior boundary; landed here:
+
+- **It is the "deep-dives" section of the unified shelf — a flat
+  list, deliberately NOT a spatial mini-map.** A map was considered
+  and rejected: it violates "one shelf component, typed sections, not
+  bespoke panels" and the minimalism boundary. The index is a *phone
+  book, not a map* — spatial richness lives INSIDE the pocket (the
+  PowerPoint); the index only needs to get you back in.
+- **Each row:** focus-title (what the user said at the scoping
+  question) + progress pill (`4/8` · `done` · `failed`). Order =
+  most-recent-first. No manual reorder/edit/delete (same read-only-
+  register boundary as `track_issue`/task tray). Dismissal = LRU
+  auto-evict (the SAME lever as the snapshot-budget scale req — one
+  mechanism, not two).
+- **Re-entry is NARRATED, not a cold cursor-restore.** Select row (or
+  "go back to the X deep dive") → plays the pocket-enter transition +
+  Hermes gives ONE sentence: *"Back in the X deep dive — slide 4 of
+  8, we'd just covered Y."* Honors the "every transition narrated"
+  core contract; bare drop-onto-slide-4 is disorienting after a long
+  gap. Cheap (recap = prior slide's topic).
+- **"You are here" coupling — REFINED.** The index *reflects* the
+  active pocket but is NOT the primary position surface: a lean-back
+  user not looking at the shelf would be blind. The P0 fix is a
+  separate **persistent breadcrumb** (`spine ▸ "X" ▸ 4/8`) always
+  visible; the index mirrors it. Distinct responsibilities, designed
+  together.
+- **Empty state teaches** (non-naggy, only when empty): "No deep
+  dives yet — say 'deep dive' or tap the button."
+- **Do NOT reuse the time-slider / history-rail for pockets.** A
+  pocket is a sub-space, not a conversation turn; conflating "rewind
+  the conversation" with "re-enter a detour" mixes two mental models
+  (same reasoning as the grill snapshot-vs-tick clarification).
+
+### Pocket enter/exit transition (decided 2026-05-15)
+
+This is the **visual transition screen/motion** for crossing into a
+pocket and back. (Subsumes the deep_dive loading screen — same
+moment.)
+
+- **Mechanic — submerge / resurface = sealed-space DESCEND/ASCEND.**
+  Reuses the transition grammar: the spine canvas snapshots and
+  *parks/dims behind* (preserved, NOT destroyed — the motion must say
+  "waiting for you"), pocket surface comes forward. Exit is the exact
+  inverse (resurface to the **pixel-exact** prior spine state —
+  snapshot-fidelity req), with the one narrated re-entry/return
+  sentence (see Station-index UI). Same forward/backward muscle
+  memory as DESCEND/ASCEND.
+- **Loading = the skeleton constructing itself, not a spinner.**
+  Title + slide-rail scaffold appear immediately; slides fill in as
+  each composes (parallel fan-out). The wait is shown as
+  *construction*. GENERATE-fail → text-skeleton fallback (never
+  blank). Cancel available throughout (aborts in-flight fan-out).
+- **Theme consistency (user decision):** rendered ENTIRELY in the
+  existing ember/espresso design system — the same oklch ink/cream/
+  amber tokens, serif+mono type, and the ~150–200ms eased motion +
+  subtle blur/glow used elsewhere. No foreign spinner, no library-
+  default aesthetic, no new visual vocabulary. The mechanic is
+  in-grammar; the skin is in-system.
+- **`prefers-reduced-motion`:** submerge/resurface degrade to a
+  labeled instant cut ("⤓ deep dive: X" / "⤒ back to tour") using
+  the same tokens — the boundary still reads without motion.
 
 ### In-pocket question behavior (all three, gated)
 
@@ -368,10 +447,18 @@ deviation, `resume_tour` pops it) + existing auto-advance
 one subject (deep_dive) vs the whole architecture top-down
 (guided-mode). This is why the modality "is a skill under the hood."
 
-### Open UX problems (flagged, not yet solved)
+### Open UX problems
 
-- "Where am I" rendering across spine + open pockets.
-- The station-index UI and the enter/exit pocket transition.
+- **"Where am I" — PROMOTED to a P0 ship-blocker** (see Cross-cutting:
+  UX). No longer a footnote: the subway model is not shippable until
+  the spine+pocket+slide indicator exists.
+- Station-index UI — RESOLVED 2026-05-15 (see "Station-index UI").
+- Enter/exit pocket transition — RESOLVED 2026-05-15 (see "Pocket
+  enter/exit transition"): submerge/resurface in-grammar, skinned
+  in-theme, loading = self-constructing skeleton.
+- All "Open UX problems" are now resolved. The only remaining P0 is
+  the persistent "you are here" breadcrumb (Cross-cutting: UX) — a
+  build task, no longer an open design question.
 - (Spine collision — RESOLVED above: coexist via EntryMode fork.)
 
 ### Phasing for this block
@@ -421,7 +508,9 @@ one subject (deep_dive) vs the whole architecture top-down
   SVG-animated **`?` glyph** for the duration of the grill, restore
   the prior canvas on exit (lightweight sandbox; same snapshot +
   time-slider machinery as a pocket, but NO GENERATE — the screen is
-  a static animated glyph).
+  a static animated glyph). NB: grill uses the *snapshot/restore* half
+  of that machinery, NOT the time-slider-tick half — a quiz is a mode,
+  not a rewindable turn; it must not appear as a scrubber tick.
   - Rationale: grilling is an auditory/conversational experience; the
     screen is a *mode indicator*, not a cleverness contest. The
     content is carried by voice + text, not the visual. Rejected the
@@ -461,10 +550,15 @@ contract: **artifact lands on its shelf + a quiet notification; the
 user pulls it when ready.** Never push-interrupt.
 
 Build these as one shelf component with typed sections (notes /
-deep-dives / tasks / comprehension logs), not bespoke panels. The
-deep-dives station
-index from the depth-ladder section is the first instance; Notebook
-and task tray are siblings.
+deep-dives / tasks / issues / comprehension logs), not bespoke panels.
+The deep-dives station index from the depth-ladder section is the
+first instance; Notebook and task tray are siblings.
+
+**Voice-first access (decided — audit 2026-05-15):** the shelf is a
+click surface in a lean-back/voice product, so it MUST have a spoken
+door. "what's on my shelf" / "read me my notes" / "any tasks done"
+→ Hermes speaks a one-line digest per section and the shelf opens.
+The shelf is never *only* reachable by mouse. (See Cross-cutting.)
 
 ### `annotate` full version
 
@@ -643,6 +737,72 @@ guided-learning mode.
 **Phase C — stretch:**
 8. ts-morph call-path sequence diagrams.
 
+## Cross-cutting requirements (audit 2026-05-15): robustness · UX · scale
+
+Per-feature decisions above are sound; these are the gaps an audit
+found. Each is a hard requirement unless marked OPEN.
+
+### Robustness
+
+- **`task` permission ceiling is ENFORCED, not just defaulted.** A
+  `read_only` ceiling must actively *reject* a write/draft attempt and
+  land the rejection on the shelf — never silently downgrade or
+  proceed. Write-tier work happens on a dedicated branch/worktree,
+  never the working tree. This is the riskiest surface in the plan;
+  it gets the strictest tests (see Testing).
+- **Every generative visual has a degraded mode.** GENERATE failure or
+  cold/slow cache must not yield an empty pocket/canvas. Fallback
+  chain (same spirit as explain's): GENERATE → text-skeleton card
+  (the outline labels as a static list-diagram) → prior canvas with a
+  spoken "couldn't draw that, here's the gist". A pocket is NEVER
+  visually empty.
+- **deep_dive bounds are enforced server-side:** clamp the outline to
+  ≤10 beats regardless of what the LLM returns; a barge-in while a
+  slide is still composing cancels that compose and answers the
+  question (no half-rendered slide shown).
+- **Shelf writes are off the conversation thread.** Artifact
+  persistence must never block narration/dispatch. The no-interrupt
+  contract is a *threading* requirement, not just a UX one.
+
+### UX
+
+- **"Quiet notification" — defined.** It is exactly: (1) a silent
+  shelf-section badge increment, plus (2) at most ONE short spoken
+  line, deferred to the next natural narration pause, never
+  mid-sentence, never stacking (coalesce if several land). No sound
+  effects, no modal, no visual yank. This single definition governs
+  every "reports back" in this plan.
+- **"You are here" is a P0, not a footnote.** The subway/pocket model
+  is unusable without a persistent indicator: spine position + which
+  pocket (if any) + slide n/N. Promoted out of "open problems" — the
+  subway model is not shippable until this exists.
+- **`prefers-reduced-motion` degrades the transition grammar** to
+  instant-but-*labeled* (a one-word "↓ core" / "↑ project" caption
+  replaces the morph). The relationship must still be legible without
+  motion.
+- **Depth-ladder affordance — RESOLVED 2026-05-15.** Explicit
+  trigger: deep-dive button OR spoken "deep dive" → one scoping
+  question → cancel (button/spoken, valid through loading) → run.
+  See "Scoping handshake" for the full flow. Lean-in discoverability
+  = the visible button; the lower rung (`dive_deeper`) is unchanged.
+
+### Scale
+
+- **Foreground voice has absolute priority.** Background tasks/deep_dive
+  composition share the LLM client + rate limit with the live loop;
+  they MUST be queued/throttled behind foreground turns. A background
+  audit must never slow a spoken reply (direct north-star risk).
+- **deep_dive slides compose in parallel** post-outline (independent
+  beats fan out), not 12 serial calls. Cold-cache latency is the gate.
+- **Snapshot budget.** Layout-swap + pocket snapshots are evicted
+  LRU beyond N (serialize older ones); SVG snapshots are heavy and
+  currently unbounded across a long session.
+- **Size guards on heavy tooling.** ELK layout and dependency-cruiser
+  both degrade on large repos: enforce a node-count/timeout heuristic
+  (same spirit as the split-canvas hairball guard) and cache
+  dependency-cruiser output keyed on repo HEAD like every other
+  extractor.
+
 ## Testing requirements (MUST DO per skill)
 
 For every skill that can produce a visual:
@@ -685,5 +845,27 @@ bugs under real exercise. Per phase, thoroughly test:
 - **Polish pass**: no node overlap, readable labels, smooth motion,
   no flicker on rapid successive asks.
 
+**Async / shelf / task surface (the visual battery does NOT cover
+this — added audit 2026-05-15):**
+
+- **task permission ceiling**: a `read_only` ceiling MUST reject a
+  write attempt (assert rejection + shelf entry; assert working tree
+  unmodified; assert any writes confined to the sandbox branch).
+- **no-interrupt under load**: with a background task running, assert
+  foreground narration latency is unaffected and the task NEVER emits
+  a spoken line except as the defined quiet-notification at a pause.
+  Failure of a task also must not interrupt.
+- **shelf non-blocking**: a deliberately slow artifact write must not
+  delay the next dispatch/narration (thread assertion, not just UX).
+- **export**: `video` returns the honest `NotImplementedError`
+  (surfaced, not swallowed); a subsection scope actually filters the
+  export model; markdown/slides parity with the pre-consolidation
+  output (no regression from absorbing `share_explanation`).
+- **degraded visuals**: force a GENERATE failure → assert the
+  text-skeleton fallback renders and the pocket is never empty.
+
 Treat a phase as "not done" until its litmus passes AND a manual
 exercise of the real voice+visual loop confirms it feels right.
+**No feature in this plan is "done" while its Cross-cutting
+requirements are unmet — robustness/scale gaps are not polish, they
+are correctness.**
