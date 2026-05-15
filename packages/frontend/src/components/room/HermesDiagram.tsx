@@ -25,6 +25,8 @@ import { heatmapOverlayActive } from './heatmap-overlay.js';
 import { concernNodeIds, isConcernActive } from './concern-tint.js';
 import { grillScreenActive } from './grill-screen.js';
 import { GrillScreen } from './GrillScreen.js';
+import { annotationToShelfArtifact, pinnedNodeIds } from './annotate-shelf.js';
+import { useShelfStore } from '../../state/shelf-store.js';
 import { motion } from 'framer-motion';
 import { motionVariantFor, scopeTransition, prefersReducedMotion } from './transition-motion.js';
 import { sendEvent } from '../../lib/ws-client.js';
@@ -146,6 +148,30 @@ export function HermesDiagram() {
   const [payload, setPayload] = useState<DiagramPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Annotate → Notebook (B10): an annotate result drops a row in the
+  // shelf's notes section. Deduped by skillResult identity (the same
+  // ref pattern the steer effect uses) so it appends exactly once.
+  const lastAnnotatedRef = useRef<unknown>(null);
+  useEffect(() => {
+    if (!skillResult || lastAnnotatedRef.current === skillResult) return;
+    const art = annotationToShelfArtifact(skillResult, `note-${Date.now()}`);
+    if (art) {
+      lastAnnotatedRef.current = skillResult;
+      useShelfStore.getState().append(art);
+    }
+  }, [skillResult]);
+
+  // Persistent pins (B10): nodes whose leaf/label matches a Notebook
+  // entry's target. Derived from the shelf notes — survives sessions
+  // once those are seeded.
+  const noteArtifacts = useShelfStore(s => s.artifacts.notes);
+  const pinnedIds = useMemo(() => {
+    const targets = noteArtifacts
+      .map(a => a.nodeId || a.summary)
+      .filter((t): t is string => !!t);
+    return pinnedNodeIds(targets, (payload?.nodes ?? []).map(n => ({ id: n.id, label: n.label })));
+  }, [noteArtifacts, payload]);
 
   // Critique concern tint (B5): the nodes the critique narration
   // names get a worry tint. Derived from the spoken text so the
@@ -556,6 +582,7 @@ export function HermesDiagram() {
                 touched={isTouched(n, touchedNodes)}
                 heatmapOverlay={heatmapOverlayActive(skillResult, scope)}
                 concern={concernIds.has(n.id)}
+                pinned={pinnedIds.has(n.id)}
                 childrenInfo={childrenInfo.get(n.id) ?? null}
                 onClick={() => onNodeClick(n)}
               />
@@ -609,11 +636,12 @@ interface NodeViewProps {
   touched?: boolean;
   heatmapOverlay?: boolean;
   concern?: boolean;
+  pinned?: boolean;
   childrenInfo: ChildrenInfo | null;
   onClick: () => void;
 }
 
-function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, concern, childrenInfo, onClick }: NodeViewProps) {
+function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, concern, pinned, childrenInfo, onClick }: NodeViewProps) {
   const [hover, setHover] = useState(false);
   // Own-layer comprehension drives the BATTERY FILL of the node body.
   // The whole shape changes with knowledge — `unknown` is an empty
@@ -734,6 +762,15 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
         >
           <animate attributeName="opacity" values="0.75;0.3;0.75" dur="1.8s" repeatCount="indefinite" />
         </circle>
+      )}
+      {/* Persistent pin (B10) — explicit, user-asserted Notebook
+       *  flag. Distinct from the auto touched-halo: a small amber
+       *  marker at the node's upper edge. Additive, never clears. */}
+      {pinned && (
+        <g transform={`translate(${node.radius * 0.92}, ${-node.radius * 0.92})`} aria-label="Flagged in Notebook">
+          <circle r={7} fill="oklch(0.74 0.13 70)" stroke="oklch(0.16 0.01 60)" strokeWidth={1.5} />
+          <text x={0} y={0.5} textAnchor="middle" dominantBaseline="central" fontSize={8} fill="oklch(0.16 0.01 60)">★</text>
+        </g>
       )}
       {/* Pulse ring — only for the active (currently-narrated) node.
        *  Distinct from any comprehension signal: a slow steady pulse
