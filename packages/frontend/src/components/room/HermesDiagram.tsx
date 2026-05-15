@@ -83,6 +83,11 @@ const SATELLITE_RADIUS_MIN = 50;
 const SATELLITE_RADIUS_MAX = 70;
 const ORBIT_RADIUS = 290;
 
+/** Stable empty-array reference for Zustand selector fallbacks. Using
+ *  a `?? []` literal inline causes an infinite render loop because
+ *  useSyncExternalStore compares snapshots by reference. */
+const EMPTY_STRING_ARRAY: string[] = [];
+
 export function HermesDiagram() {
   const repoPath = useSessionStore(s => s.activeRepoPath);
   const phase = useSessionStore(s => s.state.phase);
@@ -93,10 +98,17 @@ export function HermesDiagram() {
   // glow during the chunk's audio playback so the user's eye follows
   // the AI's words across the diagram. Computed from the head of the
   // stream queue (currently-playing chunk).
+  //
+  // CRITICAL: the fallback MUST be a module-level stable reference.
+  // `?? []` returns a fresh array literal every render, so the
+  // useSyncExternalStore snapshot never `Object.is`-equals itself →
+  // infinite re-render loop ("Maximum update depth exceeded"). The
+  // non-fallback paths return the chunk's own array, which is a
+  // stable reference across renders.
   const currentChunkNodes = useSessionStore(
     s => s.currentStreamChunk?.referencedNodes
        ?? s.streamChunks[0]?.referencedNodes
-       ?? [],
+       ?? EMPTY_STRING_ARRAY,
   );
   // Persistent "touched" set — nodes mentioned in any prior AI reply.
   // The diagram becomes a heat-map of attention as the conversation
