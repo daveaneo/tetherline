@@ -116,16 +116,15 @@ ${context}`;
    skill will highlight the current scope rather than need a specific
    subject. Always prefer visualize over none/explain when the user
    hints at wanting to SEE rather than READ/HEAR.
-- explain: user wants something EXPLAINED ("what does this do", "why", "how does X work")
+- explain: user wants something EXPLAINED — code, architecture, OR a concept. Covers both a concrete code entity ("what does this do", "why", "how does X work") AND a general concept grounded in this repo ("what is X", "explain the pattern", "teach me about X", "how does <concept> work"). One skill for both; the answer adapts. (A deep multi-slide treatment is a separate explicit "deep dive" request, not this.)
 - compare: user wants to see DIFFERENCES ("how did this change", "before and after", "diff")
 - critique: user wants the AI's OPINION on something specific ("is this good", "what do you think of X", "any issues with Y")
 - whats_changed: user wants to be CAUGHT UP on what moved recently ("what changed", "catch me up", "what's new", "what happened this week", "give me the quick version") — a recap of recent changes, NOT a timeless description and NOT creative formats
 - navigate: user wants to MOVE somewhere in the codebase ("go to", "show me the file", "open")
-- teach: user wants to LEARN a concept ("what is", "explain the pattern", "teach me about")
 - annotate: user wants to MARK something ("flag this", "remember this", "note")
 - create_issue: user wants to CREATE a GitHub issue ("create a ticket", "file an issue", "open a bug")
 - share_explanation: user wants to SHARE or COPY the current explanation ("share this", "copy this")
-- grill_me: user wants the AI to QUIZ THEM with adaptive Socratic questions ("grill me on auth", "test my understanding of X", "quiz me hard on Y", "grill me strict"). Different from 'teach' — 'teach' is the AI explaining; 'grill_me' is the AI questioning the USER.
+- grill_me: user wants the AI to QUIZ THEM with adaptive Socratic questions ("grill me on auth", "test my understanding of X", "quiz me hard on Y", "grill me strict"). Different from 'explain' — 'explain' is the AI explaining; 'grill_me' is the AI questioning the USER.
 - none: NONE OF THE ABOVE fits cleanly. Use 'none' for:
    • Creative output requests (write a poem, joke, story, haiku, song, rap)
    • Hypotheticals or thought experiments ("what if we...", "imagine that...")
@@ -151,7 +150,7 @@ Confidence guidance:
           properties: {
             skillName: {
               type: 'string',
-              enum: ['visualize', 'explain', 'compare', 'critique', 'whats_changed', 'navigate', 'teach', 'annotate', 'create_issue', 'share_explanation', 'grill_me', 'none'],
+              enum: ['visualize', 'explain', 'compare', 'critique', 'whats_changed', 'navigate', 'annotate', 'create_issue', 'share_explanation', 'grill_me', 'none'],
             },
             confidence: { type: 'number', description: 'Confidence score from 0 to 1' },
             params: { type: 'object', additionalProperties: { type: 'string' }, description: 'Extracted parameters' },

@@ -12,8 +12,12 @@
  *
  *  'whats_changed' is the on-demand "catch me up" recap (formerly
  *  'summarize'): what moved since last time, not generic summarization.
- *  It is the user-initiated sibling of the auto-delivered briefing. */
-export type SkillName = 'visualize' | 'explain' | 'compare' | 'critique' | 'whats_changed' | 'navigate' | 'teach' | 'annotate' | 'create_issue' | 'share_explanation' | 'grill_me' | 'none';
+ *  It is the user-initiated sibling of the auto-delivered briefing.
+ *
+ *  'teach' was merged into 'explain' (2026-05-15): explain now handles
+ *  both concrete code entities and general concepts, self-adapting.
+ *  The deep multi-slide treatment is the separate 'deep_dive'. */
+export type SkillName = 'visualize' | 'explain' | 'compare' | 'critique' | 'whats_changed' | 'navigate' | 'annotate' | 'create_issue' | 'share_explanation' | 'grill_me' | 'none';
 
 export interface SkillResult {
   skillName: SkillName;
