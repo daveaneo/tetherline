@@ -85,6 +85,11 @@ describe('visual-dispatcher relationship grammar', () => {
     expect(r.targetNodeId).toBe('module/core');
   });
 
+  it('defensive: empty target and empty node set GENERATE without crashing', () => {
+    expect(dispatchVisual({ target: '   ', currentScope: null, knownNodeIds: NODES }).transition).toBe('GENERATE');
+    expect(dispatchVisual({ target: 'anything', currentScope: null, knownNodeIds: [] }).transition).toBe('GENERATE');
+  });
+
   it('ASCEND wins over LATERAL when the elsewhere node is an ancestor', () => {
     const r = dispatchVisual({
       target: 'core',

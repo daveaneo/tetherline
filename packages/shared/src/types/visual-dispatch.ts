@@ -31,12 +31,6 @@ export interface DispatchInput {
    */
   navigatorAncestors?: string[];
   /**
-   * Node ids that are files. A file target is ALWAYS a deeper view
-   * (DESCEND), never IN_PLACE, even if currently visible
-   * (user decision 2026-05-15).
-   */
-  fileNodeIds?: string[];
-  /**
    * Every node id known anywhere in the repo's diagram model (not
    * just the current view). Lets us distinguish LATERAL (resolves
    * elsewhere) from GENERATE (resolves nowhere). Optional; without
