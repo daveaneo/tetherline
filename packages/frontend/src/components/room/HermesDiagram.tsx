@@ -22,6 +22,8 @@ import { useSessionStore } from '../../state/session-store.js';
 import { useAudioStore } from '../../state/audio-store.js';
 import { TimeSlider } from './TimeSlider.js';
 import { heatmapOverlayActive } from './heatmap-overlay.js';
+import { motion } from 'framer-motion';
+import { motionVariantFor, scopeTransition, prefersReducedMotion } from './transition-motion.js';
 import { sendEvent } from '../../lib/ws-client.js';
 import { API_PREFIX } from '@tetherline/shared';
 
@@ -121,6 +123,22 @@ export function HermesDiagram() {
   // navigator integration lands; the structure is here for it.
   const [scope, setScope] = useState<string>('project');
   const [view, setView] = useState<'logic' | 'file'>('file');
+
+  // Transition-grammar motion (B2): the relationship between the
+  // previous and current scope decides the motion the node layer
+  // plays, so the animation itself encodes the navigational move.
+  // Keyed remount on scope drives the enter animation.
+  const prevScopeRef = useRef<string | null>(null);
+  // Derive only (no mutation) so React StrictMode's double-invoke of
+  // useMemo can't collapse the transition to IN_PLACE. The ref is
+  // advanced in a post-commit effect, exactly once per real change.
+  const scopeMotion = useMemo(
+    () => motionVariantFor(scopeTransition(prevScopeRef.current, scope), prefersReducedMotion()),
+    [scope],
+  );
+  useEffect(() => {
+    prevScopeRef.current = scope;
+  }, [scope]);
   const [payload, setPayload] = useState<DiagramPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -508,7 +526,13 @@ export function HermesDiagram() {
            *  alone now; the radial layout still orbits the same
            *  invisible center coordinate so spacing/positioning is
            *  unchanged. */}
-          <g>
+          <motion.g
+            key={scope}
+            initial={scopeMotion.initial}
+            animate={scopeMotion.animate}
+            transition={{ duration: scopeMotion.duration, ease: 'easeOut' }}
+            style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
+          >
             {positioned.filter(n => !n.isCenter).map(n => (
               <DiagramNodeView
                 key={n.id}
@@ -521,7 +545,7 @@ export function HermesDiagram() {
                 onClick={() => onNodeClick(n)}
               />
             ))}
-          </g>
+          </motion.g>
         </svg>
         {/* Time slider — bottom of canvas. Scrubs through turn snapshots
          *  so the user can rehydrate any prior moment in the conversation.
