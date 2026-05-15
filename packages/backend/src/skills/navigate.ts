@@ -1,5 +1,6 @@
 import type { Skill, SkillContext } from './registry.js';
 import type { SkillResult } from '@tetherline/shared';
+import { resolveNavigation, navigateMissNarration } from './navigate-resolve.js';
 
 export const navigateSkill: Skill = {
   name: 'navigate',
@@ -7,22 +8,30 @@ export const navigateSkill: Skill = {
   async execute(context: SkillContext, params: Record<string, string>): Promise<SkillResult> {
     const target = params.target ?? params.file ?? params.component ?? '';
 
-    // Try to find a matching area or node
-    const matchingArea = context.areas.find(a =>
-      a.name.toLowerCase().includes(target.toLowerCase()) ||
-      a.affectedFiles.some(f => f.toLowerCase().includes(target.toLowerCase()))
+    const res = resolveNavigation(
+      target,
+      context.areas.map(a => ({ id: a.id, name: a.name, affectedFiles: a.affectedFiles })),
     );
 
-    const narration = matchingArea
-      ? `Moving to ${matchingArea.name}.`
-      : `Looking for ${target} in the codebase.`;
+    if (res.kind === 'hit') {
+      // Visual-primary: a one-liner ack, then silence — the move IS
+      // the response. The transition (DESCEND/ASCEND/LATERAL) is
+      // decided client-side from the scope change (B2).
+      return {
+        skillName: 'navigate',
+        type: 'diagram',
+        narration: `Here's ${res.areaName}.`,
+        visualPayload: { target, areaId: res.areaId },
+        diagramChanges: { focusNodeId: res.areaId },
+      };
+    }
 
+    // Miss → graceful fuzzy fail. NEVER invent a place (no GENERATE).
     return {
       skillName: 'navigate',
       type: 'diagram',
-      narration,
-      visualPayload: { target, areaId: matchingArea?.id },
-      diagramChanges: matchingArea ? { focusNodeId: matchingArea.id } : undefined,
+      narration: navigateMissNarration(target, res.suggestion),
+      visualPayload: { target, miss: true, suggestion: res.suggestion },
     };
   },
 };
