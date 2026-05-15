@@ -166,6 +166,71 @@ This is the visual decision only.)
   (`level` already on every node). Gives summarize a distinct visual
   identity no other skill has.
 
+## `navigate` decision (decided — canonical layout-swap, visual-only)
+
+The ONLY skill where a layout swap is the primary intent, not a side
+effect. Maps cleanly onto the transition grammar:
+- "go to core" from project map → DESCEND
+- "go to file X" inside core → IN-PLACE if visible child, else DESCEND
+- "go back to project" → ASCEND (inverse animation)
+- "go to colab" inside core → LATERAL (clean cut)
+- target not a node → NOT GenERATE; fail gracefully with fuzzy
+  suggestion from knownNodeIds ("don't see an X — did you mean Y?").
+  Never invent a diagram for a missing place.
+
+Decisions:
+- Delegates target resolution + relationship detection to the shared
+  dispatcher (same as all skills).
+- **Visual-only: minimal/no narration.** One-liner ack max ("Here's
+  core."), then silence. The visual IS the response. Inverse emphasis
+  of summarize (visual-primary vs verbal-primary).
+- **No anchor pulse** — navigate isn't talking about anything, it's
+  moving. Pulsing implies narration; keep navigate crisp.
+- Least-broken skill today (drill-to-target was always correct here);
+  mostly needs graceful-fail + transition-grammar wiring.
+
+## `teach` decision (decided — flagship GENERATE skill)
+
+`teach` is almost always about a CONCEPT (no single node) — the
+canonical pure-concept case the GENERATE transition was designed for.
+
+- **Operation: layout swap via GENERATE.** LLM call: "3-6 major parts
+  of `<concept>`" → `{title, parts:[{label, implementedBy?}]}`. Diagram
+  assembles/draws-in while Hermes teaches (skeleton + voice).
+- **Grounding (key):** reuse teach's existing concept→code mapping
+  (`understandingUpdates`). GENERATE nodes link to the real modules
+  that implement the concept where possible — each part can DESCEND
+  into actual code. "teach me X" → "show me where X is" is a one-
+  gesture follow-up. Not abstract art.
+- **Concept that IS a code entity** ("teach me the diagram-extractor")
+  → dispatcher relationship detection routes it DESCEND/IN-PLACE like
+  explain; no special-casing in teach.
+- Generated diagram is **cached + time-slider-revisitable** like any
+  layout snapshot. No special handling.
+- v1 cost: one structured LLM call, cacheable on (concept, repo HEAD).
+  Highest-value GENERATE use — teaching needs a scaffold, concepts
+  have no pre-existing node.
+
+## Remaining skills (decided)
+
+- **annotate** — overlay, IN-PLACE, persistent pin glyph on the flagged
+  node (distinct from auto touched-halo: explicit/user-asserted, DB-
+  persisted). One-liner ack. Follow-up (not v1): "show me what I
+  flagged" = dim-all-except-pinned lens.
+- **create_issue** — NO visual operation. Confirmation marker + link
+  only. Tool action, not a visual beat.
+- **share_explanation** — NO visual operation. Surface link + ack.
+- **grill_me** — overlay, IN-PLACE. Topic node anchor-pulses while
+  grilling; when a strong-answer streak bumps comprehension
+  (`heard`→`explained`), the halo **animates the level-up live** —
+  user watches their understanding warm the diagram as they answer.
+  Data already wired this session; only new piece is animating the
+  halo color-shift on `level` change. High wow, near-zero tooling.
+- **none (escape hatch)** — creative (poem/joke) → NO visual. Code-ish
+  unmatched question → handleQuestion path already karaoke-pulses
+  referenced nodes on the current view. So: pulse-only, no swap, no
+  generate. Consistent with "creative ≠ visual".
+
 ## Tooling decisions (from research, 2026)
 
 - **KEEP custom:** SVG renderer, ember/espresso theming, radial layout
