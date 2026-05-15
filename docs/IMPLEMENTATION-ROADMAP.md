@@ -125,6 +125,31 @@ This is recorded so the batching is transparent, not a silent skip.
   whole-suite litmus green, end-to-end headless QA of the entire
   voice+visual loop. Final gate before declaring the feature done.
 
+## Phase-A headless QA result (2026-05-15) — HONEST STATUS
+
+Ran the design-review agent against the live app. Outcome:
+
+- **Theme consistency VALIDATED.** Ember/espresso palette holds
+  across the app; nothing drifted to generic defaults. This confirms
+  the in-theme bar for B1/B5/B8's surfaces.
+- **Phase-A diagram overlays NOT visually verified.** The agent could
+  not render an analyzed session (the live session was stuck
+  "COMPOSING DIAGRAM" — a pre-existing backend/WS lag, NOT a B0–B8
+  regression). So the heatmap overlay, concern tint, transition
+  motion, and grill screen were not seen in situ. This is a recorded
+  GAP, not a pass. Re-run required once a session renders (folded
+  into B21, and a prerequisite: the composing-hang must be fixed
+  first or all future visual QA is blocked).
+- **Pre-existing UI debt surfaced (OUT of visual-companion scope,
+  tracked separately):** mobile room navbar overflow @390px; the
+  "COMPOSING DIAGRAM" infinite-hang with no timeout + swallowed WS
+  error; lobby "Previously on" overlong; header git-SHA noise;
+  narration line-length; missing focus-visible rings; near-invisible
+  diagram edges; active-node double-amber. These predate this
+  roadmap and are NOT silently absorbed into it — see the tracked
+  task. The "fully polished product" goal means they must be fixed,
+  but as their own effort, not by overclaiming a Phase-A pass.
+
 ## Tracking
 
 Execution progress is tracked via the task list (created at kickoff).
