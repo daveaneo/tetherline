@@ -88,6 +88,13 @@ interface SessionStore {
   breadcrumbPocket:
     | { focus?: string; slide: number; total: number; slides?: { title: string; body: string }[] }
     | null;
+  /** Active pipeline walkthrough (B3). null when not walking a flow.
+   *  `step` = how many stages have been revealed so far (1..N) in
+   *  source→transform→guard→sink order; HermesDiagram derives the
+   *  order from the cached graph via the tested pipelineRevealOrder
+   *  core and dims the not-yet-revealed nodes. NOT a skill annotation
+   *  — it's its own walkthrough state. */
+  pipelineReveal: { step: number } | null;
 
   // ─── Vision mechanics ────────────────────────────────────
   currentBriefing: {
@@ -172,6 +179,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   skillResult: null,
   sceneDiagramPayload: null,
   breadcrumbPocket: null,
+  pipelineReveal: null,
   skillClarification: null,
   visualLayer: 1 as VisualLayer,
   conceptualSteps: [],

@@ -33,6 +33,7 @@ const SCENES = [
   'shelf-tasks',
   'descend',
   'deep-dive',
+  'pipeline',
   'breadcrumb',
 ];
 

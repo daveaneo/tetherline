@@ -27,6 +27,7 @@ import { Breadcrumb as PositionTrail } from './Breadcrumb.js';
 import { grillScreenActive } from './grill-screen.js';
 import { GrillScreen } from './GrillScreen.js';
 import { DeepDivePocket, type PocketSlide } from './DeepDivePocket.js';
+import { pipelineRevealOrder } from './pipeline-reveal.js';
 import { annotationToShelfArtifact, pinnedNodeIds } from './annotate-shelf.js';
 import { issueResultToShelfArtifact } from './issue-shelf.js';
 import { useShelfStore } from '../../state/shelf-store.js';
@@ -80,6 +81,7 @@ export function HermesDiagram() {
   const currentBriefingId = useSessionStore(s => s.currentBriefing?.briefingId ?? null);
   const skillResult = useSessionStore(s => s.skillResult);
   const breadcrumbPocket = useSessionStore(s => s.breadcrumbPocket);
+  const pipelineReveal = useSessionStore(s => s.pipelineReveal);
   // Karaoke-ball: when a stream chunk is playing, the backend tagged
   // it with diagram-node labels mentioned in its text. These nodes
   // glow during the chunk's audio playback so the user's eye follows
@@ -349,6 +351,21 @@ export function HermesDiagram() {
 
   const nodeById = useMemo(() => new Map(positioned.map(n => [n.id, n])), [positioned]);
 
+  // Pipeline walkthrough (B3): derive the reveal order from the cached
+  // graph via the tested ordering core, then dim every node past the
+  // current step so the flow lights up source→…→sink one stage at a
+  // time. Reuses pipelineRevealOrder verbatim — no reordering here.
+  const pipeline = useMemo(() => {
+    if (!pipelineReveal || !payload) return null;
+    const order = pipelineRevealOrder(
+      payload.nodes.map(n => ({ id: n.id, data: { role: n.role } })),
+    );
+    const total = order.length;
+    const step = Math.max(1, Math.min(pipelineReveal.step, total));
+    const revealed = new Set(order.slice(0, step).map(o => o.id));
+    return { step, total, revealed };
+  }, [pipelineReveal, payload]);
+
   // Tight viewBox around the actual node bounds (+ padding for halos /
   // pulse rings / arrowheads). Without this, sparse layouts (e.g. n=2
   // satellites all on a horizontal line) leave huge vertical dead space.
@@ -531,6 +548,35 @@ export function HermesDiagram() {
             spine={scope === 'project' ? [payload.title] : ['Project', payload.title]}
             pocket={breadcrumbPocket ?? undefined}
           />
+          {pipeline && (
+            <div
+              className="font-mono"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 12, marginTop: 8,
+                fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase',
+                color: 'var(--cream-500)',
+              }}
+              data-testid="pipeline-strip"
+            >
+              <span style={{ color: 'var(--amber-400)' }}>Pipeline</span>
+              <span>
+                stage <span style={{ color: 'var(--cream-100)' }}>{pipeline.step}</span> / {pipeline.total}
+              </span>
+              <span style={{ display: 'flex', gap: 6 }}>
+                {Array.from({ length: pipeline.total }).map((_, i) => (
+                  <span
+                    key={i}
+                    style={{
+                      width: i < pipeline.step ? 20 : 8, height: 4, borderRadius: 2,
+                      background: i < pipeline.step ? 'var(--amber-400)' : 'oklch(1 0 0 / 0.12)',
+                      transition: 'all 0.3s ease',
+                    }}
+                  />
+                ))}
+              </span>
+              <span style={{ opacity: 0.65 }}>source → transform → guard → sink</span>
+            </div>
+          )}
           <h1
             className="font-serif"
             style={{ fontSize: 32, color: 'var(--cream-100)', letterSpacing: '-0.015em', margin: '6px 0 8px', fontWeight: 400 }}
@@ -668,6 +714,7 @@ export function HermesDiagram() {
                 heatmapOverlay={heatmapOverlayActive(skillResult, scope)}
                 concern={concernIds.has(n.id)}
                 pinned={pinnedIds.has(n.id)}
+                dimmed={pipeline ? !pipeline.revealed.has(n.id) : false}
                 childrenInfo={childrenInfo.get(n.id) ?? null}
                 onClick={() => onNodeClick(n)}
               />
@@ -716,11 +763,12 @@ interface NodeViewProps {
   heatmapOverlay?: boolean;
   concern?: boolean;
   pinned?: boolean;
+  dimmed?: boolean;
   childrenInfo: ChildrenInfo | null;
   onClick: () => void;
 }
 
-function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, concern, pinned, childrenInfo, onClick }: NodeViewProps) {
+function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, concern, pinned, dimmed, childrenInfo, onClick }: NodeViewProps) {
   const [hover, setHover] = useState(false);
   // Own-layer comprehension drives the BATTERY FILL of the node body.
   // The whole shape changes with knowledge — `unknown` is an empty
@@ -799,7 +847,11 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
       onClick={onClick}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
-      style={{ cursor: node.isCenter ? 'default' : 'pointer' }}
+      // Pipeline walkthrough dims stages not yet revealed (B3). Center
+      // is never dimmed. opacity defaults to 1 → identical render when
+      // no walkthrough is active (existing baselines unaffected).
+      opacity={dimmed && !node.isCenter ? 0.16 : 1}
+      style={{ cursor: node.isCenter ? 'default' : 'pointer', transition: 'opacity 0.45s ease' }}
       data-testid={`hd-node-${node.id}`}
       data-active={active ? 'true' : 'false'}
     >
