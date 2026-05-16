@@ -31,14 +31,14 @@ export function CodeMorphing({ oldCode, newCode, language, filePath }: Props) {
 
   if (!highlighter) {
     return (
-      <div className="rounded-xl border border-[var(--color-border)] bg-[#0d0d14] p-4">
+      <div className="rounded-xl border border-[var(--color-border)] bg-[var(--ink-050)] p-4">
         <div className="animate-pulse h-20" />
       </div>
     );
   }
 
   return (
-    <div className="rounded-xl border border-[var(--color-border)] bg-[#0d0d14] overflow-hidden">
+    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--ink-050)] overflow-hidden">
       {filePath && (
         <div className="px-4 py-2 border-b border-[var(--color-border)] bg-[var(--color-surface)] flex items-center gap-2">
           <span className="text-xs text-[var(--color-text-muted)] font-mono">{filePath}</span>

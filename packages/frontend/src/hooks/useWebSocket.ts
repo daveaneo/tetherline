@@ -29,7 +29,6 @@ export function useWebSocket() {
       setWsInstance(ws);
       setConnected(true);
       setStoreConnected(true);
-      console.log('WebSocket connected');
 
       // Auto-resume if there was an active session when we reconnected
       // Use retriesRef (always current) rather than reconnecting state (stale in closure)
@@ -37,7 +36,6 @@ export function useWebSocket() {
         const currentSession = useSessionStore.getState().context.sessionId;
         if (currentSession) {
           ws.send(JSON.stringify({ type: 'session:resume', payload: { sessionId: currentSession } }));
-          console.log(`Auto-resuming session ${currentSession}`);
         }
       }
 
@@ -58,13 +56,11 @@ export function useWebSocket() {
     ws.onclose = () => {
       setConnected(false);
       setStoreConnected(false);
-      console.log('WebSocket disconnected');
 
       if (!unmountedRef.current) {
         setReconnecting(true);
         const delay = Math.min(1000 * Math.pow(2, retriesRef.current), MAX_BACKOFF_MS);
         retriesRef.current += 1;
-        console.log(`Reconnecting in ${delay}ms (attempt ${retriesRef.current})...`);
         timerRef.current = setTimeout(connect, delay);
       }
     };
