@@ -26,6 +26,7 @@ import { concernNodeIds, isConcernActive } from './concern-tint.js';
 import { Breadcrumb as PositionTrail } from './Breadcrumb.js';
 import { grillScreenActive } from './grill-screen.js';
 import { GrillScreen } from './GrillScreen.js';
+import { DeepDivePocket, type PocketSlide } from './DeepDivePocket.js';
 import { annotationToShelfArtifact, pinnedNodeIds } from './annotate-shelf.js';
 import { issueResultToShelfArtifact } from './issue-shelf.js';
 import { useShelfStore } from '../../state/shelf-store.js';
@@ -451,6 +452,26 @@ export function HermesDiagram() {
     return (
       <div className="h-full relative" data-testid="hermes-diagram">
         <GrillScreen topic={skillResult?.visualPayload?.topic as string | undefined} />
+      </div>
+    );
+  }
+
+  // deep_dive REPLACES the diagram with the pocket slide presentation
+  // (B14 "pocket dimension" — same sandbox/early-return shape as grill;
+  // exiting restores the prior canvas). The pocket is its OWN state, NOT
+  // a skill annotation, so it carries its composed slides directly on
+  // breadcrumbPocket — no skillResult, hence none of the annotation /
+  // drawer / card pipeline fires. An active pocket WITHOUT slides (just
+  // the position trail) stays on the diagram path below.
+  if (breadcrumbPocket?.slides && breadcrumbPocket.slides.length > 0) {
+    return (
+      <div className="h-full relative" data-testid="hermes-diagram">
+        <DeepDivePocket
+          focus={breadcrumbPocket.focus}
+          slide={breadcrumbPocket.slide}
+          total={breadcrumbPocket.total}
+          slides={breadcrumbPocket.slides as PocketSlide[]}
+        />
       </div>
     );
   }
