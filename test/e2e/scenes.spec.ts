@@ -17,7 +17,10 @@ import { test, expect } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-const BASE = process.env.TETHERLINE_FRONTEND_URL ?? 'http://localhost:5173';
+// URL comes from playwright.scenes.config.ts baseURL (its webServer
+// spawns a fresh Vite on a pinned port — no stale-HMR class). Env
+// override kept for ad-hoc runs against an already-running server.
+const BASE = process.env.TETHERLINE_FRONTEND_URL ?? '';
 const PROOF = 'docs/polish-proof';
 
 // Kept in sync with packages/frontend/src/scenes/registry.ts
