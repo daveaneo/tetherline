@@ -45,7 +45,7 @@ export function CodeSnippet({ code, language, filePath, highlightLines = [] }: P
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="rounded-xl border border-[var(--color-border)] bg-[#0d0d14] overflow-hidden"
+      className="rounded-xl border border-[var(--color-border)] bg-[var(--ink-050)] overflow-hidden"
     >
       {filePath && (
         <div className="px-4 py-2 border-b border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-between">
