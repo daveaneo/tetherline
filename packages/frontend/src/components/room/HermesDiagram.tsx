@@ -26,6 +26,7 @@ import { concernNodeIds, isConcernActive } from './concern-tint.js';
 import { grillScreenActive } from './grill-screen.js';
 import { GrillScreen } from './GrillScreen.js';
 import { annotationToShelfArtifact, pinnedNodeIds } from './annotate-shelf.js';
+import { issueResultToShelfArtifact } from './issue-shelf.js';
 import { useShelfStore } from '../../state/shelf-store.js';
 import { motion } from 'framer-motion';
 import { motionVariantFor, scopeTransition, prefersReducedMotion } from './transition-motion.js';
@@ -159,6 +160,19 @@ export function HermesDiagram() {
     if (art) {
       lastAnnotatedRef.current = skillResult;
       useShelfStore.getState().append(art);
+    }
+  }, [skillResult]);
+
+  // B18: a create_issue result drops a read-only row in the shelf's
+  // issues section (local register; tracker-agnostic). Same
+  // dedupe-by-identity pattern as the annotate effect above.
+  const lastIssuedRef = useRef<unknown>(null);
+  useEffect(() => {
+    if (!skillResult || lastIssuedRef.current === skillResult) return;
+    const issueArt = issueResultToShelfArtifact(skillResult, `issue-${Date.now()}`);
+    if (issueArt) {
+      lastIssuedRef.current = skillResult;
+      useShelfStore.getState().append(issueArt);
     }
   }, [skillResult]);
 
