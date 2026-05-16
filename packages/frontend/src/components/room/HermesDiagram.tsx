@@ -441,6 +441,18 @@ export function HermesDiagram() {
     );
   }
 
+  // grill_me REPLACES the diagram with the calm `?` mode screen
+  // (design intent). Early return → full-bleed, no diagram peek / no
+  // dead space. payload/scope are untouched, so exiting the grill
+  // restores the prior canvas structurally (B8 snapshot/restore).
+  if (grillScreenActive(skillResult)) {
+    return (
+      <div className="h-full relative" data-testid="hermes-diagram">
+        <GrillScreen topic={skillResult?.visualPayload?.topic as string | undefined} />
+      </div>
+    );
+  }
+
   const onNodeClick = (n: PositionedNode) => {
     if (n.isCenter) return; // don't drill on the center
     const utterance = `tell me about ${prettyLabel(n)}`;
@@ -636,12 +648,6 @@ export function HermesDiagram() {
          *  so the user can rehydrate any prior moment in the conversation.
          *  Hidden until there are 2+ turns. */}
         <TimeSlider onRehydrateScope={(s) => setScope(s)} />
-        {/* Grill quiz screen (B8) — overlay only; the diagram beneath
-         *  is untouched so exiting the grill restores it structurally
-         *  (no scope/payload mutation). */}
-        {grillScreenActive(skillResult) && (
-          <GrillScreen topic={(skillResult?.visualPayload?.topic as string | undefined)} />
-        )}
         </div>
       </div>
     </div>
