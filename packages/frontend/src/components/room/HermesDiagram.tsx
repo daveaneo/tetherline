@@ -32,32 +32,7 @@ import { motion } from 'framer-motion';
 import { motionVariantFor, scopeTransition, prefersReducedMotion } from './transition-motion.js';
 import { sendEvent } from '../../lib/ws-client.js';
 import { API_PREFIX } from '@tetherline/shared';
-
-type Level = 'unknown' | 'mentioned' | 'heard' | 'engaged' | 'explained' | 'confirmed';
-
-interface DiagramNode {
-  id: string;
-  label: string;
-  description?: string;
-  role?: string;
-  weight?: number;
-  level?: Level;
-  briefingId?: string;
-}
-interface DiagramEdge {
-  from: string;
-  to: string;
-  kind?: 'contains' | 'produces' | 'consumes' | 'configures' | 'guards' | 'imports';
-  label?: string;
-}
-interface DiagramPayload {
-  scope: string;
-  view: 'logic' | 'file';
-  title: string;
-  subtitle: string;
-  nodes: DiagramNode[];
-  edges: DiagramEdge[];
-}
+import type { Level, DiagramNode, DiagramEdge, DiagramPayload } from './diagram-types.js';
 
 interface PositionedNode extends DiagramNode {
   x: number;
@@ -263,6 +238,16 @@ export function HermesDiagram() {
 
   // Fetch the diagram payload whenever scope/view/repoPath changes.
   useEffect(() => {
+    // DEV scene harness: a seeded payload renders deterministically
+    // with NO fetch, NO WS, NO backend. Production never sets this.
+    const scenePayload = useSessionStore.getState().sceneDiagramPayload;
+    if (scenePayload) {
+      setPayload(scenePayload);
+      setLoading(false);
+      setError(null);
+      setStalled(false);
+      return;
+    }
     if (!repoPath || phase === 'IDLE') return;
     let cancelled = false;
     setLoading(true);

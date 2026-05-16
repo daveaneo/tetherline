@@ -1,0 +1,37 @@
+/** Shared render types for the diagram. Lifted out of HermesDiagram so
+ *  the deterministic scene harness can construct fixture payloads with
+ *  the exact same type the renderer consumes (no `any` at the seam). */
+
+export type Level =
+  | 'unknown'
+  | 'mentioned'
+  | 'heard'
+  | 'engaged'
+  | 'explained'
+  | 'confirmed';
+
+export interface DiagramNode {
+  id: string;
+  label: string;
+  description?: string;
+  role?: string;
+  weight?: number;
+  level?: Level;
+  briefingId?: string;
+}
+
+export interface DiagramEdge {
+  from: string;
+  to: string;
+  kind?: 'contains' | 'produces' | 'consumes' | 'configures' | 'guards' | 'imports';
+  label?: string;
+}
+
+export interface DiagramPayload {
+  scope: string;
+  view: 'logic' | 'file';
+  title: string;
+  subtitle: string;
+  nodes: DiagramNode[];
+  edges: DiagramEdge[];
+}

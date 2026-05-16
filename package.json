@@ -11,7 +11,11 @@
     "test:integration": "vitest run test/integration",
     "test:record": "RECORD=1 vitest run",
     "test:e2e": "playwright test",
-    "test:cassettes:audit": "tsx test/harness/cassettes-audit.ts"
+    "test:cassettes:audit": "tsx test/harness/cassettes-audit.ts",
+    "lint": "node scripts/lint.mjs",
+    "scenes": "playwright test test/e2e/scenes.spec.ts",
+    "scenes:update": "playwright test test/e2e/scenes.spec.ts --update-snapshots",
+    "verify": "node scripts/verify.mjs"
   },
   "engines": {
     "node": ">=20.0.0"

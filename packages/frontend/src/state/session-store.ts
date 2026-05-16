@@ -7,6 +7,7 @@ import type {
 } from '@tetherline/shared';
 import { DEFAULT_MODES } from '@tetherline/shared';
 import { useAudioStore } from './audio-store.js';
+import type { DiagramPayload } from '../components/room/diagram-types.js';
 
 /** Per-turn snapshot of the visual state. Drives the time slider that
  *  lets the user scrub back to any prior moment in the conversation
@@ -74,6 +75,10 @@ interface SessionStore {
    *  becomes a heat-map of the user's attention as the conversation
    *  progresses. */
   touchedNodes: Set<string>;
+  /** DEV scene harness: when set, HermesDiagram renders THIS payload
+   *  deterministically and skips the /api/diagram fetch + WS/backend.
+   *  Always null in production (no scene param → never set). */
+  sceneDiagramPayload: DiagramPayload | null;
 
   // ─── Vision mechanics ────────────────────────────────────
   currentBriefing: {
@@ -156,6 +161,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   qaAnswerDone: false,
   understanding: null,
   skillResult: null,
+  sceneDiagramPayload: null,
   skillClarification: null,
   visualLayer: 1 as VisualLayer,
   conceptualSteps: [],
