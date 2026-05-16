@@ -33,3 +33,21 @@ Monorepo with 4 packages:
 - `pnpm typecheck` — Type-check all packages
 - `pnpm build` — Build all packages
 - `pnpm --filter @tetherline/frontend build` — Build frontend only
+
+## Working philosophy (read this)
+
+Coding effort is **not a constraint** here. Assume the implementer is
+~200x a senior dev: a year of coding ≈ <8 hours, no 40h/week cap.
+Therefore:
+
+- **Production-ready, never cut corners.** Corners save trivial time
+  and are not worth the quality cost. Build the full, robust thing.
+- **Optimize for fastest AUTONOMOUS iteration.** The bottleneck is
+  *verification*, not writing code. Invest heavily in machinery that
+  lets changes be validated with **zero human in the loop**:
+  deterministic UI "scene" harness, screenshot/pixel-diff baselines,
+  DOM/ARIA + console-error gates, lint, typecheck, unit — all behind
+  one fast `verify` command.
+- **Build the verification harness before the feature grind.** It is
+  a force-multiplier, not overhead.
+- Lint gates are wanted (cheapest autonomous quality signal).
