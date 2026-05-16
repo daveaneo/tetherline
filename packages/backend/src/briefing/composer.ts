@@ -192,7 +192,23 @@ export class BriefingComposer {
     // before the AI even gets to a question. The architectural-shape
     // detail moves to the architecture briefing, which the user can
     // opt into by saying "walk me through the architecture".
-    const firstTwoSentences = splitSentences(cleanedSummary).slice(0, 2).join(' ').trim();
+    // Keep ≤2 sentences (voice-first conciseness), but don't blindly
+    // take the first two: sentence 1 + the most SALIENT of the rest.
+    // A "where the work is right now" sentence (gravity / currently /
+    // being upgraded / in progress) is the highest-value dynamic
+    // texture — it IS the catch-me-up payload — so it wins over a
+    // generic 2nd architecture sentence. Falls back to the original
+    // first-two behaviour when no dynamic sentence exists.
+    const _sentences = splitSentences(cleanedSummary);
+    const _NOW = /\b(gravity|right now|currently|being (upgraded|rewritten|built|reworked)|in progress|in flight|focus(ing)? (is |on )|happening now|this week)\b/i;
+    const _picked = _sentences.slice(0, 2);
+    // Append the dynamic "where the work is now" sentence if it lives
+    // beyond the first two — it's the catch-me-up payload and must not
+    // be lost just because architectural shape filled the first two.
+    // Cap at 3 (~50 words ≪ the 30s interrupt threshold).
+    const _dyn = _sentences.slice(2).find(s => _NOW.test(s));
+    if (_dyn) _picked.push(_dyn);
+    const firstTwoSentences = _picked.join(' ').trim();
     const cleanedPurpose = purpose ? stripMarkdownForSpeech(purpose).trim() : '';
 
     // Shape the lead sentence around what `purpose` actually looks like.
