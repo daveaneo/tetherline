@@ -79,6 +79,10 @@ interface SessionStore {
    *  deterministically and skips the /api/diagram fetch + WS/backend.
    *  Always null in production (no scene param → never set). */
   sceneDiagramPayload: DiagramPayload | null;
+  /** Active deep_dive pocket position, surfaced by the "you are here"
+   *  breadcrumb (B16). null when not inside a pocket. Set by the
+   *  deep_dive orchestrator (and scene fixtures). */
+  breadcrumbPocket: { focus?: string; slide: number; total: number } | null;
 
   // ─── Vision mechanics ────────────────────────────────────
   currentBriefing: {
@@ -162,6 +166,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   understanding: null,
   skillResult: null,
   sceneDiagramPayload: null,
+  breadcrumbPocket: null,
   skillClarification: null,
   visualLayer: 1 as VisualLayer,
   conceptualSteps: [],

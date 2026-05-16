@@ -32,6 +32,7 @@ const SCENES = [
   'shelf-notes',
   'shelf-tasks',
   'descend',
+  'breadcrumb',
 ];
 
 const VIEWPORTS = [
