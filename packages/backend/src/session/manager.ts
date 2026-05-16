@@ -107,6 +107,12 @@ export class SessionManager {
     'narration:text',
     'narration:quick_answer',
     'narration:briefing',
+    // 'narration:stream_chunk' carries AI speech too and is counted as a
+    // tts.emit by traceNarrationEvent — it MUST be gated like the rest,
+    // or chunked narration talks over the user (the floor-gate hole
+    // that regressed emitsDuringUserSpeech to 6/12 once chunked
+    // streaming became the primary narration path).
+    'narration:stream_chunk',
     'qa:answer_chunk',
   ]);
 
