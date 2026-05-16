@@ -473,7 +473,10 @@ export function HermesDiagram() {
       {showTitle && (
         <header
           className="flex flex-col items-start"
-          style={{ padding: '24px 32px 12px' }}
+          // Top padding clears the absolute top-0 chrome bar
+          // (Gaps/History/Shelf/Settings, ~40px) so the breadcrumb +
+          // KnowledgeStats legend don't underlap/collide with it.
+          style={{ padding: '52px 32px 12px' }}
         >
           <div className="flex items-center justify-between w-full">
             <Breadcrumb
