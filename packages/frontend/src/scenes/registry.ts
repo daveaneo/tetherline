@@ -173,6 +173,34 @@ export const SCENES: Scene[] = [
     },
   },
   {
+    name: 'deep-dive',
+    description: 'deep_dive pocket — full-bleed slide presentation replaces the diagram',
+    seed: () => {
+      seedBase({
+        scope: 'module/core', view: 'logic', title: 'Core', subtitle: 'Git analysis · AI guide · TTS',
+        nodes: [
+          { id: 'module/core', label: 'Core', description: 'The module', role: 'source', weight: 1, level: 'explained' },
+          { id: 'file/core/analyzer', label: 'analyzer.ts', description: 'LLM Q&A + skills', role: 'transform', weight: 0.8, level: 'heard' },
+        ],
+        edges: [{ from: 'module/core', to: 'file/core/analyzer', kind: 'contains' }],
+      });
+      useSessionStore.setState({
+        breadcrumbPocket: {
+          focus: 'token refresh',
+          slide: 2,
+          total: 5,
+          slides: [
+            { title: 'Why token refresh exists', body: 'Access tokens are short-lived; the refresh path trades a long-lived refresh token for a new pair without forcing re-login.' },
+            { title: 'Where it lives', body: 'analyzer.ts owns the call; the voice gate pauses narration while the round-trip is in flight so nothing talks over a stall.' },
+            { title: 'The race we hit', body: 'Two concurrent 401s both triggered a refresh — the second clobbered the first new token. A single-flight lock now coalesces them.' },
+            { title: 'Failure handling', body: 'A refresh that returns 401 means the session is truly dead: clear state, surface a calm "signed out" instead of a retry storm.' },
+            { title: 'What to watch', body: 'Refresh latency feeds the barge-in budget. If p95 climbs, the gate holds the mic longer — track it as a first-class signal.' },
+          ],
+        },
+      });
+    },
+  },
+  {
     name: 'breadcrumb',
     description: 'You-are-here position trail inside a deep_dive pocket',
     seed: () => {

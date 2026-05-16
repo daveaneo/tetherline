@@ -79,10 +79,15 @@ interface SessionStore {
    *  deterministically and skips the /api/diagram fetch + WS/backend.
    *  Always null in production (no scene param → never set). */
   sceneDiagramPayload: DiagramPayload | null;
-  /** Active deep_dive pocket position, surfaced by the "you are here"
-   *  breadcrumb (B16). null when not inside a pocket. Set by the
-   *  deep_dive orchestrator (and scene fixtures). */
-  breadcrumbPocket: { focus?: string; slide: number; total: number } | null;
+  /** Active deep_dive pocket (B14/B16). null when not inside a pocket.
+   *  Set by the deep_dive orchestrator (and scene fixtures). The pocket
+   *  is its OWN state — never a skill annotation — so it carries its
+   *  composed slides directly; when `slides` is present the pocket takes
+   *  over the canvas (presentation), otherwise only the position trail
+   *  shows over the diagram. */
+  breadcrumbPocket:
+    | { focus?: string; slide: number; total: number; slides?: { title: string; body: string }[] }
+    | null;
 
   // ─── Vision mechanics ────────────────────────────────────
   currentBriefing: {
