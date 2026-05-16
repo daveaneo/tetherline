@@ -84,6 +84,7 @@ export function HermesDiagram() {
   const breadcrumbPocket = useSessionStore(s => s.breadcrumbPocket);
   const pipelineReveal = useSessionStore(s => s.pipelineReveal);
   const blastRadius = useSessionStore(s => s.blastRadius);
+  const guidedTour = useSessionStore(s => s.guidedTour);
   // Karaoke-ball: when a stream chunk is playing, the backend tagged
   // it with diagram-node labels mentioned in its text. These nodes
   // glow during the chunk's audio playback so the user's eye follows
@@ -609,6 +610,47 @@ export function HermesDiagram() {
               </span>
               <span>{blast.rings} {blast.rings === 1 ? 'ring' : 'rings'} of impact</span>
               <span style={{ opacity: 0.65 }}>changed → who breaks if it moves</span>
+            </div>
+          )}
+          {guidedTour && guidedTour.items.length > 0 && (
+            <div
+              className="font-mono"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 12, marginTop: 8,
+                fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase',
+                color: 'var(--cream-500)',
+              }}
+              data-testid="guided-strip"
+            >
+              <span style={{ color: 'var(--amber-400)' }}>Guided tour</span>
+              <span>
+                step <span style={{ color: 'var(--cream-100)' }}>{guidedTour.currentIndex + 1}</span> / {guidedTour.items.length}
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                {guidedTour.items.map((it, i) => {
+                  const cur = i === guidedTour.currentIndex;
+                  return (
+                    <span
+                      key={i}
+                      title={it.name}
+                      style={{
+                        width: cur ? 22 : 8,
+                        height: cur ? 6 : 4,
+                        borderRadius: 3,
+                        background: cur
+                          ? 'var(--amber-400)'
+                          : i < guidedTour.currentIndex || it.covered
+                          ? 'oklch(0.62 0.09 60)'
+                          : 'oklch(1 0 0 / 0.12)',
+                        transition: 'all 0.3s ease',
+                      }}
+                    />
+                  );
+                })}
+              </span>
+              <span style={{ color: 'var(--cream-200)', textTransform: 'none', letterSpacing: 0 }}>
+                {guidedTour.items[guidedTour.currentIndex]?.name ?? ''}
+              </span>
             </div>
           )}
           <h1

@@ -35,6 +35,7 @@ const SCENES = [
   'deep-dive',
   'pipeline',
   'blast-radius',
+  'guided-mode',
   'breadcrumb',
 ];
 
