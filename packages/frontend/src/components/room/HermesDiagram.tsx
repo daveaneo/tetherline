@@ -692,6 +692,13 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
   const ownOrdinal = levelOrdinal(ownLevel);  // 0..5
   const ownFraction = ownOrdinal / 5;
   const ownColor = levelColor(ownLevel);
+  // Adaptive text contrast: at explained/confirmed (ord ≥ 4) the body
+  // fill is predominantly the WARM amber `ownColor`, so light cream
+  // text washes out (WCAG fail — the "Core" subtitle was illegible).
+  // Flip to dark ink on warm nodes; keep cream on dark/cold nodes.
+  const onWarmFill = ownOrdinal >= 4;
+  const titleFill = onWarmFill ? 'oklch(0.18 0.012 60)' : 'var(--cream-100, #f4ebe1)';
+  const subFill = onWarmFill ? 'oklch(0.27 0.02 60)' : 'var(--cream-500, #b8a99a)';
   // Per-node gradient id — must be unique per node so each node's fill
   // line lands at its own ownFraction. SVG gradients are referenced by
   // id; collision would make every node share one fill height.
@@ -903,7 +910,7 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
           fontFamily: 'var(--serif, Fraunces, serif)',
           fontSize: titleSize,
           fontWeight: 500,
-          fill: 'var(--cream-100, #f4ebe1)',
+          fill: titleFill,
           letterSpacing: '-0.005em',
         }}
       >
@@ -919,8 +926,8 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
           style={{
             fontFamily: 'var(--mono, "Geist Mono", ui-monospace, monospace)',
             fontSize: subSize,
-            fill: 'var(--cream-500, #b8a99a)',
-            opacity: 0.9,
+            fill: subFill,
+            opacity: onWarmFill ? 1 : 0.9,
           }}
         >
           {lines.map((line, i) => (
