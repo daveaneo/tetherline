@@ -20,7 +20,6 @@ import { SessionEntrance } from './SessionEntrance.js';
 // BreadcrumbStrip is gone — its "WHERE / project" label was an orphan
 // floating at the top corner. Same info is now in HermesDiagram's title bar.
 import { ComprehensionOverlay, ComprehensionToggle } from '../vision/ComprehensionOverlay.js';
-import { VERSION } from '../../version.js';
 
 /** Room layers, back-to-front:
  *   1. DiagramPanel — the diagram is the centerpiece (was a backdrop;
@@ -173,7 +172,6 @@ export function Room({ skipEntrance = false }: { skipEntrance?: boolean } = {}) 
                 Shelf
               </button>
               <ComprehensionToggle />
-              <span className="text-[10px] text-[var(--color-text-muted)] opacity-50 font-mono">v{VERSION}</span>
               <button
                 onClick={() => useSettingsStore.getState().setSettingsOpen(true)}
                 className="text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
