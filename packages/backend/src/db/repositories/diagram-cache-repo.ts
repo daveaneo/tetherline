@@ -22,6 +22,9 @@ export interface DiagramNode {
   implementsFiles?: string[];
   /** Comprehension level for the halo. */
   level?: 'unknown' | 'mentioned' | 'heard' | 'engaged' | 'explained' | 'confirmed';
+  /** Passed a grill / perfect quiz — a separate active-recall QA proof,
+   *  independent of `level`. Overlaid live at read time (not cached). */
+  grilled?: boolean;
   /** 0..1 visual size hint. Drives node-radius rendering. */
   weight?: number;
   /** Briefing id this node maps to, if any — clicking sends

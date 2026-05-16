@@ -307,6 +307,7 @@ export class Database {
         level TEXT NOT NULL DEFAULT 'unknown' CHECK (level IN ('unknown','mentioned','heard','engaged','explained','confirmed')),
         narration_seconds_heard REAL NOT NULL DEFAULT 0,
         questions_asked INTEGER NOT NULL DEFAULT 0,
+        grilled INTEGER NOT NULL DEFAULT 0,
         last_touched_at TEXT NOT NULL DEFAULT (datetime('now')),
         last_session_id TEXT,
         PRIMARY KEY (repo_path, item_id)
@@ -425,6 +426,14 @@ export class Database {
     const briefingColumnNames = new Set(briefingColumns.map(c => c.name));
     if (!briefingColumnNames.has('last_delivered_at')) {
       this.db.exec(`ALTER TABLE briefings ADD COLUMN last_delivered_at TEXT`);
+    }
+
+    // `grilled` (B-comprehension): a separate active-recall QA proof,
+    // distinct from passive `level`. Additive — old rows backfill to 0.
+    const compColumns = this.db.pragma('table_info(comprehension)') as Array<{ name: string }>;
+    const compColumnNames = new Set(compColumns.map(c => c.name));
+    if (!compColumnNames.has('grilled')) {
+      this.db.exec(`ALTER TABLE comprehension ADD COLUMN grilled INTEGER NOT NULL DEFAULT 0`);
     }
   }
 

@@ -1779,6 +1779,16 @@ export class SessionManager {
       );
     }
 
+    // A PERFECT quiz (3/3) is an active-recall QA proof, equivalent to
+    // passing a grill — flip the separate `grilled` marker. 2/3 only
+    // raises level to 'explained' (above), never sets the proof.
+    if (correctCount === total) {
+      // observeComprehension above guarantees the row exists when 3/3
+      // raised the level; if it was already 'confirmed' the row exists
+      // too. markGrilled is a safe no-op if somehow absent.
+      this.db.getComprehensionRepo().markGrilled(this.activeRepoPath, this.activeQuiz.briefingId);
+    }
+
     this.emit({
       type: 'quiz:result',
       payload: {
@@ -1870,6 +1880,19 @@ export class SessionManager {
         );
       }
       if (result.done) {
+        // Grill PASS = a sustained-strong record over a real grill
+        // (≥3 questions, ≥60% strong). This is the separate active-
+        // recall QA proof — distinct from the passive `explained` bump
+        // above. Observe first (guarantees the row + an ≥explained
+        // level, since passing implies that depth), then flip grilled.
+        const turns = this.activeGrill.turns;
+        const strong = turns.filter(t => t.evaluation === 'strong').length;
+        const passed = turns.length >= 3 && strong >= Math.ceil(turns.length * 0.6);
+        if (passed) {
+          const topicId = `topic/${this.activeGrill.topic.replace(/\s+/g, '-').toLowerCase()}`;
+          this.observeComprehension(topicId, this.activeGrill.topic, 'explained', 'question_asked');
+          this.db.getComprehensionRepo().markGrilled(this.activeRepoPath, topicId);
+        }
         this.activeGrill = null;
       }
     } catch (err: any) {

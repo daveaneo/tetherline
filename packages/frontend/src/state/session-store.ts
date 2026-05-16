@@ -108,6 +108,10 @@ interface SessionStore {
   guidedTour:
     | { items: { name: string; type: string; covered: boolean }[]; currentIndex: number }
     | null;
+  /** DEV/scene-only: forces the comprehension legend open so the
+   *  expanded state is deterministically screenshot-able. Never set
+   *  in production. */
+  sceneForceLegendOpen: boolean;
 
   // ─── Vision mechanics ────────────────────────────────────
   currentBriefing: {
@@ -195,6 +199,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   pipelineReveal: null,
   blastRadius: null,
   guidedTour: null,
+  sceneForceLegendOpen: false,
   skillClarification: null,
   visualLayer: 1 as VisualLayer,
   conceptualSteps: [],

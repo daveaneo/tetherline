@@ -17,6 +17,9 @@ export interface DiagramNode {
   role?: string;
   weight?: number;
   level?: Level;
+  /** Passed a grill / perfect quiz — a separate active-recall QA proof,
+   *  independent of `level`. Surfaced as the node's shield badge. */
+  grilled?: boolean;
   briefingId?: string;
 }
 

@@ -15,6 +15,7 @@ interface Row {
   level: string;
   narration_seconds_heard: number;
   questions_asked: number;
+  grilled: number;
   last_touched_at: string;
   last_session_id: string | null;
 }
@@ -28,6 +29,7 @@ function rowToItem(r: Row): ComprehensionItem {
     level: r.level as ComprehensionLevel,
     narrationSecondsHeard: r.narration_seconds_heard,
     questionsAsked: r.questions_asked,
+    grilled: r.grilled === 1,
     lastTouchedAt: r.last_touched_at,
     lastSessionId: r.last_session_id,
   };
@@ -54,14 +56,15 @@ export class ComprehensionRepository {
     this.db
       .prepare(
         `INSERT INTO comprehension
-          (repo_path, item_id, layer, label, level, narration_seconds_heard, questions_asked, last_touched_at, last_session_id)
-         VALUES (@repo_path, @item_id, @layer, @label, @level, @narration_seconds_heard, @questions_asked, @last_touched_at, @last_session_id)
+          (repo_path, item_id, layer, label, level, narration_seconds_heard, questions_asked, grilled, last_touched_at, last_session_id)
+         VALUES (@repo_path, @item_id, @layer, @label, @level, @narration_seconds_heard, @questions_asked, @grilled, @last_touched_at, @last_session_id)
          ON CONFLICT(repo_path, item_id) DO UPDATE SET
            layer = excluded.layer,
            label = excluded.label,
            level = excluded.level,
            narration_seconds_heard = excluded.narration_seconds_heard,
            questions_asked = excluded.questions_asked,
+           grilled = excluded.grilled,
            last_touched_at = excluded.last_touched_at,
            last_session_id = excluded.last_session_id`,
       )
@@ -73,6 +76,7 @@ export class ComprehensionRepository {
         level: item.level,
         narration_seconds_heard: item.narrationSecondsHeard,
         questions_asked: item.questionsAsked,
+        grilled: item.grilled ? 1 : 0,
         last_touched_at: item.lastTouchedAt,
         last_session_id: item.lastSessionId,
       });
@@ -107,11 +111,23 @@ export class ComprehensionRepository {
       narrationSecondsHeard:
         (existing?.narrationSecondsHeard ?? 0) + (opts.narrationSecondsHeard ?? 0),
       questionsAsked: (existing?.questionsAsked ?? 0) + (opts.questionsAsked ?? 0),
+      // grilled is a separate QA proof — never set/cleared by passive
+      // observation; only markGrilled() flips it, and it's monotonic.
+      grilled: existing?.grilled ?? false,
       lastTouchedAt: now,
       lastSessionId: opts.sessionId ?? existing?.lastSessionId ?? null,
     };
     this.upsert(item);
     return item;
+  }
+
+  /** Flip the separate "passed a grill / perfect quiz" QA proof. Mirror
+   *  of degrade(): requires the item to already exist (callers observe
+   *  it first). Monotonic — never un-grills; independent of level. */
+  markGrilled(repoPath: string, itemId: string): void {
+    const existing = this.get(repoPath, itemId);
+    if (!existing || existing.grilled === true) return;
+    this.upsert({ ...existing, grilled: true, lastTouchedAt: new Date().toISOString() });
   }
 
   /** Regress an item's level (e.g. staleness after code changes). */

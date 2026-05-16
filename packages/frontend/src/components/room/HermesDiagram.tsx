@@ -29,6 +29,16 @@ import { GrillScreen } from './GrillScreen.js';
 import { DeepDivePocket, type PocketSlide } from './DeepDivePocket.js';
 import { pipelineRevealOrder } from './pipeline-reveal.js';
 import { blastRadiusRings } from './blast-radius.js';
+import {
+  levelOrdinal,
+  levelHeatStep,
+  nextLevelTrigger,
+  projectKnowledgeScore,
+  LEVEL_LABEL,
+  LEVEL_REACHED_BY,
+  COMPREHENSION_ORDER,
+} from '@tetherline/shared';
+import { levelColor } from './level-color.js';
 import { annotationToShelfArtifact, pinnedNodeIds } from './annotate-shelf.js';
 import { issueResultToShelfArtifact } from './issue-shelf.js';
 import { useShelfStore } from '../../state/shelf-store.js';
@@ -556,7 +566,6 @@ export function HermesDiagram() {
               onBack={goBack}
               canGoBack={inSubScope}
             />
-            <KnowledgeStats nodes={payload.nodes} />
           </div>
           {/* "You are here" position trail (B16) — spine ▸ pocket ▸
            *  n/N. The persistent subway-model orientation surface;
@@ -653,6 +662,7 @@ export function HermesDiagram() {
               </span>
             </div>
           )}
+          <KnowledgeStrip nodes={payload.nodes} />
           <h1
             className="font-serif"
             style={{ fontSize: 32, color: 'var(--cream-100)', letterSpacing: '-0.015em', margin: '6px 0 8px', fontWeight: 400 }}
@@ -853,21 +863,19 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
   // outline, `confirmed` is fully warm gold. The peripheral bar +
   // halo treatment never read intuitively; the body fill makes the
   // signal impossible to miss.
-  const ownLevel: Level | undefined = node.level;
+  const ownLevel = node.level;
   const ownOrdinal = levelOrdinal(ownLevel);  // 0..5
-  const ownFraction = ownOrdinal / 5;
   const ownColor = levelColor(ownLevel);
-  // Adaptive text contrast: at explained/confirmed (ord ≥ 4) the body
-  // fill is predominantly the WARM amber `ownColor`, so light cream
-  // text washes out (WCAG fail — the "Core" subtitle was illegible).
-  // Flip to dark ink on warm nodes; keep cream on dark/cold nodes.
-  const onWarmFill = ownOrdinal >= 4;
-  const titleFill = onWarmFill ? 'oklch(0.18 0.012 60)' : 'var(--cream-100, #f4ebe1)';
-  const subFill = onWarmFill ? 'oklch(0.27 0.02 60)' : 'var(--cream-500, #b8a99a)';
-  // Per-node gradient id — must be unique per node so each node's fill
-  // line lands at its own ownFraction. SVG gradients are referenced by
-  // id; collision would make every node share one fill height.
-  const gradId = `hd-fill-${nodeIdToSafeCssId(node.id)}`;
+  // Body is a FLAT low-alpha heat tint (coarse "warmth") — the precise
+  // rung is the discrete ladder below. A flat block per level (no
+  // internal fill-line) is what kills the old adjacent-level muddiness.
+  // It stays dark at every level (22% heat mixed into dark ink), so
+  // cream text is always the legible choice.
+  const bodyFill = ownOrdinal === 0
+    ? 'var(--ink-050)'
+    : `color-mix(in oklch, var(--heat-${levelHeatStep(ownLevel)}) 22%, var(--ink-050))`;
+  const titleFill = 'var(--cream-100, #f4ebe1)';
+  const subFill = 'var(--cream-500, #b8a99a)';
   // Title size tracks node size — center has the biggest type. The
   // satellite size was bumped from 14→17 because file-scope drill views
   // (n=5+ filename satellites) were unreadable at the default zoom.
@@ -933,27 +941,6 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
       data-testid={`hd-node-${node.id}`}
       data-active={active ? 'true' : 'false'}
     >
-      {/* Per-node battery-fill gradient. Hard color stops at the
-       *  own-knowledge level create a "fill line" — below = warm
-       *  comprehension color, above = dim base. y1=1, y2=0 makes the
-       *  gradient flow bottom→top so fill rises like a battery. */}
-      <defs>
-        <linearGradient id={gradId} x1="0" y1="1" x2="0" y2="0">
-          {ownOrdinal === 0 ? (
-            <>
-              <stop offset="0" stopColor="oklch(0.18 0.012 60)" />
-              <stop offset="1" stopColor="oklch(0.14 0.008 60)" />
-            </>
-          ) : (
-            <>
-              <stop offset="0" stopColor={ownColor ?? 'oklch(0.5 0.07 60)'} stopOpacity="0.85" />
-              <stop offset={String(ownFraction)} stopColor={ownColor ?? 'oklch(0.5 0.07 60)'} stopOpacity="0.55" />
-              <stop offset={String(ownFraction)} stopColor="oklch(0.20 0.014 60)" stopOpacity="0.95" />
-              <stop offset="1" stopColor="oklch(0.16 0.010 60)" stopOpacity="0.95" />
-            </>
-          )}
-        </linearGradient>
-      </defs>
       {/* Heatmap overlay (B1) — additive cold→warm comprehension wash
        *  behind the node body. Rendered FIRST so it sits behind all
        *  content; purely additive, never replaces the body fill or the
@@ -1086,7 +1073,7 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
         height={rectHeight}
         rx={14}
         ry={14}
-        fill={`url(#${gradId})`}
+        style={{ fill: bodyFill }}
         stroke={
           hover
             ? 'oklch(0.55 0.10 70)'
@@ -1126,7 +1113,7 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
             fontFamily: 'var(--mono, "Geist Mono", ui-monospace, monospace)',
             fontSize: subSize,
             fill: subFill,
-            opacity: onWarmFill ? 1 : 0.9,
+            opacity: 0.9,
           }}
         >
           {lines.map((line, i) => (
@@ -1134,6 +1121,76 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
           ))}
         </text>
       )}
+      {/* Comprehension ladder — 5 discrete rungs (mentioned → confirmed)
+       *  filled CUMULATIVELY: count the lit segments = the level. The
+       *  current rung glows; rungs beneath are lit dimmer; locked rungs
+       *  recede. Count conveys level even in monochrome (color-blind
+       *  safe). This replaces the old ambiguous battery-fill height. */}
+      {(() => {
+        const RUNGS = 5; // mentioned(1) .. confirmed(5); unknown(0) = none lit
+        const ladderW = Math.min(rectWidth - 2 * innerPadX, node.isCenter ? 132 : 96);
+        const segGap = 3;
+        const segW = (ladderW - (RUNGS - 1) * segGap) / RUNGS;
+        const segH = node.isCenter ? 7 : 6;
+        const ladderY = rectHeight / 2 + 12;
+        const startX = -ladderW / 2;
+        return (
+          <g data-testid={`hd-ladder-${node.id}`} aria-label={`Comprehension ${ownOrdinal} of ${RUNGS}`}>
+            {Array.from({ length: RUNGS }).map((_, i) => {
+              const rung = i + 1; // ordinal this segment represents
+              const x = startX + i * (segW + segGap);
+              if (rung === ownOrdinal) {
+                return (
+                  <rect
+                    key={i}
+                    x={x} y={ladderY} width={segW} height={segH} rx={1.5}
+                    style={{
+                      fill: `var(--heat-${rung})`,
+                      stroke: `var(--heat-${Math.min(rung + 1, 5)})`,
+                      strokeWidth: 1,
+                      filter: `drop-shadow(0 0 4px var(--heat-${rung}))`,
+                    }}
+                  />
+                );
+              }
+              const beneath = rung < ownOrdinal;
+              return (
+                <rect
+                  key={i}
+                  x={x} y={ladderY} width={segW} height={segH} rx={1.5}
+                  style={{
+                    fill: beneath ? `var(--heat-${rung})` : 'var(--ink-100)',
+                    opacity: beneath ? 0.5 : 0.45,
+                    stroke: beneath ? 'none' : 'var(--ink-200)',
+                    strokeWidth: beneath ? 0 : 0.75,
+                  }}
+                />
+              );
+            })}
+            {/* Pathway: how to climb to the NEXT rung. Hover-only so the
+             *  canvas stays calm at many nodes; the legend explains all
+             *  rungs always. */}
+            {hover && (() => {
+              const trig = nextLevelTrigger(ownLevel);
+              return (
+                <text
+                  textAnchor="middle"
+                  x={0}
+                  y={ladderY + segH + 12}
+                  style={{
+                    fontFamily: 'var(--mono, "Geist Mono", ui-monospace, monospace)',
+                    fontSize: 10,
+                    letterSpacing: '0.04em',
+                    fill: trig ? 'var(--cream-500, #b8a99a)' : 'var(--sig-okay)',
+                  }}
+                >
+                  {trig ? `▸ ${trig}` : '✓ fully confirmed'}
+                </text>
+              );
+            })()}
+          </g>
+        );
+      })()}
       {/* Pip row — one dot per direct child, capped at PIP_MAX, colored
        *  by that child's comprehension level. Reads as a scoreboard:
        *  glance to see how many sub-things you know. "+N" suffix when
@@ -1146,7 +1203,7 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
         const overflowExtra = overflow > 0 ? 22 : 0; // room for "+N"
         const rowWidth = childrenInfo.visible.length * (pipR * 2) + (childrenInfo.visible.length - 1) * pipGap + overflowExtra;
         const startX = -rowWidth / 2 + pipR;
-        const rowY = rectHeight / 2 + 14;
+        const rowY = rectHeight / 2 + 30; // below the comprehension ladder
         return (
           <g data-testid={`hd-pips-${node.id}`}>
             {childrenInfo.visible.map((lvl, i) => {
@@ -1201,33 +1258,36 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
           ★
         </text>
       )}
+      {/* Grill shield — the SEPARATE active-recall QA proof (passed a
+       *  grill or a perfect quiz), distinct from passive `level`.
+       *  Upper-left so it never collides with the pin (upper-right) or
+       *  crown (top-center). Green `--sig-okay` reads as "verified",
+       *  unmistakable vs the amber ramp. Absent when not earned — a
+       *  rare mark, like the crown. */}
+      {node.grilled && (
+        <g
+          transform={`translate(${-node.radius * 0.92}, ${-node.radius * 0.92})`}
+          aria-label="Grilled — passed a grill or perfect quiz"
+        >
+          <path
+            d="M0,-8 L7,-4 L7,3 C7,7 0,9 0,9 C0,9 -7,7 -7,3 L-7,-4 Z"
+            style={{ fill: 'var(--sig-okay)', stroke: 'var(--ink-050)', strokeWidth: 1.5 }}
+          />
+          <text
+            x={0} y={1} textAnchor="middle" dominantBaseline="central"
+            style={{ fontSize: 9, fontWeight: 700, fill: 'var(--ink-000)' }}
+          >
+            ✓
+          </text>
+        </g>
+      )}
     </g>
   );
 }
 
-/** Strip characters that aren't safe in an SVG id (`/`, etc.). Some
- *  node ids look like `module/core` or `file/core/loader.py` — those
- *  break gradient lookups via `url(#id)` if used raw. */
-function nodeIdToSafeCssId(id: string): string {
-  return id.replace(/[^a-zA-Z0-9_-]/g, '_');
-}
 
-function levelOrdinal(l: Level | undefined): number {
-  switch (l) {
-    case 'confirmed': return 5;
-    case 'explained': return 4;
-    case 'engaged':   return 3;
-    case 'heard':     return 2;
-    case 'mentioned': return 1;
-    default:          return 0;
-  }
-}
-
-function ordinalToLevel(o: number): Level | undefined {
-  if (o <= 0) return undefined;
-  if (o >= 5) return 'confirmed';
-  return (['mentioned', 'heard', 'engaged', 'explained'][o - 1] as Level) ?? undefined;
-}
+// levelOrdinal / levelColor now come from the single shared model
+// (@tetherline/shared + ./level-color.js) — see imports.
 
 // ─────────────────────────────────────────────────────────────────────
 // Helpers
@@ -1301,19 +1361,6 @@ function edgeStroke(kind: DiagramEdge['kind']): { color: string; width: number; 
   }
 }
 
-function levelColor(level: DiagramNode['level']): string | null {
-  // Stronger chroma gap between levels so halos READ as comprehension
-  // signal, not decoration. Cool olive for cold → warm amber → ember
-  // gold for confirmed.
-  switch (level) {
-    case 'confirmed': return 'oklch(0.82 0.18 95)';   // warm gold, high chroma
-    case 'explained': return 'oklch(0.74 0.15 75)';   // amber
-    case 'engaged':   return 'oklch(0.62 0.11 65)';   // ember
-    case 'heard':     return 'oklch(0.52 0.07 60)';   // dim warm
-    case 'mentioned': return 'oklch(0.42 0.04 65)';   // very dim
-    default:          return null; // unknown / undefined → no halo
-  }
-}
 
 /** Word-wrap `text` into up to `maxLines` lines that each fit within
  *  `maxPx` of horizontal space at the given font size. SVG text doesn't
@@ -1474,46 +1521,108 @@ function CrumbSeparator({ dot }: { dot?: boolean }) {
  *  an at-a-glance answer to "how much of this view do I actually know?"
  *  Pairs with the per-node progress bar (own knowledge) and the halo
  *  (children rollup) to form the knowledge-map signal stack. */
-function KnowledgeStats({ nodes }: { nodes: DiagramNode[] }) {
-  const buckets = useMemo(() => {
-    const cold = nodes.filter(n => levelOrdinal(n.level) <= 0).length;
-    const warm = nodes.filter(n => {
-      const o = levelOrdinal(n.level);
-      return o >= 1 && o <= 3;
-    }).length;
-    const known = nodes.filter(n => levelOrdinal(n.level) >= 4).length;
-    return { cold, warm, known, total: nodes.length };
+/** Header knowledge strip: weighted project score + grill coverage +
+ *  an always-discoverable `?` legend mapping each rung's colour → label
+ *  → how-you-reach-it (the explanation + the learning pathway). One
+ *  glanceable supervisor/QA readout; mirrors the pipeline/guided strip
+ *  styling. Score = "% of everything" (untouched drags it down). */
+function KnowledgeStrip({ nodes }: { nodes: DiagramNode[] }) {
+  const [open, setOpen] = useState(false);
+  const forceOpen = useSessionStore(s => s.sceneForceLegendOpen);
+  const showLegend = open || forceOpen;
+
+  const { score, grillCoverage, total, grilled, dist } = useMemo(() => {
+    const s = projectKnowledgeScore(nodes);
+    const g = nodes.filter(n => n.grilled === true).length;
+    // Per-rung distribution: fraction of nodes at-or-above each rung.
+    const d = [1, 2, 3, 4, 5].map(
+      r => nodes.filter(n => levelOrdinal(n.level) >= r).length / Math.max(1, nodes.length),
+    );
+    return { score: s.score, grillCoverage: s.grillCoverage, total: nodes.length, grilled: g, dist: d };
   }, [nodes]);
 
-  if (buckets.total === 0) return null;
-  const knownPct = Math.round((buckets.known / buckets.total) * 100);
+  if (total === 0) return null;
 
   return (
-    <div
-      className="font-mono flex items-center gap-3"
-      style={{ fontSize: 10, letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--cream-500)', opacity: 0.85 }}
-      title="Comprehension across the visible nodes"
-      aria-label="Knowledge stats"
-      data-testid="hermes-diagram-stats"
-    >
-      <Pip color={levelColor('confirmed')!} count={buckets.known} label="known" />
-      <Pip color={levelColor('heard')!}     count={buckets.warm}  label="heard" />
-      <Pip color="oklch(0.40 0.02 70)"       count={buckets.cold}  label="cold" />
-      <span style={{ opacity: 0.6 }}>·</span>
-      <span style={{ color: 'var(--cream-300)' }}>{knownPct}%</span>
+    <div className="font-mono" style={{ marginTop: 8 }} data-testid="knowledge-strip">
+      <div
+        style={{
+          display: 'flex', alignItems: 'center', gap: 12,
+          fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase',
+          color: 'var(--cream-500)',
+        }}
+      >
+        <span style={{ color: 'var(--amber-400)' }}>Knowledge</span>
+        <span>
+          <span style={{ color: 'var(--cream-100)' }}>{score}%</span> of {total}
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 3 }} aria-hidden="true">
+          {dist.map((frac, i) => (
+            <span
+              key={i}
+              style={{
+                width: 18, height: 5, borderRadius: 2,
+                background: `color-mix(in oklch, var(--heat-${i + 1}) ${Math.round(frac * 100)}%, var(--ink-100))`,
+              }}
+            />
+          ))}
+        </span>
+        <span style={{ color: 'var(--sig-okay)' }}>◆ {grilled}/{total} grilled</span>
+        <span style={{ color: 'var(--cream-500)', opacity: 0.55 }}>·{grillCoverage}% QA</span>
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          title="What do the levels mean?"
+          aria-label="Toggle comprehension legend"
+          data-testid="knowledge-legend-toggle"
+          className="font-mono"
+          style={{
+            cursor: 'pointer', background: 'transparent', border: '1px solid var(--ink-200)',
+            color: 'var(--cream-500)', borderRadius: 4, width: 18, height: 18, lineHeight: '16px',
+            fontSize: 11, padding: 0,
+          }}
+        >
+          ?
+        </button>
+      </div>
+      {showLegend && (
+        <div
+          data-testid="knowledge-legend"
+          style={{
+            display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8,
+            fontSize: 10, letterSpacing: '0.02em', textTransform: 'none',
+            color: 'var(--cream-500)',
+          }}
+        >
+          {COMPREHENSION_ORDER.map(lvl => (
+            <span
+              key={lvl}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                background: 'var(--ink-100)', borderRadius: 4, padding: '3px 8px',
+              }}
+            >
+              <span style={{
+                width: 9, height: 9, borderRadius: 2,
+                background: levelColor(lvl) ?? 'var(--heat-0)',
+              }} />
+              <span style={{ color: 'var(--cream-300, var(--cream-400))' }}>{LEVEL_LABEL[lvl]}</span>
+              <span style={{ opacity: 0.7 }}>— {LEVEL_REACHED_BY[lvl]}</span>
+            </span>
+          ))}
+          <span
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              background: 'var(--ink-100)', borderRadius: 4, padding: '3px 8px',
+            }}
+          >
+            <span style={{ color: 'var(--sig-okay)' }}>◆</span>
+            <span style={{ color: 'var(--cream-300, var(--cream-400))' }}>grilled</span>
+            <span style={{ opacity: 0.7 }}>— passed a grill or perfect quiz (QA proof)</span>
+          </span>
+        </div>
+      )}
     </div>
-  );
-}
-
-function Pip({ color, count, label }: { color: string; count: number; label: string }) {
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-      <span style={{
-        width: 7, height: 7, borderRadius: '50%',
-        background: color, boxShadow: `0 0 4px ${color}`, opacity: count > 0 ? 1 : 0.35,
-      }} />
-      <span style={{ color: count > 0 ? 'var(--cream-400)' : 'var(--cream-500)' }}>{count} {label}</span>
-    </span>
   );
 }
 

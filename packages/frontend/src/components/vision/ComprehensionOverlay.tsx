@@ -1,24 +1,8 @@
 import { useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSessionStore } from '../../state/session-store.js';
-
-const LEVEL_COLOR: Record<string, string> = {
-  unknown: 'var(--heat-0)',
-  mentioned: 'var(--heat-1)',
-  heard: 'var(--heat-2)',
-  engaged: 'var(--heat-3)',
-  explained: 'var(--heat-4)',
-  confirmed: 'var(--heat-5)',
-};
-
-const LEVEL_LABEL: Record<string, string> = {
-  unknown: 'not yet',
-  mentioned: 'mentioned',
-  heard: 'heard',
-  engaged: 'engaged',
-  explained: 'explained',
-  confirmed: 'confirmed',
-};
+import { LEVEL_LABEL } from '@tetherline/shared';
+import { levelColor } from '../room/level-color.js';
 
 /** Toggleable overlay showing the user's comprehension levels across the
  *  briefings they've touched this session. Activates on utterance or from the
@@ -83,7 +67,7 @@ export function ComprehensionOverlay() {
                   <span
                     style={{
                       width: 10, height: 10, borderRadius: 2,
-                      background: LEVEL_COLOR[item.level] ?? 'var(--heat-0)',
+                      background: levelColor(item.level) ?? 'var(--heat-0)',
                       flex: 'none',
                       boxShadow: item.level === 'confirmed' ? '0 0 6px var(--amber-500)' : 'none',
                     }}

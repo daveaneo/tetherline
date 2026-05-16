@@ -14,4 +14,5 @@ export * from './types/shelf.js';
 export * from './types/onboarding.js';
 export * from './types/briefing.js';
 export * from './types/comprehension.js';
+export * from './comprehension-model.js';
 export * from './constants.js';

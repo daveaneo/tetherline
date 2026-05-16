@@ -45,7 +45,7 @@ export function extractProjectFileView(p: ExtractParams): DiagramRow {
     description: oneLineDescription(project?.purpose, project?.summary),
     role: 'source',
     weight: 1,
-    level: compMap.get('project'),
+    ...comp(compMap, 'project'),
     briefingId: 'project',
   };
   const satellites: DiagramNode[] = modules.map(m => ({
@@ -54,7 +54,7 @@ export function extractProjectFileView(p: ExtractParams): DiagramRow {
     description: oneLineDescription(undefined, m.summary),
     role: 'transform',
     weight: normalizeWeight(m.impactScore, modules),
-    level: compMap.get(`module/${m.modulePath}`),
+    ...comp(compMap, `module/${m.modulePath}`),
     briefingId: `module/${m.modulePath}`,
   }));
 
@@ -103,7 +103,7 @@ export function extractModuleFileView(p: ExtractParams, modulePath: string): Dia
     description: oneLineDescription(undefined, mod.summary),
     role: 'transform',
     weight: 1,
-    level: compMap.get(`module/${modulePath}`),
+    ...comp(compMap, `module/${modulePath}`),
     briefingId: `module/${modulePath}`,
   };
   const satellites: DiagramNode[] = keyFiles.map(f => ({
@@ -112,7 +112,7 @@ export function extractModuleFileView(p: ExtractParams, modulePath: string): Dia
     description: f,
     role: 'transform',
     weight: 0.6,
-    level: compMap.get(`file/${f}`),
+    ...comp(compMap, `file/${f}`),
     briefingId: `file/${f}`,
   }));
 
@@ -157,7 +157,7 @@ export async function extractProjectLogicView(p: ExtractParams): Promise<Diagram
     const matchedModule = [...moduleNames].find(name => n.label.toLowerCase().includes(name.toLowerCase()));
     return {
       ...n,
-      level: matchedModule ? compMap.get(`module/${matchedModule}`) : undefined,
+      ...(matchedModule ? comp(compMap, `module/${matchedModule}`) : { level: undefined, grilled: false }),
       briefingId: matchedModule ? `module/${matchedModule}` : undefined,
     };
   });
@@ -321,16 +321,25 @@ function topModules(repo: ContextCacheRepository, repoPath: string): ModuleCache
     .slice(0, MAX_SATELLITES);
 }
 
+interface CompCell { level: DiagramNode['level']; grilled: boolean }
+
 function comprehensionMap(
   repoPath: string,
   repo?: ComprehensionRepository,
-): Map<string, DiagramNode['level']> {
-  const out = new Map<string, DiagramNode['level']>();
+): Map<string, CompCell> {
+  const out = new Map<string, CompCell>();
   if (!repo) return out;
   for (const item of repo.getAll(repoPath)) {
-    out.set(item.itemId, item.level as any);
+    out.set(item.itemId, { level: item.level as DiagramNode['level'], grilled: item.grilled === true });
   }
   return out;
+}
+
+/** Spread the comprehension cell for `key` onto a node literal:
+ *  `{ ...comp(map, key) }` → `level` + `grilled`. Untracked → unknown. */
+function comp(map: Map<string, CompCell>, key: string): CompCell {
+  const c = map.get(key);
+  return { level: c?.level, grilled: c?.grilled ?? false };
 }
 
 function normalizeWeight(impact: number, all: ModuleCacheRow[]): number {
