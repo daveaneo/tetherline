@@ -33,8 +33,11 @@ export interface DiagramEdge {
   from: string;
   to: string;
   /** Edge semantics — drives stroke style (solid for produces/consumes,
-   *  dashed for configures/guards, etc.). */
-  kind?: 'produces' | 'consumes' | 'configures' | 'guards' | 'imports';
+   *  dashed for configures/guards, etc.). 'contains' is the
+   *  center→satellite parent-of edge the extractor always emits and
+   *  the renderer special-cases (HermesDiagram edge.kind==='contains').
+   */
+  kind?: 'produces' | 'consumes' | 'configures' | 'guards' | 'imports' | 'contains';
   label?: string;
 }
 
