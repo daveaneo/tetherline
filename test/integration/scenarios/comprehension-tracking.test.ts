@@ -114,6 +114,34 @@ describe('S8/S9 — comprehension tracking', () => {
     expect(confirmedUpgrade).toBeFalsy();
   });
 
+  it('passive confirmation does NOT set the separate grill QA proof', async () => {
+    // module/core reached 'confirmed' via the "got it" phrase above.
+    // `grilled` is a SEPARATE active-recall proof — it must stay false.
+    const map = await h.client.comprehension(FIXTURE);
+    const core = map.items.find(i => i.itemId === 'module/core')!;
+    expect(core.level).toBe('confirmed');
+    expect(core.grilled === true).toBe(false);
+  });
+
+  it('markGrilled flips the QA proof — monotonic and independent of level', () => {
+    const repo = h.server.db.getComprehensionRepo();
+    const before = repo.get(FIXTURE, 'project')!;
+    expect(before.level).toBe('heard');
+    expect(before.grilled === true).toBe(false);
+
+    repo.markGrilled(FIXTURE, 'project');
+    const grilled = repo.get(FIXTURE, 'project')!;
+    expect(grilled.grilled).toBe(true);
+    expect(grilled.level).toBe('heard'); // grill proof never changes level
+
+    // A later passive observation must NOT clear the proof, and a lower
+    // proposed level must not regress it.
+    repo.observe(FIXTURE, 'project', 'project', 'fixture', 'mentioned');
+    const after = repo.get(FIXTURE, 'project')!;
+    expect(after.grilled).toBe(true);
+    expect(after.level).toBe('heard');
+  });
+
   it('totals aggregate correctly across items', async () => {
     const map = await h.client.comprehension(FIXTURE);
     const sum = Object.values(map.totals).reduce((a, b) => a + b, 0);

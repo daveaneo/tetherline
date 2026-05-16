@@ -37,6 +37,8 @@ const SCENES = [
   'blast-radius',
   'guided-mode',
   'breadcrumb',
+  'comprehension-ladder',
+  'comprehension-legend-open',
 ];
 
 const VIEWPORTS = [

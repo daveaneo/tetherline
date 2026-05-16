@@ -276,6 +276,38 @@ export const SCENES: Scene[] = [
       });
     },
   },
+  {
+    name: 'comprehension-ladder',
+    description: 'Every rung of the knowledge ladder + grill shield + project score strip',
+    seed: () => {
+      seedBase({
+        scope: 'project', view: 'logic', title: 'Tetherline', subtitle: 'Knowledge ladder — every rung',
+        nodes: [
+          { id: 'project', label: 'Tetherline', description: 'AI-narrated weekly code review', role: 'source', weight: 1, level: 'engaged', briefingId: 'project' },
+          { id: 'module/core', label: 'Core', description: 'Git analysis, AI guide, TTS', role: 'transform', weight: 0.9, level: 'confirmed', grilled: true, briefingId: 'module/core' },
+          { id: 'module/frontend', label: 'Frontend', description: 'React room: voice, diagram, shelf', role: 'transform', weight: 0.8, level: 'explained', grilled: true, briefingId: 'module/frontend' },
+          { id: 'module/shared', label: 'Shared', description: 'Types + constants across packages', role: 'guard', weight: 0.5, level: 'heard', briefingId: 'module/shared' },
+          { id: 'module/voice', label: 'Voice', description: 'Barge-in gate, narration streaming', role: 'sink', weight: 0.7, level: 'mentioned', briefingId: 'module/voice' },
+          { id: 'module/cli', label: 'CLI', description: 'Command-line entry point', role: 'sink', weight: 0.4, level: 'unknown', briefingId: 'module/cli' },
+        ],
+        edges: [
+          { from: 'project', to: 'module/core', kind: 'contains' },
+          { from: 'project', to: 'module/frontend', kind: 'contains' },
+          { from: 'project', to: 'module/shared', kind: 'contains' },
+          { from: 'project', to: 'module/voice', kind: 'contains' },
+          { from: 'project', to: 'module/cli', kind: 'contains' },
+        ],
+      });
+    },
+  },
+  {
+    name: 'comprehension-legend-open',
+    description: 'Knowledge ladder with the rung→meaning legend expanded',
+    seed: () => {
+      getScene('comprehension-ladder')?.seed();
+      useSessionStore.setState({ sceneForceLegendOpen: true });
+    },
+  },
 ];
 
 export function getScene(name: string): Scene | undefined {

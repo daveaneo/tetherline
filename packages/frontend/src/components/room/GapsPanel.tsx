@@ -10,6 +10,7 @@ import { useAudioStore } from '../../state/audio-store.js';
 import { useGapsStore } from '../../state/gaps-store.js';
 import { sendEvent } from '../../lib/ws-client.js';
 import type { ComprehensionLevel } from '@tetherline/shared';
+import { levelColor } from './level-color.js';
 
 const COLD_LEVELS: ComprehensionLevel[] = ['unknown', 'mentioned', 'heard'];
 
@@ -163,7 +164,7 @@ export function GapsPanel() {
                             className="font-mono flex-none"
                             style={{
                               fontSize: 9, letterSpacing: '0.16em', textTransform: 'uppercase',
-                              color: levelColor(item.level),
+                              color: levelColor(item.level) ?? 'var(--cream-500)',
                             }}
                           >
                             {item.level}
@@ -284,15 +285,6 @@ function prettyRecallLabel(item: { itemId: string; label: string }): string {
   if (item.itemId.startsWith('file/'))   return item.itemId.slice('file/'.length);
   if (item.itemId.startsWith('code/'))   return item.itemId.slice('code/'.length).split(':')[0];
   return item.label || item.itemId;
-}
-
-function levelColor(level: ComprehensionLevel): string {
-  switch (level) {
-    case 'confirmed': return 'var(--sig-okay)';
-    case 'explained': return 'var(--amber-400)';
-    case 'engaged':   return 'var(--cream-300, var(--cream-500))';
-    default:          return 'var(--cream-500)';
-  }
 }
 
 function levelReason(level: ComprehensionLevel, layer: string): string {

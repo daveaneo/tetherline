@@ -13,6 +13,7 @@ import {
   extractModuleLogicView,
 } from '../intelligence/diagram-extractor.js';
 import { getDefaultLLMAdapter } from '../intelligence/llm/index.js';
+import { applyComprehension } from '@tetherline/shared';
 
 export function createDiagramRoutes(db: Database): Router {
   const router = Router();
@@ -39,7 +40,14 @@ export function createDiagramRoutes(db: Database): Router {
     // mixed into source_hash: when the extractor changes shape, bump
     // the version constant and old rows get re-warmed at session start.
     if (cached) {
-      res.json({ diagram: cached, cacheHit: true });
+      // The diagram cache is STRUCTURE-only (source_hash never tracks
+      // comprehension), so cached level/grilled is stale. Overlay the
+      // live comprehension store at read time — always-fresh signal
+      // with zero cache-key churn. applyComprehension returns clones,
+      // so the cached node objects are never mutated.
+      const items = db.getComprehensionRepo().getAll(repoPath);
+      const fresh = { ...cached, nodes: applyComprehension(cached.nodes, items) };
+      res.json({ diagram: fresh, cacheHit: true });
       return;
     }
 

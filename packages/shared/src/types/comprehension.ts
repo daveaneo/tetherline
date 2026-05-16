@@ -27,6 +27,10 @@ export interface ComprehensionItem {
   level: ComprehensionLevel;
   narrationSecondsHeard: number;
   questionsAsked: number;
+  /** Passed a grill quiz (≥60% strong over ≥3 Qs) or a perfect formal
+   *  quiz (3/3). A SEPARATE active-recall QA proof — independent of and
+   *  monotonic vs `level` (never set by passive observation). */
+  grilled?: boolean;
   lastTouchedAt: string; // ISO
   lastSessionId: string | null;
 }
