@@ -172,6 +172,23 @@ export const SCENES: Scene[] = [
       });
     },
   },
+  {
+    name: 'breadcrumb',
+    description: 'You-are-here position trail inside a deep_dive pocket',
+    seed: () => {
+      seedBase({
+        scope: 'module/core', view: 'logic', title: 'Core', subtitle: 'Git analysis · AI guide · TTS',
+        nodes: [
+          { id: 'module/core', label: 'Core', description: 'The module', role: 'source', weight: 1, level: 'explained' },
+          { id: 'file/core/analyzer', label: 'analyzer.ts', description: 'LLM Q&A + skills', role: 'transform', weight: 0.8, level: 'heard' },
+        ],
+        edges: [{ from: 'module/core', to: 'file/core/analyzer', kind: 'contains' }],
+      });
+      useSessionStore.setState({
+        breadcrumbPocket: { focus: 'token refresh', slide: 2, total: 8 },
+      });
+    },
+  },
 ];
 
 export function getScene(name: string): Scene | undefined {

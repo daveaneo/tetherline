@@ -23,6 +23,7 @@ import { useAudioStore } from '../../state/audio-store.js';
 import { TimeSlider } from './TimeSlider.js';
 import { heatmapOverlayActive } from './heatmap-overlay.js';
 import { concernNodeIds, isConcernActive } from './concern-tint.js';
+import { Breadcrumb as PositionTrail } from './Breadcrumb.js';
 import { grillScreenActive } from './grill-screen.js';
 import { GrillScreen } from './GrillScreen.js';
 import { annotationToShelfArtifact, pinnedNodeIds } from './annotate-shelf.js';
@@ -77,6 +78,7 @@ export function HermesDiagram() {
   const phase = useSessionStore(s => s.state.phase);
   const currentBriefingId = useSessionStore(s => s.currentBriefing?.briefingId ?? null);
   const skillResult = useSessionStore(s => s.skillResult);
+  const breadcrumbPocket = useSessionStore(s => s.breadcrumbPocket);
   // Karaoke-ball: when a stream chunk is playing, the backend tagged
   // it with diagram-node labels mentioned in its text. These nodes
   // glow during the chunk's audio playback so the user's eye follows
@@ -501,6 +503,13 @@ export function HermesDiagram() {
             />
             <KnowledgeStats nodes={payload.nodes} />
           </div>
+          {/* "You are here" position trail (B16) — spine ▸ pocket ▸
+           *  n/N. The persistent subway-model orientation surface;
+           *  the pocket segment appears only inside a deep_dive. */}
+          <PositionTrail
+            spine={scope === 'project' ? [payload.title] : ['Project', payload.title]}
+            pocket={breadcrumbPocket ?? undefined}
+          />
           <h1
             className="font-serif"
             style={{ fontSize: 32, color: 'var(--cream-100)', letterSpacing: '-0.015em', margin: '6px 0 8px', fontWeight: 400 }}
