@@ -5,11 +5,12 @@
  * so a scene needs no backend and can never hang on a WS. Seeds
  * synchronously before first paint via a useState initializer.
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { AppShell } from '../components/layout/AppShell.js';
 import { Room } from '../components/room/Room.js';
 import { SettingsPanel } from '../components/settings/SettingsPanel.js';
 import { SCENES, getScene } from './registry.js';
+import { useSessionStore } from '../state/session-store.js';
 
 function sceneParam(): string | null {
   return new URLSearchParams(window.location.search).get('scene');
@@ -44,11 +45,25 @@ function SceneIndex() {
 
 export function SceneHost() {
   const name = sceneParam();
-  // Seed exactly once, synchronously, before children render.
+  // Seed before first paint so the first render is correct (payload
+  // present → no /api fetch, right phase).
   useState(() => {
     if (name && name !== 'index') getScene(name)?.seed();
     return true;
   });
+  // Re-assert AFTER children mount. Room's mount hooks (orchestrator)
+  // clear skill-derived state (skillResult) in a passive useEffect on
+  // fresh mount, wiping the scene's seed. Parent passive effects run
+  // AFTER all child passive effects (bottom-up), so this is the final
+  // word — the scene fixture is the source of truth. Deterministic.
+  useEffect(() => {
+    if (name && name !== 'index') getScene(name)?.seed();
+  }, [name]);
+  // DEV diagnostic surface: lets the scene harness read the live
+  // store from Playwright (window.__sceneStore.getState()).
+  if (import.meta.env.DEV) {
+    (window as unknown as { __sceneStore?: unknown }).__sceneStore = useSessionStore;
+  }
 
   if (!name || name === 'index') {
     return (
