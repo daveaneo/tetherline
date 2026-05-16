@@ -46,9 +46,13 @@ const NARRATIVE_PHASES = new Set([
   'AREA_TRANSITION',
 ]);
 
-export function Room() {
+export function Room({ skipEntrance = false }: { skipEntrance?: boolean } = {}) {
   useSession();
-  const [showEntrance, setShowEntrance] = useState(true);
+  // The entrance cinematic is a multi-second intro that covers the
+  // room. The deterministic scene harness skips it so screenshots
+  // capture the actual skill state, not the splash. Production default
+  // is unchanged (entrance plays).
+  const [showEntrance, setShowEntrance] = useState(!skipEntrance);
   const phase = useSessionStore(s => s.state.phase);
   // Show the legacy ContentPanel ONLY for phases that need an action UI
   // (PROPOSAL choices, ANALYZING progress, ADVISORY concerns, WRAP_UP

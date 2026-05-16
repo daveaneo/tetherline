@@ -69,7 +69,7 @@ export function SceneHost() {
   return (
     <AppShell>
       <main className="flex-1 overflow-hidden">
-        <Room />
+        <Room skipEntrance />
       </main>
       <SettingsPanel />
     </AppShell>
