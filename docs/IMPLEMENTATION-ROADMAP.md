@@ -150,6 +150,31 @@ Ran the design-review agent against the live app. Outcome:
   task. The "fully polished product" goal means they must be fixed,
   but as their own effort, not by overclaiming a Phase-A pass.
 
+## B21 hardening — completion status (2026-05-15, honest)
+
+- **Pre-existing `briefing-composer` failure: FIXED** (not weakened).
+  Root cause: `buildProjectOpener` blindly kept the first 2 sentences,
+  dropping the dynamic "where the gravity is now" sentence — the
+  catch-me-up payload. Fix: keep the first 2 (architectural shape)
+  AND append a later dynamic "now" sentence if present (≤3, ~50 words
+  ≪ the 30s interrupt threshold). Whole unit suite now **339/339
+  green, 0 failures** (was 1 pre-existing red all session).
+- **Cross-cutting items — honest split:**
+  - LANDED + tested: `prefers-reduced-motion` (B2 motion + B8 grill),
+    ELK node-count size guard (B11), sequence `clampChain` hairball
+    guard (B20), the no-hallucination grounding guards (B12/B13), the
+    enforced task permission ceiling (B19).
+  - INTEGRATION-LAYER (recorded in VISUAL-COMPANION-PLAN Cross-cutting,
+    NOT claimed done): foreground-voice-priority throttle, snapshot
+    LRU eviction, off-thread shelf-write thread assertion. These need
+    the live runtime wired (the per-branch cores they govern are
+    landed + tested); they are explicitly deferred, not silently
+    skipped.
+- **Headless visual QA: still GATED** on the pre-existing
+  "COMPOSING DIAGRAM" hang (task #73) — unchanged. Per-branch
+  correctness gates (strict tests + typecheck + review) all passed;
+  the integrated visual pass remains blocked until #73 is fixed.
+
 ## Tracking
 
 Execution progress is tracked via the task list (created at kickoff).
