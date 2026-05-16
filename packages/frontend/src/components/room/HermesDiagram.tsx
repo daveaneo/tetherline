@@ -149,6 +149,13 @@ export function HermesDiagram() {
   const [payload, setPayload] = useState<DiagramPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Anti-hang (#73): the diagram must NEVER show "Composing…" forever.
+  // If no payload arrives within a grace window (e.g. the resume WS
+  // errored and activeRepoPath never populated), surface a recoverable
+  // state instead of an eternal spinner. `retryNonce` re-triggers the
+  // fetch effect.
+  const [stalled, setStalled] = useState(false);
+  const [retryNonce, setRetryNonce] = useState(0);
 
   // Annotate → Notebook (B10): an annotate result drops a row in the
   // shelf's notes section. Deduped by skillResult identity (the same
@@ -243,12 +250,24 @@ export function HermesDiagram() {
     }
   }, [skillResult, knownNodeIds]);
 
+  // Bounded wait: once a session is active, the diagram has a grace
+  // window to appear. If it doesn't (missing repoPath from a failed
+  // resume WS, or a hung fetch), flip to a recoverable "stalled"
+  // state rather than an eternal "Composing…". Cleared as soon as a
+  // payload or error lands.
+  useEffect(() => {
+    if (phase === 'IDLE' || payload || error) { setStalled(false); return; }
+    const t = setTimeout(() => setStalled(true), 12000);
+    return () => clearTimeout(t);
+  }, [phase, payload, error, repoPath, retryNonce]);
+
   // Fetch the diagram payload whenever scope/view/repoPath changes.
   useEffect(() => {
     if (!repoPath || phase === 'IDLE') return;
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setStalled(false);
     const url = `${API_PREFIX}/diagram?repoPath=${encodeURIComponent(repoPath)}&scope=${encodeURIComponent(scope)}&view=${view}`;
     fetch(url)
       .then(async r => {
@@ -269,7 +288,13 @@ export function HermesDiagram() {
         setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [repoPath, scope, view, phase]);
+  }, [repoPath, scope, view, phase, retryNonce]);
+
+  const retryDiagram = useCallback(() => {
+    setError(null);
+    setStalled(false);
+    setRetryNonce(n => n + 1);
+  }, []);
 
   // Pre-compute direct-children info for each node: an ordered list of
   // child levels (capped at PIP_MAX, sorted by weight desc) + the total
@@ -395,10 +420,26 @@ export function HermesDiagram() {
   }, [inSubScope, goBack]);
 
   if (phase === 'IDLE') return null;
-  if (error) {
+  // Recoverable failure / stall — NEVER an eternal spinner (#73).
+  if ((error || stalled) && !payload) {
     return (
-      <div className="flex items-center justify-center h-full" style={{ color: 'var(--cream-500)' }}>
-        Couldn't load diagram: {error}
+      <div className="flex flex-col items-center justify-center h-full" style={{ gap: 14, color: 'var(--cream-500)' }}>
+        <div className="font-mono" style={{ fontSize: 11, letterSpacing: '0.16em', textTransform: 'uppercase', opacity: 0.8 }}>
+          {error ? `Couldn't load the diagram: ${error}` : "Diagram didn't load — the session may not have connected."}
+        </div>
+        <button
+          type="button"
+          onClick={retryDiagram}
+          className="font-mono"
+          style={{
+            fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase',
+            padding: '7px 16px', borderRadius: 6, cursor: 'pointer',
+            background: 'oklch(0.74 0.12 65 / 0.18)', color: 'var(--amber-400, oklch(0.74 0.12 65))',
+            border: '1px solid oklch(0.74 0.12 65 / 0.4)',
+          }}
+        >
+          Retry
+        </button>
       </div>
     );
   }
