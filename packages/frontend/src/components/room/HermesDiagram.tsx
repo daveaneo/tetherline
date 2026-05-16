@@ -863,15 +863,23 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
        *  question lies. Off when the node is also active or anchor-
        *  pulsing (those signals are stronger and shouldn't fight). */}
       {!active && !anchorPulse && node.level === 'heard' && (
-        <circle
-          r={node.radius + 3}
+        // Matches the node CARD shape (rounded-rect), not a circle —
+        // a circle behind the rounded-rect read as a stray misaligned
+        // halo (design-review). Same rx as the body for a clean glow.
+        <rect
+          x={-rectWidth / 2 - 5}
+          y={-rectHeight / 2 - 5}
+          width={rectWidth + 10}
+          height={rectHeight + 10}
+          rx={16}
+          ry={16}
           fill="none"
           stroke="oklch(0.55 0.07 60)"
           strokeWidth={1}
           opacity={0.35}
         >
           <animate attributeName="opacity" values="0.15;0.45;0.15" dur="3.6s" repeatCount="indefinite" />
-        </circle>
+        </rect>
       )}
       {/* Node body — pill (rounded rect). Fill comes from the per-node
        *  battery gradient so the body itself carries the own-knowledge
