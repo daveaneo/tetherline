@@ -95,6 +95,11 @@ interface SessionStore {
    *  core and dims the not-yet-revealed nodes. NOT a skill annotation
    *  — it's its own walkthrough state. */
   pipelineReveal: { step: number } | null;
+  /** Active blast-radius query (B4). null when not asking impact.
+   *  `changedId` is the node whose ripple is shown; HermesDiagram
+   *  derives concentric hop rings via the tested blastRadiusRings
+   *  core. Its own query state — not a skill annotation. */
+  blastRadius: { changedId: string } | null;
 
   // ─── Vision mechanics ────────────────────────────────────
   currentBriefing: {
@@ -180,6 +185,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   sceneDiagramPayload: null,
   breadcrumbPocket: null,
   pipelineReveal: null,
+  blastRadius: null,
   skillClarification: null,
   visualLayer: 1 as VisualLayer,
   conceptualSteps: [],

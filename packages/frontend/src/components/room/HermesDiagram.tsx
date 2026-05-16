@@ -28,6 +28,7 @@ import { grillScreenActive } from './grill-screen.js';
 import { GrillScreen } from './GrillScreen.js';
 import { DeepDivePocket, type PocketSlide } from './DeepDivePocket.js';
 import { pipelineRevealOrder } from './pipeline-reveal.js';
+import { blastRadiusRings } from './blast-radius.js';
 import { annotationToShelfArtifact, pinnedNodeIds } from './annotate-shelf.js';
 import { issueResultToShelfArtifact } from './issue-shelf.js';
 import { useShelfStore } from '../../state/shelf-store.js';
@@ -82,6 +83,7 @@ export function HermesDiagram() {
   const skillResult = useSessionStore(s => s.skillResult);
   const breadcrumbPocket = useSessionStore(s => s.breadcrumbPocket);
   const pipelineReveal = useSessionStore(s => s.pipelineReveal);
+  const blastRadius = useSessionStore(s => s.blastRadius);
   // Karaoke-ball: when a stream chunk is playing, the backend tagged
   // it with diagram-node labels mentioned in its text. These nodes
   // glow during the chunk's audio playback so the user's eye follows
@@ -366,6 +368,20 @@ export function HermesDiagram() {
     return { step, total, revealed };
   }, [pipelineReveal, payload]);
 
+  // Blast-radius ripple (B4): BFS the import graph from the changed
+  // node via the tested blastRadiusRings core; map each node to its
+  // shortest hop distance so the renderer can fade rings outward.
+  const blast = useMemo(() => {
+    if (!blastRadius || !payload) return null;
+    const importEdges = payload.edges
+      .filter(e => e.kind === 'imports')
+      .map(e => ({ source: e.from, target: e.to }));
+    const rings = blastRadiusRings(blastRadius.changedId, importEdges);
+    const hopOf = new Map<string, number>();
+    rings.forEach((ring, hop) => ring.forEach(id => hopOf.set(id, hop)));
+    return { hopOf, rings: rings.length, changedId: blastRadius.changedId };
+  }, [blastRadius, payload]);
+
   // Tight viewBox around the actual node bounds (+ padding for halos /
   // pulse rings / arrowheads). Without this, sparse layouts (e.g. n=2
   // satellites all on a horizontal line) leave huge vertical dead space.
@@ -577,6 +593,24 @@ export function HermesDiagram() {
               <span style={{ opacity: 0.65 }}>source → transform → guard → sink</span>
             </div>
           )}
+          {blast && (
+            <div
+              className="font-mono"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 12, marginTop: 8,
+                fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase',
+                color: 'var(--cream-500)',
+              }}
+              data-testid="blast-strip"
+            >
+              <span style={{ color: 'oklch(0.72 0.16 55)' }}>Blast radius</span>
+              <span style={{ color: 'var(--cream-100)' }}>
+                {payload.nodes.find(n => n.id === blast.changedId)?.label ?? blast.changedId}
+              </span>
+              <span>{blast.rings} {blast.rings === 1 ? 'ring' : 'rings'} of impact</span>
+              <span style={{ opacity: 0.65 }}>changed → who breaks if it moves</span>
+            </div>
+          )}
           <h1
             className="font-serif"
             style={{ fontSize: 32, color: 'var(--cream-100)', letterSpacing: '-0.015em', margin: '6px 0 8px', fontWeight: 400 }}
@@ -715,6 +749,7 @@ export function HermesDiagram() {
                 concern={concernIds.has(n.id)}
                 pinned={pinnedIds.has(n.id)}
                 dimmed={pipeline ? !pipeline.revealed.has(n.id) : false}
+                blastHop={blast ? (blast.hopOf.get(n.id) ?? null) : null}
                 childrenInfo={childrenInfo.get(n.id) ?? null}
                 onClick={() => onNodeClick(n)}
               />
@@ -764,11 +799,12 @@ interface NodeViewProps {
   concern?: boolean;
   pinned?: boolean;
   dimmed?: boolean;
+  blastHop?: number | null;
   childrenInfo: ChildrenInfo | null;
   onClick: () => void;
 }
 
-function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, concern, pinned, dimmed, childrenInfo, onClick }: NodeViewProps) {
+function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, concern, pinned, dimmed, blastHop, childrenInfo, onClick }: NodeViewProps) {
   const [hover, setHover] = useState(false);
   // Own-layer comprehension drives the BATTERY FILL of the node body.
   // The whole shape changes with knowledge — `unknown` is an empty
@@ -899,6 +935,28 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
           opacity={0.7}
         >
           <animate attributeName="opacity" values="0.75;0.3;0.75" dur="1.8s" repeatCount="indefinite" />
+        </circle>
+      )}
+      {/* Blast-radius ripple (B4) — concentric impact rings keyed to
+       *  BFS hop distance from the changed node. hop 0 = the changed
+       *  node (strongest, solid warm core), hop 1+ fade outward. Pure
+       *  additive halo; null when no blast query active so the normal
+       *  render is byte-identical. */}
+      {blastHop != null && (
+        <circle
+          r={node.radius + 9 + blastHop * 3}
+          fill={blastHop === 0 ? 'oklch(0.62 0.17 45)' : 'none'}
+          fillOpacity={blastHop === 0 ? 0.18 : undefined}
+          stroke={blastHop === 0 ? 'oklch(0.72 0.16 55)' : 'oklch(0.66 0.13 50)'}
+          strokeWidth={Math.max(1, 3 - blastHop)}
+          opacity={Math.max(0.18, 0.85 - blastHop * 0.22)}
+        >
+          <animate
+            attributeName="opacity"
+            values={`${Math.max(0.2, 0.9 - blastHop * 0.22)};${Math.max(0.08, 0.35 - blastHop * 0.1)};${Math.max(0.2, 0.9 - blastHop * 0.22)}`}
+            dur={`${1.6 + blastHop * 0.4}s`}
+            repeatCount="indefinite"
+          />
         </circle>
       )}
       {/* Persistent pin (B10) — explicit, user-asserted Notebook

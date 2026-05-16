@@ -34,6 +34,7 @@ const SCENES = [
   'descend',
   'deep-dive',
   'pipeline',
+  'blast-radius',
   'breadcrumb',
 ];
 

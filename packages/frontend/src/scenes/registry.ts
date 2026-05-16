@@ -209,6 +209,35 @@ export const SCENES: Scene[] = [
     },
   },
   {
+    name: 'blast-radius',
+    description: 'Blast-radius ripple — impact rings fade outward from the changed file',
+    seed: () => {
+      seedBase({
+        scope: 'module/core', view: 'logic', title: 'Core', subtitle: 'Blast radius of analyzer.ts',
+        nodes: [
+          { id: 'module/core', label: 'Core', description: 'The module', role: 'source', weight: 1, level: 'explained' },
+          { id: 'file/core/analyzer', label: 'analyzer.ts', description: 'LLM Q&A + skills (changed)', role: 'transform', weight: 0.9, level: 'heard' },
+          { id: 'file/core/chunker', label: 'chunker.ts', description: 'Narration chunking', role: 'transform', weight: 0.7, level: 'mentioned' },
+          { id: 'file/core/diagram', label: 'diagram-extractor.ts', description: 'Conceptual pipeline', role: 'transform', weight: 0.7, level: 'mentioned' },
+          { id: 'file/core/tts', label: 'audio-server.py', description: 'Whisper + Kokoro', role: 'sink', weight: 0.6, level: 'unknown' },
+          { id: 'file/core/types', label: 'types.ts', description: 'Shared core types', role: 'guard', weight: 0.5, level: 'unknown' },
+        ],
+        edges: [
+          { from: 'module/core', to: 'file/core/analyzer', kind: 'contains' },
+          { from: 'module/core', to: 'file/core/chunker', kind: 'contains' },
+          { from: 'module/core', to: 'file/core/diagram', kind: 'contains' },
+          { from: 'module/core', to: 'file/core/tts', kind: 'contains' },
+          { from: 'module/core', to: 'file/core/types', kind: 'contains' },
+          { from: 'file/core/chunker', to: 'file/core/analyzer', kind: 'imports' },
+          { from: 'file/core/diagram', to: 'file/core/analyzer', kind: 'imports' },
+          { from: 'file/core/tts', to: 'file/core/chunker', kind: 'imports' },
+          { from: 'file/core/types', to: 'file/core/diagram', kind: 'imports' },
+        ],
+      });
+      useSessionStore.setState({ blastRadius: { changedId: 'file/core/analyzer' } });
+    },
+  },
+  {
     name: 'breadcrumb',
     description: 'You-are-here position trail inside a deep_dive pocket',
     seed: () => {
