@@ -201,6 +201,14 @@ export const SCENES: Scene[] = [
     },
   },
   {
+    name: 'pipeline',
+    description: 'Pipeline walkthrough — flow revealed source→sink, later stages dimmed',
+    seed: () => {
+      seedBase();
+      useSessionStore.setState({ pipelineReveal: { step: 3 } });
+    },
+  },
+  {
     name: 'breadcrumb',
     description: 'You-are-here position trail inside a deep_dive pocket',
     seed: () => {
