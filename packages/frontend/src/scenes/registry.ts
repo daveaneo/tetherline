@@ -40,9 +40,6 @@ function basePayload(): DiagramPayload {
 }
 
 function seedBase(payload: DiagramPayload = basePayload()) {
-  // Suppress one-time onboarding nudges so scenes capture the actual
-  // skill state, not the first-run help popover / coachmarks.
-  try { localStorage.setItem('voice_help_shown', '1'); } catch { /* ssr */ }
   useSessionStore.setState({
     state: { phase: 'OVERVIEW' },
     activeRepoPath: '/scene/tetherline',

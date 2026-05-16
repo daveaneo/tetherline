@@ -1,7 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-
-const STORAGE_KEY = 'voice_help_shown';
 
 const HELP_GROUPS = [
   { label: 'Navigation', commands: ['"next"', '"skip"', '"go back"', '"dive deeper"'] },
@@ -11,14 +9,11 @@ const HELP_GROUPS = [
 ];
 
 export function VoiceHelp() {
+  // No auto-open: the always-visible "?" button IS the discovery
+  // affordance. Auto-popping the panel over the diagram on first
+  // load was a real first-run Blocker (it obscured primary content)
+  // and made scene screenshots non-deterministic.
   const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    if (!localStorage.getItem(STORAGE_KEY)) {
-      setVisible(true);
-      localStorage.setItem(STORAGE_KEY, '1');
-    }
-  }, []);
 
   return (
     <div className="relative">
