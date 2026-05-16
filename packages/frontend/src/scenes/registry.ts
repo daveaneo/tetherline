@@ -238,6 +238,28 @@ export const SCENES: Scene[] = [
     },
   },
   {
+    name: 'guided-mode',
+    description: 'Guided-learning tour — top-down spine, covered ▸ current ▸ upcoming',
+    seed: () => {
+      seedBase();
+      // Shape mirrors TourPlan.fromArchitecture(Tetherline) output:
+      // project root → one architecture step per module. Two steps
+      // covered, walking the third.
+      useSessionStore.setState({
+        guidedTour: {
+          currentIndex: 2,
+          items: [
+            { name: 'Tetherline', type: 'project', covered: true },
+            { name: 'Core', type: 'architecture', covered: true },
+            { name: 'Frontend', type: 'architecture', covered: false },
+            { name: 'Shared', type: 'architecture', covered: false },
+            { name: 'Voice', type: 'architecture', covered: false },
+          ],
+        },
+      });
+    },
+  },
+  {
     name: 'breadcrumb',
     description: 'You-are-here position trail inside a deep_dive pocket',
     seed: () => {

@@ -100,6 +100,14 @@ interface SessionStore {
    *  derives concentric hop rings via the tested blastRadiusRings
    *  core. Its own query state — not a skill annotation. */
   blastRadius: { changedId: string } | null;
+  /** Active guided-learning tour (B15). null when not in guided mode.
+   *  Mirrors the tested TourPlan shape (items + currentIndex) — the
+   *  spine is computed by TourPlan.fromArchitecture on the backend and
+   *  the already-ordered steps are surfaced here; HermesDiagram only
+   *  renders the position. Its own mode state, not a skill annotation. */
+  guidedTour:
+    | { items: { name: string; type: string; covered: boolean }[]; currentIndex: number }
+    | null;
 
   // ─── Vision mechanics ────────────────────────────────────
   currentBriefing: {
@@ -186,6 +194,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   breadcrumbPocket: null,
   pipelineReveal: null,
   blastRadius: null,
+  guidedTour: null,
   skillClarification: null,
   visualLayer: 1 as VisualLayer,
   conceptualSteps: [],
