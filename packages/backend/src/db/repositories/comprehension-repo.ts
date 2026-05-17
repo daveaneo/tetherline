@@ -17,6 +17,7 @@ interface Row {
   narration_seconds_heard: number;
   questions_asked: number;
   grilled: number;
+  seen: number;
   quiz_correct: number;
   quiz_total: number;
   grill_strong: number;
@@ -44,6 +45,7 @@ function rowToItem(r: Row): ComprehensionItem {
     narrationSecondsHeard: r.narration_seconds_heard,
     questionsAsked: r.questions_asked,
     grilled: r.grilled === 1,
+    seen: r.seen === 1,
     quizCorrect: r.quiz_correct,
     quizTotal: r.quiz_total,
     grillStrong: r.grill_strong,
@@ -85,8 +87,8 @@ export class ComprehensionRepository {
     this.db
       .prepare(
         `INSERT INTO comprehension
-          (repo_path, item_id, layer, label, level, narration_seconds_heard, questions_asked, grilled, quiz_correct, quiz_total, grill_strong, grill_asked, last_touched_at, last_session_id)
-         VALUES (@repo_path, @item_id, @layer, @label, @level, @narration_seconds_heard, @questions_asked, @grilled, @quiz_correct, @quiz_total, @grill_strong, @grill_asked, @last_touched_at, @last_session_id)
+          (repo_path, item_id, layer, label, level, narration_seconds_heard, questions_asked, grilled, seen, quiz_correct, quiz_total, grill_strong, grill_asked, last_touched_at, last_session_id)
+         VALUES (@repo_path, @item_id, @layer, @label, @level, @narration_seconds_heard, @questions_asked, @grilled, @seen, @quiz_correct, @quiz_total, @grill_strong, @grill_asked, @last_touched_at, @last_session_id)
          ON CONFLICT(repo_path, item_id) DO UPDATE SET
            layer = excluded.layer,
            label = excluded.label,
@@ -94,6 +96,7 @@ export class ComprehensionRepository {
            narration_seconds_heard = excluded.narration_seconds_heard,
            questions_asked = excluded.questions_asked,
            grilled = excluded.grilled,
+           seen = excluded.seen,
            quiz_correct = excluded.quiz_correct,
            quiz_total = excluded.quiz_total,
            grill_strong = excluded.grill_strong,
@@ -110,6 +113,7 @@ export class ComprehensionRepository {
         narration_seconds_heard: item.narrationSecondsHeard,
         questions_asked: item.questionsAsked,
         grilled: item.grilled ? 1 : 0,
+        seen: item.seen ? 1 : 0,
         quiz_correct: item.quizCorrect ?? 0,
         quiz_total: item.quizTotal ?? 0,
         grill_strong: item.grillStrong ?? 0,
@@ -152,6 +156,7 @@ export class ComprehensionRepository {
       // set/cleared by passive observation; recordQuiz/recordGrill/
       // markGrilled own them. Preserve, don't wipe.
       grilled: existing?.grilled ?? false,
+      seen: existing?.seen ?? false,
       quizCorrect: existing?.quizCorrect ?? 0,
       quizTotal: existing?.quizTotal ?? 0,
       grillStrong: existing?.grillStrong ?? 0,
@@ -170,6 +175,16 @@ export class ComprehensionRepository {
     const existing = this.get(repoPath, itemId);
     if (!existing || existing.grilled === true) return;
     this.upsert({ ...existing, grilled: true, lastTouchedAt: new Date().toISOString() });
+  }
+
+  /** v3: the briefing's narration ACTUALLY finished playing — the real
+   *  dwell signal for Seen-coverage (shown-and-played, not emitted).
+   *  Monotonic. Requires the row (the briefing-delivered observe made
+   *  it just before playback). */
+  markSeen(repoPath: string, itemId: string): void {
+    const existing = this.get(repoPath, itemId);
+    if (!existing || existing.seen === true) return;
+    this.upsert({ ...existing, seen: true, lastTouchedAt: new Date().toISOString() });
   }
 
   /** Persist the last regular-quiz result (monotonic — only keeps the

@@ -31,10 +31,9 @@ import { pipelineRevealOrder } from './pipeline-reveal.js';
 import { blastRadiusRings } from './blast-radius.js';
 import {
   levelOrdinal,
-  rollUp,
+  knowledgeRollUp,
   containsAdjacency,
-  testedTier,
-  type RolledScore,
+  type KnowledgeRoll,
 } from '@tetherline/shared';
 import { levelColor } from './level-color.js';
 import { annotationToShelfArtifact, pinnedNodeIds } from './annotate-shelf.js';
@@ -391,19 +390,20 @@ export function HermesDiagram() {
     return { hopOf, rings: rings.length, changedId: blastRadius.changedId };
   }, [blastRadius, payload]);
 
-  // v2 knowledge roll-up: per-node {layer, deep, combined} from the
-  // contains-hierarchy. Component fill = `combined`; the current layer's
-  // numbers come from scores.get(scope). Single shared scoring core.
+  // v3 knowledge roll-up over the contains-hierarchy: per node
+  // {seenPct, testedSummary, ownBest, …}. Components show subtree
+  // SUMMARIES; the title (scope node) shows deep Seen + its OWN best
+  // test. Single shared scoring core.
   const scores = useMemo(() => {
     if (!payload) return null;
     const byId = new Map(
       payload.nodes.map(n => [n.id, {
-        level: n.level, grilled: n.grilled,
+        level: n.level, grilled: n.grilled, seen: n.seen,
         quizCorrect: n.quizCorrect, quizTotal: n.quizTotal,
         grillStrong: n.grillStrong, grillAsked: n.grillAsked,
       }]),
     );
-    return rollUp(byId, containsAdjacency(payload.edges));
+    return knowledgeRollUp(byId, containsAdjacency(payload.edges));
   }, [payload]);
 
   // Tight viewBox around the actual node bounds (+ padding for halos /
@@ -815,7 +815,7 @@ export function HermesDiagram() {
                 pinned={pinnedIds.has(n.id)}
                 dimmed={pipeline ? !pipeline.revealed.has(n.id) : false}
                 blastHop={blast ? (blast.hopOf.get(n.id) ?? null) : null}
-                rolled={scores?.get(n.id) ?? null}
+                roll={scores?.get(n.id) ?? null}
                 childrenInfo={childrenInfo.get(n.id) ?? null}
                 onClick={() => onNodeClick(n)}
               />
@@ -866,14 +866,14 @@ interface NodeViewProps {
   pinned?: boolean;
   dimmed?: boolean;
   blastHop?: number | null;
-  /** v2 rolled knowledge for this node: combined drives the gradient
-   *  fill; layer/deep feed the title block (only used for the center). */
-  rolled?: RolledScore | null;
+  /** v3 subtree roll-up: components show seenPct + testedSummary
+   *  (always summaries); state colour buckets the node. */
+  roll?: KnowledgeRoll | null;
   childrenInfo: ChildrenInfo | null;
   onClick: () => void;
 }
 
-function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, concern, pinned, dimmed, blastHop, rolled, childrenInfo, onClick }: NodeViewProps) {
+function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, concern, pinned, dimmed, blastHop, roll, childrenInfo, onClick }: NodeViewProps) {
   const [hover, setHover] = useState(false);
   // Own-layer comprehension drives the BATTERY FILL of the node body.
   // The whole shape changes with knowledge — `unknown` is an empty
@@ -883,16 +883,15 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
   const ownLevel = node.level;
   const ownOrdinal = levelOrdinal(ownLevel);  // 0..5 (crown logic only)
   const ownColor = levelColor(ownLevel);
-  const combined = rolled?.combined ?? 0;
-  // v2.1: a continuous colour ramp is unreadable at node size on a
-  // dark canvas (recurring complaint). Colour now encodes only the
-  // 4-state CATEGORY (perceptually distinct, not a ramp); the precise
-  // value lives in the chip below as a number + bar. State: mastered
-  // (grilled) → tested → shown (taught, untested) → not-shown.
+  // v3: two summary axes (subtree roll-up). Colour encodes only the
+  // 4-state category; the precise numbers are the two bars below.
+  const seenPct = roll?.seenPct ?? 0;
+  const testedPct = roll?.testedSummary ?? 0;
+  const hasAnyTest = (roll?.testedSummary ?? 0) > 0 || roll?.ownBest != null;
   const kState: 'mastered' | 'tested' | 'shown' | 'none' =
-    node.grilled === true ? 'mastered'
-      : testedTier(node) !== 'none' ? 'tested'
-        : ownOrdinal >= 2 ? 'shown'
+    roll?.grilled === true ? 'mastered'
+      : hasAnyTest ? 'tested'
+        : seenPct > 0 ? 'shown'
           : 'none';
   const stateColor =
     kState === 'mastered' ? 'var(--sig-okay)'
@@ -1150,58 +1149,44 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
           ))}
         </text>
       )}
-      {/* v2 component glance: one "tested" line. The body GRADIENT
-       *  already conveys combined depth; this is the precise active-
-       *  recall readout + tier glyph (ⓖ grill-passed · ⓠ regular ·
-       *  none = untested). Full controls appear when this node is
-       *  focused (becomes the title — see KnowledgeStrip). */}
+      {/* v3 component glance: TWO summary bars side by side —
+       *  S(een) = subtree briefing-coverage % · Q(uiz/Grill) = subtree
+       *  avg-of-best %. Both are length-encoded with an explicit
+       *  number; "—" = no data. Components ALWAYS show summaries; the
+       *  focused node's per-view detail is in the title block. */}
       {(() => {
-        // Status chip: state DOT (categorical colour) + value BAR
-        // (length, not colour-darkness) + explicit NUMBER. Legible at
-        // any size; the 4 states are perceptually distinct so shown
-        // (untested) and never-shown no longer collapse together.
         const y = rectHeight / 2 + 16;
-        const dotR = 3.5;
-        const barW = 52;
-        const barH = 5;
-        const gap = 6;
-        const showBar = kState === 'tested' || kState === 'mastered';
-        const frac = Math.max(0, Math.min(1, combined / 100));
-        const valTxt = kState === 'none' ? '—' : kState === 'shown' ? 'shown' : `${combined}%`;
-        const valW = valTxt.length * 6.2 + (kState === 'mastered' ? 11 : 0);
-        const totalW = dotR * 2 + gap + barW + gap + valW;
+        const barW = 38, barH = 5, lblGap = 5, numGap = 5, pairGap = 16;
+        const seenTxt = `${seenPct}`;
+        const qHasData = testedPct > 0 || roll?.grilled === true;
+        const qTxt = qHasData ? `${testedPct}` : '—';
+        const numW = 22;
+        const grp = 8 + lblGap + barW + numGap + numW; // label+bar+num
+        const totalW = grp * 2 + pairGap;
         const x0 = -totalW / 2;
-        const barX = x0 + dotR * 2 + gap;
-        return (
-          <g data-testid={`hd-status-${node.id}`} aria-label={`knowledge: ${kState} ${valTxt}`}>
-            {/* state dot — filled (tested/mastered) · hollow (shown) ·
-             *  faint (never shown) */}
-            <circle
-              cx={x0 + dotR} cy={y} r={kState === 'none' ? 2 : dotR}
-              fill={kState === 'shown' || kState === 'none' ? 'none' : stateColor}
-              stroke={stateColor}
-              strokeWidth={kState === 'shown' ? 1.25 : kState === 'none' ? 1 : 0}
-              opacity={kState === 'none' ? 0.5 : 1}
-            />
-            {/* value track + fill (length encodes the number) */}
-            <rect x={barX} y={y - barH / 2} width={barW} height={barH} rx={2} fill="var(--ink-100)" />
-            {showBar && (
-              <rect x={barX} y={y - barH / 2} width={barW * frac} height={barH} rx={2} fill={stateColor} />
-            )}
-            {/* explicit number / label */}
-            <text
-              x={barX + barW + gap} y={y}
-              dominantBaseline="central"
-              style={{
-                fontFamily: 'var(--mono, "Geist Mono", ui-monospace, monospace)',
-                fontSize: 10,
-                letterSpacing: '0.04em',
-                fill: showBar ? stateColor : 'var(--cream-500, #b8a99a)',
-                opacity: kState === 'none' ? 0.6 : 1,
-              }}
-            >
-              {valTxt}{kState === 'mastered' ? ' ✓' : ''}
+        const Bar = (gx: number, letter: string, frac: number, fill: string, num: string, dim: boolean) => (
+          <g>
+            <text x={gx} y={y} dominantBaseline="central"
+              style={{ fontFamily: 'var(--mono, "Geist Mono", ui-monospace, monospace)', fontSize: 9, fill: 'var(--cream-500, #b8a99a)' }}>
+              {letter}
             </text>
+            <rect x={gx + 8 + lblGap} y={y - barH / 2} width={barW} height={barH} rx={2} fill="var(--ink-100)" />
+            <rect x={gx + 8 + lblGap} y={y - barH / 2} width={barW * Math.max(0, Math.min(1, frac))} height={barH} rx={2} fill={fill} opacity={dim ? 0.4 : 1} />
+            <text x={gx + 8 + lblGap + barW + numGap} y={y} dominantBaseline="central"
+              style={{ fontFamily: 'var(--mono, "Geist Mono", ui-monospace, monospace)', fontSize: 10, fill: dim ? 'var(--cream-500, #b8a99a)' : fill, opacity: dim ? 0.6 : 1 }}>
+              {num}
+            </text>
+          </g>
+        );
+        return (
+          <g data-testid={`hd-knowledge-${node.id}`} aria-label={`seen ${seenTxt} · quiz/grill ${qTxt}`}>
+            {Bar(x0, 'S', seenPct / 100, 'var(--cream-400, var(--cream-500))', seenTxt, seenPct === 0)}
+            {Bar(
+              x0 + grp + pairGap, 'Q', testedPct / 100,
+              roll?.grilled === true ? 'var(--sig-okay)' : 'var(--amber-400)',
+              qHasData ? `${qTxt}${roll?.grilled === true ? ' ✓' : ''}` : '—',
+              !qHasData,
+            )}
           </g>
         );
       })()}
@@ -1509,39 +1494,33 @@ function CrumbSeparator({ dot }: { dot?: boolean }) {
 // Knowledge stats strip
 // ─────────────────────────────────────────────────────────────────────
 
-/** Compact knowledge summary that lives on the right side of the
- *  breadcrumb row. Counts nodes by comprehension level so the user gets
- *  an at-a-glance answer to "how much of this view do I actually know?"
- *  Pairs with the per-node progress bar (own knowledge) and the halo
- *  (children rollup) to form the knowledge-map signal stack. */
-function grillVerdict(strong?: number, asked?: number): string | null {
-  if (!asked || asked <= 0) return null;
-  const r = (strong ?? 0) / asked;
-  return r >= 0.75 ? 'solid' : r >= 0.4 ? 'shaky' : 'weak';
-}
 
-function StatBar({ label, pct }: { label: string; pct: number }) {
+function StatBar({ label, pct, fill }: { label: string; pct: number | null; fill: string }) {
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} title={label}>
       <span style={{ opacity: 0.8 }}>{label}</span>
       <span style={{ width: 70, height: 6, borderRadius: 3, background: 'var(--ink-100)', position: 'relative', overflow: 'hidden' }}>
-        <span style={{ position: 'absolute', inset: 0, width: `${pct}%`, background: `color-mix(in oklch, var(--heat-5) ${Math.round(20 + pct * 0.6)}%, var(--ink-100))` }} />
+        {pct !== null && (
+          <span style={{ position: 'absolute', inset: 0, width: `${pct}%`, background: fill }} />
+        )}
       </span>
-      <span style={{ color: 'var(--cream-100)' }}>{pct}%</span>
+      <span style={{ color: pct === null ? 'var(--cream-500)' : 'var(--cream-100)' }}>
+        {pct === null ? '—' : `${pct}%`}
+      </span>
     </span>
   );
 }
 
-/** v2 current-layer title block: ▶ replay · Quiz score+retake · Grill
- *  verdict · layer + deep bars · weak-spots review. Scoped to the
- *  focused node (`scope`); components carry the simplified glance.
+/** v3 current-layer title block: ▶ replay · ↻ quiz · ⚑ grill · Seen
+ *  (deep coverage incl. this node) · Quiz/Grill (BEST for THIS view,
+ *  not the components' summary) · weak-spots review.
  *  docs/KNOWLEDGE-MODEL-SPEC.md §4a/§4d. */
 function KnowledgeStrip({
   payload, scope, scores,
 }: {
   payload: DiagramPayload;
   scope: string;
-  scores: Map<string, RolledScore> | null;
+  scores: Map<string, KnowledgeRoll> | null;
 }) {
   const weakSpots = useSessionStore(s => s.weakSpots);
   const forceOpen = useSessionStore(s => s.sceneForceWeakSpotsOpen);
@@ -1551,12 +1530,9 @@ function KnowledgeStrip({
   const cur = payload.nodes.find(n => n.id === scope) ?? payload.nodes[0];
   if (!cur) return null;
   const r = scores?.get(cur.id);
-  const layer = r?.layer ?? 0;
-  const deep = r?.deep ?? null;
-  const quizPct = cur.quizTotal && cur.quizTotal > 0
-    ? Math.round(((cur.quizCorrect ?? 0) / cur.quizTotal) * 100)
-    : null;
-  const verdict = grillVerdict(cur.grillStrong, cur.grillAsked);
+  const seen = r?.seenPct ?? 0;            // deep coverage (incl. own briefing)
+  const ownBest = r?.ownBest ?? null;       // best for THIS view, not summary
+  const grilled = r?.grilled === true;
   const mine = weakSpots.filter(w => w.itemId === cur.id);
 
   const ask = (text: string) => {
@@ -1573,21 +1549,15 @@ function KnowledgeStrip({
           className="font-mono" style={{ cursor: 'pointer', background: 'transparent', border: 'none', color: 'var(--amber-400)', padding: 0, font: 'inherit', letterSpacing: 'inherit', textTransform: 'inherit' }}>
           ▶ replay
         </button>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          Quiz <span style={{ color: 'var(--cream-100)' }}>{quizPct === null ? '—' : `${quizPct}%`}</span>
-          <button type="button" onClick={() => ask(`quiz me on ${cur.label}`)} data-testid="ks-quiz"
-            className="font-mono" title="Retake quiz" style={{ cursor: 'pointer', background: 'transparent', border: '1px solid var(--ink-200)', color: 'var(--cream-500)', borderRadius: 4, padding: '0 5px', font: 'inherit' }}>↻</button>
+        <button type="button" onClick={() => ask(`quiz me on ${cur.label}`)} data-testid="ks-quiz"
+          className="font-mono" title="Take/retake this view's quiz" style={{ cursor: 'pointer', background: 'transparent', border: '1px solid var(--ink-200)', color: 'var(--cream-500)', borderRadius: 4, padding: '0 6px', font: 'inherit', letterSpacing: 'inherit' }}>↻ quiz</button>
+        <button type="button" onClick={() => ask(`grill me on ${cur.label}`)} data-testid="ks-grill"
+          className="font-mono" title="Grill this view" style={{ cursor: 'pointer', background: 'transparent', border: '1px solid var(--ink-200)', color: 'var(--cream-500)', borderRadius: 4, padding: '0 6px', font: 'inherit', letterSpacing: 'inherit' }}>⚑ grill</button>
+        <StatBar label="Seen" pct={seen} fill="var(--cream-400, var(--cream-500))" />
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <StatBar label="Quiz/Grill" pct={ownBest} fill={grilled ? 'var(--sig-okay)' : 'var(--amber-400)'} />
+          {grilled && <span style={{ color: 'var(--sig-okay)' }} title="Passed (QA proof)">✓</span>}
         </span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          Grill <span style={{ color: verdict ? 'var(--cream-100)' : 'var(--cream-500)' }}>
-            {verdict ? `${verdict} ${cur.grillStrong ?? 0}/${cur.grillAsked ?? 0}` : '—'}
-          </span>
-          {cur.grilled && <span style={{ color: 'var(--sig-okay)' }} title="Passed (QA proof)">✓</span>}
-          <button type="button" onClick={() => ask(`grill me on ${cur.label}`)} data-testid="ks-grill"
-            className="font-mono" title="Grill" style={{ cursor: 'pointer', background: 'transparent', border: '1px solid var(--ink-200)', color: 'var(--cream-500)', borderRadius: 4, padding: '0 5px', font: 'inherit' }}>⚑</button>
-        </span>
-        <StatBar label="layer" pct={layer} />
-        {deep !== null && <StatBar label="deep" pct={deep} />}
         {mine.length > 0 && (
           <button type="button" onClick={() => setOpen(o => !o)} data-testid="ks-weakspots-toggle"
             className="font-mono" style={{ cursor: 'pointer', background: 'transparent', border: 'none', color: 'var(--sig-concern, var(--amber-400))', padding: 0, font: 'inherit', letterSpacing: 'inherit', textTransform: 'inherit' }}>

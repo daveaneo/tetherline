@@ -1,6 +1,53 @@
-# Knowledge Model v2 — Two-Component Scoring, Layer vs Deep, Weak-Spot Review
+# Knowledge Model — Spec of Record
 
-Status: spec for implementation. Supersedes the v1 single-linear-ladder
+> **v3 is current (shipped).** v2 below is kept for history; v3 changes:
+> "layer" is removed; **Knowledge → Seen-coverage**; the dwell gate is
+> real.
+
+## v3 — Seen-coverage + Quiz/Grill (CURRENT)
+
+Two axes per node, both rolled up over **node ∪ descendants** via the
+`contains` hierarchy (count-based ⇒ inherently slide-weighted; a parent
+is the same formula one level up; a node counts ITS OWN briefing so a
+watched overview is never 0):
+
+- **Seen** = `briefings whose narration actually finished playing /
+  total briefings, ×100`. The dwell signal is real — credited in
+  `manager.handleSegmentFinished` (shown-and-played), **not** on mere
+  emit; no ack button. "layer" is gone (visiting a level is just one
+  more seen unit).
+- **Quiz/Grill** = best of regular-quiz (`correct/asked`) and grill
+  (`strong/asked`). **Component** shows the subtree *average of best*
+  scores (always a summary). **Title** shows the **best for THIS view
+  only** (`ownBest`), `—` when never taken — *not* the components'
+  average.
+- **No-data → `—`, never `0%`.**
+
+**Honest grounding:** the codebase has no fine-grained "slide" unit —
+the real explanation unit is the per-node *briefing* (1 unit; `detail`
+is a future 2nd). So leaf nodes read coarse (seen / not); resolution
+comes from the recursive subtree (e.g. a module = 3 of 8 below = 37%).
+This is the faithful realisation, not a fake fine-grained slide model.
+
+UI: title block = ▶ replay · ↻ quiz · ⚑ grill · **Seen** bar (deep,
+incl. own) · **Quiz/Grill** bar (best for this view; `✓` if grilled) ·
+weak-spots review. Components = two side-by-side **S** / **Q** bars
+with explicit numbers (length-encoded, colour = category only — the
+recurring "unreadable on dark" lesson). Implemented across
+comprehension-model.ts (`knowledgeRollUp`), the `seen` column +
+`markSeen`, HermesDiagram, scenes `knowledge-layer` /
+`knowledge-components` / `weak-spots-review`.
+
+Decisions (all the user's, locked): dwell = narration-finished;
+title-average is count/slide-weighted; the K bar is named **Seen**
+(exposure ≠ proof); no-data shows `—`; the title counts its own
+overview briefing.
+
+---
+
+# (history) Knowledge Model v2 — Two-Component Scoring, Layer vs Deep
+
+Status: superseded by v3 above. Supersedes the v1 single-linear-ladder
 scoring shipped in `cc08758` (it stays as the event substrate; the
 *displayed* numbers are re-derived per this doc).
 

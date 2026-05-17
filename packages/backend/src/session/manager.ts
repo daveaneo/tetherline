@@ -1952,6 +1952,14 @@ export class SessionManager {
   }
 
   private handleSegmentFinished(segmentId: string) {
+    // v3 Seen-coverage: a briefing's narration ACTUALLY finished
+    // playing (real dwell — not "we emitted it"). The most-recently
+    // delivered briefing is what just played to completion; credit it
+    // as seen. This is the sole input to the Seen metric.
+    const repoPath = this.activeRepoPath;
+    if (repoPath && this.lastBriefingId) {
+      this.db.getComprehensionRepo().markSeen(repoPath, this.lastBriefingId);
+    }
     // Auto-advance to next segment when narration finishes
     if ((this.state.phase === 'AREA_WALKTHROUGH' || this.state.phase === 'COMPONENT_TOUR') && !this.state.paused) {
       this.navigateNext();
