@@ -25,6 +25,11 @@ export interface DiagramNode {
   /** Passed a grill / perfect quiz — a separate active-recall QA proof,
    *  independent of `level`. Overlaid live at read time (not cached). */
   grilled?: boolean;
+  /** v2 active-recall ratios, overlaid live (not cached). */
+  quizCorrect?: number;
+  quizTotal?: number;
+  grillStrong?: number;
+  grillAsked?: number;
   /** 0..1 visual size hint. Drives node-radius rendering. */
   weight?: number;
   /** Briefing id this node maps to, if any — clicking sends

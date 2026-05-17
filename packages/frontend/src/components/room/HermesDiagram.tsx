@@ -31,12 +31,11 @@ import { pipelineRevealOrder } from './pipeline-reveal.js';
 import { blastRadiusRings } from './blast-radius.js';
 import {
   levelOrdinal,
-  levelHeatStep,
-  nextLevelTrigger,
-  projectKnowledgeScore,
-  LEVEL_LABEL,
-  LEVEL_REACHED_BY,
-  COMPREHENSION_ORDER,
+  rollUp,
+  containsAdjacency,
+  tested as testedRatio,
+  testedTier,
+  type RolledScore,
 } from '@tetherline/shared';
 import { levelColor } from './level-color.js';
 import { annotationToShelfArtifact, pinnedNodeIds } from './annotate-shelf.js';
@@ -393,6 +392,21 @@ export function HermesDiagram() {
     return { hopOf, rings: rings.length, changedId: blastRadius.changedId };
   }, [blastRadius, payload]);
 
+  // v2 knowledge roll-up: per-node {layer, deep, combined} from the
+  // contains-hierarchy. Component fill = `combined`; the current layer's
+  // numbers come from scores.get(scope). Single shared scoring core.
+  const scores = useMemo(() => {
+    if (!payload) return null;
+    const byId = new Map(
+      payload.nodes.map(n => [n.id, {
+        level: n.level, grilled: n.grilled,
+        quizCorrect: n.quizCorrect, quizTotal: n.quizTotal,
+        grillStrong: n.grillStrong, grillAsked: n.grillAsked,
+      }]),
+    );
+    return rollUp(byId, containsAdjacency(payload.edges));
+  }, [payload]);
+
   // Tight viewBox around the actual node bounds (+ padding for halos /
   // pulse rings / arrowheads). Without this, sparse layouts (e.g. n=2
   // satellites all on a horizontal line) leave huge vertical dead space.
@@ -662,7 +676,7 @@ export function HermesDiagram() {
               </span>
             </div>
           )}
-          <KnowledgeStrip nodes={payload.nodes} />
+          <KnowledgeStrip payload={payload} scope={scope} scores={scores} />
           <h1
             className="font-serif"
             style={{ fontSize: 32, color: 'var(--cream-100)', letterSpacing: '-0.015em', margin: '6px 0 8px', fontWeight: 400 }}
@@ -802,6 +816,7 @@ export function HermesDiagram() {
                 pinned={pinnedIds.has(n.id)}
                 dimmed={pipeline ? !pipeline.revealed.has(n.id) : false}
                 blastHop={blast ? (blast.hopOf.get(n.id) ?? null) : null}
+                rolled={scores?.get(n.id) ?? null}
                 childrenInfo={childrenInfo.get(n.id) ?? null}
                 onClick={() => onNodeClick(n)}
               />
@@ -852,11 +867,14 @@ interface NodeViewProps {
   pinned?: boolean;
   dimmed?: boolean;
   blastHop?: number | null;
+  /** v2 rolled knowledge for this node: combined drives the gradient
+   *  fill; layer/deep feed the title block (only used for the center). */
+  rolled?: RolledScore | null;
   childrenInfo: ChildrenInfo | null;
   onClick: () => void;
 }
 
-function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, concern, pinned, dimmed, blastHop, childrenInfo, onClick }: NodeViewProps) {
+function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, concern, pinned, dimmed, blastHop, rolled, childrenInfo, onClick }: NodeViewProps) {
   const [hover, setHover] = useState(false);
   // Own-layer comprehension drives the BATTERY FILL of the node body.
   // The whole shape changes with knowledge — `unknown` is an empty
@@ -864,16 +882,19 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
   // halo treatment never read intuitively; the body fill makes the
   // signal impossible to miss.
   const ownLevel = node.level;
-  const ownOrdinal = levelOrdinal(ownLevel);  // 0..5
+  const ownOrdinal = levelOrdinal(ownLevel);  // 0..5 (crown logic only)
   const ownColor = levelColor(ownLevel);
-  // Body is a FLAT low-alpha heat tint (coarse "warmth") — the precise
-  // rung is the discrete ladder below. A flat block per level (no
-  // internal fill-line) is what kills the old adjacent-level muddiness.
-  // It stays dark at every level (22% heat mixed into dark ink), so
-  // cream text is always the legible choice.
-  const bodyFill = ownOrdinal === 0
-    ? 'var(--ink-050)'
-    : `color-mix(in oklch, var(--heat-${levelHeatStep(ownLevel)}) 22%, var(--ink-050))`;
+  // v2: the body is a CONTINUOUS gradient of `combined` knowledge
+  // (this node's own layer for a leaf, else blended with its deep
+  // roll-up) — "fill each component with a gradient that shows the
+  // deep-knowledge level". 0 → dark ink; 100 → full warm heat. One
+  // clear axis (no level conflation), so no muddiness; cream text
+  // stays legible because the mix tops out at 36% heat into ink.
+  const combined = rolled?.combined ?? 0;
+  const bodyFill =
+    combined <= 0
+      ? 'var(--ink-050)'
+      : `color-mix(in oklch, var(--heat-5) ${Math.round(8 + combined * 0.28)}%, var(--ink-050))`;
   const titleFill = 'var(--cream-100, #f4ebe1)';
   const subFill = 'var(--cream-500, #b8a99a)';
   // Title size tracks node size — center has the biggest type. The
@@ -1121,74 +1142,35 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
           ))}
         </text>
       )}
-      {/* Comprehension ladder — 5 discrete rungs (mentioned → confirmed)
-       *  filled CUMULATIVELY: count the lit segments = the level. The
-       *  current rung glows; rungs beneath are lit dimmer; locked rungs
-       *  recede. Count conveys level even in monochrome (color-blind
-       *  safe). This replaces the old ambiguous battery-fill height. */}
+      {/* v2 component glance: one "tested" line. The body GRADIENT
+       *  already conveys combined depth; this is the precise active-
+       *  recall readout + tier glyph (ⓖ grill-passed · ⓠ regular ·
+       *  none = untested). Full controls appear when this node is
+       *  focused (becomes the title — see KnowledgeStrip). */}
       {(() => {
-        const RUNGS = 5; // mentioned(1) .. confirmed(5); unknown(0) = none lit
-        const ladderW = Math.min(rectWidth - 2 * innerPadX, node.isCenter ? 132 : 96);
-        const segGap = 3;
-        const segW = (ladderW - (RUNGS - 1) * segGap) / RUNGS;
-        const segH = node.isCenter ? 7 : 6;
-        const ladderY = rectHeight / 2 + 12;
-        const startX = -ladderW / 2;
+        const t = testedRatio(node);
+        const tier = testedTier(node);
+        const y = rectHeight / 2 + 14;
+        const txt =
+          tier === 'none'
+            ? 'untested'
+            : `tested ${Math.round(t * 100)}% ${tier === 'grill' ? 'ⓖ' : 'ⓠ'}`;
         return (
-          <g data-testid={`hd-ladder-${node.id}`} aria-label={`Comprehension ${ownOrdinal} of ${RUNGS}`}>
-            {Array.from({ length: RUNGS }).map((_, i) => {
-              const rung = i + 1; // ordinal this segment represents
-              const x = startX + i * (segW + segGap);
-              if (rung === ownOrdinal) {
-                return (
-                  <rect
-                    key={i}
-                    x={x} y={ladderY} width={segW} height={segH} rx={1.5}
-                    style={{
-                      fill: `var(--heat-${rung})`,
-                      stroke: `var(--heat-${Math.min(rung + 1, 5)})`,
-                      strokeWidth: 1,
-                      filter: `drop-shadow(0 0 4px var(--heat-${rung}))`,
-                    }}
-                  />
-                );
-              }
-              const beneath = rung < ownOrdinal;
-              return (
-                <rect
-                  key={i}
-                  x={x} y={ladderY} width={segW} height={segH} rx={1.5}
-                  style={{
-                    fill: beneath ? `var(--heat-${rung})` : 'var(--ink-100)',
-                    opacity: beneath ? 0.5 : 0.45,
-                    stroke: beneath ? 'none' : 'var(--ink-200)',
-                    strokeWidth: beneath ? 0 : 0.75,
-                  }}
-                />
-              );
-            })}
-            {/* Pathway: how to climb to the NEXT rung. Hover-only so the
-             *  canvas stays calm at many nodes; the legend explains all
-             *  rungs always. */}
-            {hover && (() => {
-              const trig = nextLevelTrigger(ownLevel);
-              return (
-                <text
-                  textAnchor="middle"
-                  x={0}
-                  y={ladderY + segH + 12}
-                  style={{
-                    fontFamily: 'var(--mono, "Geist Mono", ui-monospace, monospace)',
-                    fontSize: 10,
-                    letterSpacing: '0.04em',
-                    fill: trig ? 'var(--cream-500, #b8a99a)' : 'var(--sig-okay)',
-                  }}
-                >
-                  {trig ? `▸ ${trig}` : '✓ fully confirmed'}
-                </text>
-              );
-            })()}
-          </g>
+          <text
+            data-testid={`hd-tested-${node.id}`}
+            textAnchor="middle"
+            x={0}
+            y={y}
+            style={{
+              fontFamily: 'var(--mono, "Geist Mono", ui-monospace, monospace)',
+              fontSize: 10,
+              letterSpacing: '0.06em',
+              fill: tier === 'none' ? 'var(--cream-500, #b8a99a)' : 'var(--cream-300, var(--cream-400))',
+              opacity: tier === 'none' ? 0.6 : 0.95,
+            }}
+          >
+            {txt}
+          </text>
         );
       })()}
       {/* Pip row — one dot per direct child, capped at PIP_MAX, colored
@@ -1521,105 +1503,100 @@ function CrumbSeparator({ dot }: { dot?: boolean }) {
  *  an at-a-glance answer to "how much of this view do I actually know?"
  *  Pairs with the per-node progress bar (own knowledge) and the halo
  *  (children rollup) to form the knowledge-map signal stack. */
-/** Header knowledge strip: weighted project score + grill coverage +
- *  an always-discoverable `?` legend mapping each rung's colour → label
- *  → how-you-reach-it (the explanation + the learning pathway). One
- *  glanceable supervisor/QA readout; mirrors the pipeline/guided strip
- *  styling. Score = "% of everything" (untouched drags it down). */
-function KnowledgeStrip({ nodes }: { nodes: DiagramNode[] }) {
+function grillVerdict(strong?: number, asked?: number): string | null {
+  if (!asked || asked <= 0) return null;
+  const r = (strong ?? 0) / asked;
+  return r >= 0.75 ? 'solid' : r >= 0.4 ? 'shaky' : 'weak';
+}
+
+function StatBar({ label, pct }: { label: string; pct: number }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <span style={{ opacity: 0.8 }}>{label}</span>
+      <span style={{ width: 70, height: 6, borderRadius: 3, background: 'var(--ink-100)', position: 'relative', overflow: 'hidden' }}>
+        <span style={{ position: 'absolute', inset: 0, width: `${pct}%`, background: `color-mix(in oklch, var(--heat-5) ${Math.round(20 + pct * 0.6)}%, var(--ink-100))` }} />
+      </span>
+      <span style={{ color: 'var(--cream-100)' }}>{pct}%</span>
+    </span>
+  );
+}
+
+/** v2 current-layer title block: ▶ replay · Quiz score+retake · Grill
+ *  verdict · layer + deep bars · weak-spots review. Scoped to the
+ *  focused node (`scope`); components carry the simplified glance.
+ *  docs/KNOWLEDGE-MODEL-SPEC.md §4a/§4d. */
+function KnowledgeStrip({
+  payload, scope, scores,
+}: {
+  payload: DiagramPayload;
+  scope: string;
+  scores: Map<string, RolledScore> | null;
+}) {
+  const weakSpots = useSessionStore(s => s.weakSpots);
+  const forceOpen = useSessionStore(s => s.sceneForceWeakSpotsOpen);
   const [open, setOpen] = useState(false);
-  const forceOpen = useSessionStore(s => s.sceneForceLegendOpen);
-  const showLegend = open || forceOpen;
+  const showPanel = open || forceOpen;
 
-  const { score, grillCoverage, total, grilled, dist } = useMemo(() => {
-    const s = projectKnowledgeScore(nodes);
-    const g = nodes.filter(n => n.grilled === true).length;
-    // Per-rung distribution: fraction of nodes at-or-above each rung.
-    const d = [1, 2, 3, 4, 5].map(
-      r => nodes.filter(n => levelOrdinal(n.level) >= r).length / Math.max(1, nodes.length),
-    );
-    return { score: s.score, grillCoverage: s.grillCoverage, total: nodes.length, grilled: g, dist: d };
-  }, [nodes]);
+  const cur = payload.nodes.find(n => n.id === scope) ?? payload.nodes[0];
+  if (!cur) return null;
+  const r = scores?.get(cur.id);
+  const layer = r?.layer ?? 0;
+  const deep = r?.deep ?? null;
+  const quizPct = cur.quizTotal && cur.quizTotal > 0
+    ? Math.round(((cur.quizCorrect ?? 0) / cur.quizTotal) * 100)
+    : null;
+  const verdict = grillVerdict(cur.grillStrong, cur.grillAsked);
+  const mine = weakSpots.filter(w => w.itemId === cur.id);
 
-  if (total === 0) return null;
+  const ask = (text: string) => {
+    useSessionStore.getState().addConversation('you', text);
+    sendEvent({ type: 'user:utterance', payload: { text, timestamp: Date.now() } });
+  };
+  const resolveSpot = (q: string) =>
+    useSessionStore.setState(s => ({ weakSpots: s.weakSpots.filter(w => !(w.itemId === cur.id && w.question === q)) }));
 
   return (
     <div className="font-mono" style={{ marginTop: 8 }} data-testid="knowledge-strip">
-      <div
-        style={{
-          display: 'flex', alignItems: 'center', gap: 12,
-          fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase',
-          color: 'var(--cream-500)',
-        }}
-      >
-        <span style={{ color: 'var(--amber-400)' }}>Knowledge</span>
-        <span>
-          <span style={{ color: 'var(--cream-100)' }}>{score}%</span> of {total}
-        </span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 3 }} aria-hidden="true">
-          {dist.map((frac, i) => (
-            <span
-              key={i}
-              style={{
-                width: 18, height: 5, borderRadius: 2,
-                background: `color-mix(in oklch, var(--heat-${i + 1}) ${Math.round(frac * 100)}%, var(--ink-100))`,
-              }}
-            />
-          ))}
-        </span>
-        <span style={{ color: 'var(--sig-okay)' }}>◆ {grilled}/{total} grilled</span>
-        <span style={{ color: 'var(--cream-500)', opacity: 0.55 }}>·{grillCoverage}% QA</span>
-        <button
-          type="button"
-          onClick={() => setOpen(o => !o)}
-          title="What do the levels mean?"
-          aria-label="Toggle comprehension legend"
-          data-testid="knowledge-legend-toggle"
-          className="font-mono"
-          style={{
-            cursor: 'pointer', background: 'transparent', border: '1px solid var(--ink-200)',
-            color: 'var(--cream-500)', borderRadius: 4, width: 18, height: 18, lineHeight: '16px',
-            fontSize: 11, padding: 0,
-          }}
-        >
-          ?
+      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 14, fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--cream-500)' }}>
+        <button type="button" onClick={() => ask(`explain ${cur.label}`)} data-testid="ks-replay"
+          className="font-mono" style={{ cursor: 'pointer', background: 'transparent', border: 'none', color: 'var(--amber-400)', padding: 0, font: 'inherit', letterSpacing: 'inherit', textTransform: 'inherit' }}>
+          ▶ replay
         </button>
-      </div>
-      {showLegend && (
-        <div
-          data-testid="knowledge-legend"
-          style={{
-            display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8,
-            fontSize: 10, letterSpacing: '0.02em', textTransform: 'none',
-            color: 'var(--cream-500)',
-          }}
-        >
-          {COMPREHENSION_ORDER.map(lvl => (
-            <span
-              key={lvl}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-                background: 'var(--ink-100)', borderRadius: 4, padding: '3px 8px',
-              }}
-            >
-              <span style={{
-                width: 9, height: 9, borderRadius: 2,
-                background: levelColor(lvl) ?? 'var(--heat-0)',
-              }} />
-              <span style={{ color: 'var(--cream-300, var(--cream-400))' }}>{LEVEL_LABEL[lvl]}</span>
-              <span style={{ opacity: 0.7 }}>— {LEVEL_REACHED_BY[lvl]}</span>
-            </span>
-          ))}
-          <span
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              background: 'var(--ink-100)', borderRadius: 4, padding: '3px 8px',
-            }}
-          >
-            <span style={{ color: 'var(--sig-okay)' }}>◆</span>
-            <span style={{ color: 'var(--cream-300, var(--cream-400))' }}>grilled</span>
-            <span style={{ opacity: 0.7 }}>— passed a grill or perfect quiz (QA proof)</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          Quiz <span style={{ color: 'var(--cream-100)' }}>{quizPct === null ? '—' : `${quizPct}%`}</span>
+          <button type="button" onClick={() => ask(`quiz me on ${cur.label}`)} data-testid="ks-quiz"
+            className="font-mono" title="Retake quiz" style={{ cursor: 'pointer', background: 'transparent', border: '1px solid var(--ink-200)', color: 'var(--cream-500)', borderRadius: 4, padding: '0 5px', font: 'inherit' }}>↻</button>
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          Grill <span style={{ color: verdict ? 'var(--cream-100)' : 'var(--cream-500)' }}>
+            {verdict ? `${verdict} ${cur.grillStrong ?? 0}/${cur.grillAsked ?? 0}` : '—'}
           </span>
+          {cur.grilled && <span style={{ color: 'var(--sig-okay)' }} title="Passed (QA proof)">✓</span>}
+          <button type="button" onClick={() => ask(`grill me on ${cur.label}`)} data-testid="ks-grill"
+            className="font-mono" title="Grill" style={{ cursor: 'pointer', background: 'transparent', border: '1px solid var(--ink-200)', color: 'var(--cream-500)', borderRadius: 4, padding: '0 5px', font: 'inherit' }}>⚑</button>
+        </span>
+        <StatBar label="layer" pct={layer} />
+        {deep !== null && <StatBar label="deep" pct={deep} />}
+        {mine.length > 0 && (
+          <button type="button" onClick={() => setOpen(o => !o)} data-testid="ks-weakspots-toggle"
+            className="font-mono" style={{ cursor: 'pointer', background: 'transparent', border: 'none', color: 'var(--sig-concern, var(--amber-400))', padding: 0, font: 'inherit', letterSpacing: 'inherit', textTransform: 'inherit' }}>
+            ▸ weak spots ({mine.length})
+          </button>
+        )}
+      </div>
+      {showPanel && mine.length > 0 && (
+        <div data-testid="weak-spots-panel"
+          style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8, fontSize: 11, letterSpacing: 0, textTransform: 'none', color: 'var(--cream-300, var(--cream-400))' }}>
+          {mine.map(w => (
+            <div key={w.question} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--ink-100)', borderRadius: 4, padding: '5px 10px' }}>
+              <span style={{ flex: 1 }}>{w.question}</span>
+              <span style={{ opacity: 0.5, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em' }}>{w.source}</span>
+              <button type="button" onClick={() => ask(`explain ${cur.label}`)} className="font-mono"
+                style={{ cursor: 'pointer', background: 'transparent', border: '1px solid var(--ink-200)', color: 'var(--cream-500)', borderRadius: 4, padding: '1px 7px', font: 'inherit' }}>restudy ▶</button>
+              <button type="button" onClick={() => resolveSpot(w.question)} className="font-mono"
+                style={{ cursor: 'pointer', background: 'transparent', border: '1px solid var(--ink-200)', color: 'var(--sig-okay)', borderRadius: 4, padding: '1px 7px', font: 'inherit' }}>resolve ✓</button>
+            </div>
+          ))}
         </div>
       )}
     </div>

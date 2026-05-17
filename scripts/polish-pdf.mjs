@@ -35,10 +35,12 @@ const SCENES = [
     'A top-down guided tour: header spine of covered ▸ current (wide amber) ▸ upcoming steps, with the current step name. Mirrors the tested TourPlan.fromArchitecture {items,currentIndex} shape.' },
   { name: 'breadcrumb', skill: 'You-are-here breadcrumb', blurb:
     'The persistent "you are here" position trail (e.g. CORE › TOKEN REFRESH › 3/8) shown in the header inside a deep_dive pocket, over the scoped canvas.' },
-  { name: 'comprehension-ladder', skill: 'Knowledge ladder + grill proof + score', blurb:
-    'Each node shows a discrete 6-rung cumulative ladder (count = comprehension level; the current rung glows, rungs beneath are lit) on the --heat ramp — replacing the old muddy battery-fill. A green ✓ shield marks nodes that passed a grill or perfect quiz (a separate QA proof, distinct from level). The header strip is the glanceable supervisor readout: weighted "% of everything", per-rung distribution, and N/T grilled coverage.' },
-  { name: 'comprehension-legend-open', skill: 'Knowledge ladder — legend expanded', blurb:
-    'The "?" legend expanded: every rung\'s colour swatch → name → how you reach it (the learning pathway), plus the grilled QA-proof chip. This is the in-product explanation of what unknown/mentioned/heard/engaged/explained/confirmed mean and how to climb.' },
+  { name: 'knowledge-layer', skill: 'Knowledge v2 — layer + deep, scoped to current view', blurb:
+    'Two-component model. The title block is the focused layer: ▶ replay, Quiz score + retake, Grill verdict, and LAYER (this node: shown=25% + tested) vs DEEP (roll-up of components) bars. Each component is filled with a continuous gradient = its combined knowledge, with a one-line "tested NN% ⓖ/ⓠ" readout and a green ✓ grill shield. No verbal confirmation — being shown the screen is the listening credit; only quiz/grill earns the rest.' },
+  { name: 'knowledge-components', skill: 'Knowledge v2 — drilled to leaf files', blurb:
+    'Drilled into Core. Leaf files have no roll-up, so their gradient fill is their OWN knowledge; the title still shows Core\'s layer (its own quiz) vs deep (mean of the leaf files). analyzer.ts is grill-passed (shield + tested 100% ⓖ); chunker.ts tested 33% ⓠ; audio-server.py untested.' },
+  { name: 'weak-spots-review', skill: 'Knowledge v2 — weak-spots review loop', blurb:
+    'The actionable "study this" loop: every weak/partial quiz/grill question becomes a row in the review panel on the current layer, tagged by source, with restudy ▶ and resolve ✓ (resolved items are retained for audit). This is the clear pathway to learn more + the supervisor/QA trail.' },
 ];
 
 const dataUri = (file) => {

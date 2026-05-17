@@ -308,12 +308,29 @@ export class Database {
         narration_seconds_heard REAL NOT NULL DEFAULT 0,
         questions_asked INTEGER NOT NULL DEFAULT 0,
         grilled INTEGER NOT NULL DEFAULT 0,
+        quiz_correct INTEGER NOT NULL DEFAULT 0,
+        quiz_total INTEGER NOT NULL DEFAULT 0,
+        grill_strong INTEGER NOT NULL DEFAULT 0,
+        grill_asked INTEGER NOT NULL DEFAULT 0,
         last_touched_at TEXT NOT NULL DEFAULT (datetime('now')),
         last_session_id TEXT,
         PRIMARY KEY (repo_path, item_id)
       );
       CREATE INDEX IF NOT EXISTS idx_comprehension_repo ON comprehension(repo_path);
       CREATE INDEX IF NOT EXISTS idx_comprehension_level ON comprehension(repo_path, level);
+      -- v2 weak-spot review loop: each weak/partial quiz/grill question
+      -- becomes an actionable "study this", resolvable by the user (or
+      -- auto on a later clean grill). Retained after resolve for audit.
+      CREATE TABLE IF NOT EXISTS weak_spots (
+        repo_path TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        question TEXT NOT NULL,
+        source TEXT NOT NULL CHECK (source IN ('grill','quiz')),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        resolved_at TEXT,
+        PRIMARY KEY (repo_path, item_id, question)
+      );
+      CREATE INDEX IF NOT EXISTS idx_weak_spots_open ON weak_spots(repo_path, resolved_at);
 
       -- Cross-session conversation log. Lets a fresh session recall what was
       -- asked last time so follow-ups stay coherent across days. Capped via
@@ -435,6 +452,27 @@ export class Database {
     if (!compColumnNames.has('grilled')) {
       this.db.exec(`ALTER TABLE comprehension ADD COLUMN grilled INTEGER NOT NULL DEFAULT 0`);
     }
+    // v2: persist the quiz/grill ratios so the score survives reload
+    // (v1 only kept the grilled boolean). Additive, backfill 0.
+    for (const col of ['quiz_correct', 'quiz_total', 'grill_strong', 'grill_asked']) {
+      if (!compColumnNames.has(col)) {
+        this.db.exec(`ALTER TABLE comprehension ADD COLUMN ${col} INTEGER NOT NULL DEFAULT 0`);
+      }
+    }
+    // v2 weak_spots table (CREATE IF NOT EXISTS above covers fresh DBs;
+    // this guards an older DB created before the table existed).
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS weak_spots (
+        repo_path TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        question TEXT NOT NULL,
+        source TEXT NOT NULL CHECK (source IN ('grill','quiz')),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        resolved_at TEXT,
+        PRIMARY KEY (repo_path, item_id, question)
+      );
+      CREATE INDEX IF NOT EXISTS idx_weak_spots_open ON weak_spots(repo_path, resolved_at);
+    `);
   }
 
   getSessionRepo(): SessionRepository { return this.sessionRepo; }

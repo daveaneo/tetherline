@@ -5,6 +5,14 @@ import {
   nextLevelTrigger,
   projectKnowledgeScore,
   applyComprehension,
+  taught,
+  tested,
+  testedTier,
+  layerKnowledge,
+  rollUp,
+  containsAdjacency,
+  LISTEN_W,
+  TEST_W,
   LEVEL_LABEL,
   LEVEL_REACHED_BY,
   COMPREHENSION_ORDER,
@@ -85,6 +93,66 @@ describe('comprehension model — single source of truth', () => {
       const r = projectKnowledgeScore(items);
       expect(r.score).toBe(80);
       expect(r.grillCoverage).toBe(50);
+    });
+  });
+
+  describe('v2 two-component scoring', () => {
+    it('taught is presentation-only (>= heard), no verbal confirmation', () => {
+      expect(taught({ level: 'unknown' })).toBe(0);
+      expect(taught({ level: 'mentioned' })).toBe(0); // below heard
+      expect(taught({ level: 'heard' })).toBe(1);
+      expect(taught({ level: 'confirmed' })).toBe(1);
+    });
+
+    it('tested = best of regular vs grill ratio, monotonic', () => {
+      expect(tested({})).toBe(0);
+      expect(tested({ quizCorrect: 2, quizTotal: 3 })).toBeCloseTo(2 / 3);
+      expect(tested({ grillStrong: 4, grillAsked: 5 })).toBe(0.8);
+      // best of the two
+      expect(tested({ quizCorrect: 1, quizTotal: 3, grillStrong: 4, grillAsked: 5 })).toBe(0.8);
+    });
+
+    it('testedTier prefers grill, then regular, else none', () => {
+      expect(testedTier({})).toBe('none');
+      expect(testedTier({ quizTotal: 3 })).toBe('regular');
+      expect(testedTier({ grillAsked: 4 })).toBe('grill');
+      expect(testedTier({ grilled: true })).toBe('grill');
+    });
+
+    it('layerKnowledge blends taught (0.25) + tested (0.75)', () => {
+      expect(LISTEN_W).toBe(0.25);
+      expect(TEST_W).toBe(0.75);
+      expect(layerKnowledge({ level: 'unknown' })).toBe(0);
+      expect(layerKnowledge({ level: 'heard' })).toBe(25); // shown, untested
+      expect(layerKnowledge({ level: 'heard', quizCorrect: 3, quizTotal: 3 })).toBe(100);
+      expect(layerKnowledge({ level: 'heard', grillStrong: 4, grillAsked: 5 })).toBe(85);
+    });
+
+    it('rollUp: leaf has no deep; parent deep = mean of children combined', () => {
+      const byId = new Map<string, any>([
+        ['project', { level: 'heard' }],                               // layer 25
+        ['module/core', { level: 'heard', quizCorrect: 3, quizTotal: 3 }], // leaf, layer 100
+        ['module/voice', { level: 'unknown' }],                        // leaf, layer 0
+      ]);
+      const childrenOf = containsAdjacency([
+        { from: 'project', to: 'module/core', kind: 'contains' },
+        { from: 'project', to: 'module/voice', kind: 'contains' },
+        { from: 'module/core', to: 'module/voice', kind: 'imports' }, // ignored
+      ]);
+      const r = rollUp(byId, childrenOf);
+      expect(r.get('module/core')!.deep).toBeNull();
+      expect(r.get('module/core')!.combined).toBe(100);
+      expect(r.get('module/voice')!.combined).toBe(0);
+      // project deep = mean(100, 0) = 50; combined = mean(layer 25, deep 50) = 38
+      expect(r.get('project')!.deep).toBe(50);
+      expect(r.get('project')!.layer).toBe(25);
+      expect(r.get('project')!.combined).toBe(38);
+    });
+
+    it('rollUp is cycle-guarded', () => {
+      const byId = new Map<string, any>([['a', { level: 'heard' }], ['b', { level: 'heard' }]]);
+      const childrenOf = new Map<string, string[]>([['a', ['b']], ['b', ['a']]]);
+      expect(() => rollUp(byId, childrenOf)).not.toThrow();
     });
   });
 

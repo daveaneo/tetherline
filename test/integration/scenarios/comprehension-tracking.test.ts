@@ -86,41 +86,14 @@ describe('S8/S9 — comprehension tracking', () => {
     expect(core!.level).toBe('heard');
   });
 
-  it('confirmation phrase within window upgrades to confirmed', async () => {
-    // Just delivered module/core in previous test — still within window.
-    const before = (await h.client.events(sid)).total;
+  it('no verbal confirmation: "got it" does NOT promote level (v2)', async () => {
+    // v2 removed the confirmation-phrase mechanic entirely. Presentation
+    // = taught; only quiz/grill earns more. "got it" must be inert.
     await h.client.utter(sid, 'got it');
-    const { events } = await h.client.events(sid, before);
-    const upgrade = events.find(e => e.type === 'comprehension:updated') as any;
-    expect(upgrade).toBeTruthy();
-    expect(upgrade.payload.itemId).toBe('module/core');
-    expect(upgrade.payload.level).toBe('confirmed');
-    expect(upgrade.payload.reason).toBe('confirmed_phrase');
-
-    const map = await h.client.comprehension(FIXTURE);
-    expect(map.items.find(i => i.itemId === 'module/core')!.level).toBe('confirmed');
-  });
-
-  it('confirmation phrase in the middle of a longer utterance does NOT confirm', async () => {
-    // "got it, now tell me about utils" — "got it" is present but it's a transition,
-    // not a confirmation. The isConfirmationPhrase() check guards this.
-    await h.client.utter(sid, 'walk me through the architecture'); // re-push arch
-    const before = (await h.client.events(sid)).total;
-    await h.client.utter(sid, 'got it, now tell me about utils');
-    const { events } = await h.client.events(sid, before);
-    // arch/root's level should NOT have jumped to confirmed — long utterance doesn't match
-    const confirmedUpgrade = events.find(e =>
-      e.type === 'comprehension:updated' && (e as any).payload.level === 'confirmed');
-    expect(confirmedUpgrade).toBeFalsy();
-  });
-
-  it('passive confirmation does NOT set the separate grill QA proof', async () => {
-    // module/core reached 'confirmed' via the "got it" phrase above.
-    // `grilled` is a SEPARATE active-recall proof — it must stay false.
     const map = await h.client.comprehension(FIXTURE);
     const core = map.items.find(i => i.itemId === 'module/core')!;
-    expect(core.level).toBe('confirmed');
-    expect(core.grilled === true).toBe(false);
+    expect(core.level).toBe('heard');         // stayed at presentation tier
+    expect(core.grilled === true).toBe(false); // no QA proof from a phrase
   });
 
   it('markGrilled flips the QA proof — monotonic and independent of level', () => {
@@ -146,7 +119,6 @@ describe('S8/S9 — comprehension tracking', () => {
     const map = await h.client.comprehension(FIXTURE);
     const sum = Object.values(map.totals).reduce((a, b) => a + b, 0);
     expect(sum).toBe(map.items.length);
-    expect(map.totals.confirmed).toBeGreaterThanOrEqual(1); // module/core was confirmed
   });
 
   it('multi-repo map returns one entry per repo', async () => {

@@ -157,7 +157,9 @@ export async function extractProjectLogicView(p: ExtractParams): Promise<Diagram
     const matchedModule = [...moduleNames].find(name => n.label.toLowerCase().includes(name.toLowerCase()));
     return {
       ...n,
-      ...(matchedModule ? comp(compMap, `module/${matchedModule}`) : { level: undefined, grilled: false }),
+      ...(matchedModule
+        ? comp(compMap, `module/${matchedModule}`)
+        : { level: undefined, grilled: false, quizCorrect: 0, quizTotal: 0, grillStrong: 0, grillAsked: 0 }),
       briefingId: matchedModule ? `module/${matchedModule}` : undefined,
     };
   });
@@ -321,7 +323,14 @@ function topModules(repo: ContextCacheRepository, repoPath: string): ModuleCache
     .slice(0, MAX_SATELLITES);
 }
 
-interface CompCell { level: DiagramNode['level']; grilled: boolean }
+interface CompCell {
+  level: DiagramNode['level'];
+  grilled: boolean;
+  quizCorrect: number;
+  quizTotal: number;
+  grillStrong: number;
+  grillAsked: number;
+}
 
 function comprehensionMap(
   repoPath: string,
@@ -330,16 +339,30 @@ function comprehensionMap(
   const out = new Map<string, CompCell>();
   if (!repo) return out;
   for (const item of repo.getAll(repoPath)) {
-    out.set(item.itemId, { level: item.level as DiagramNode['level'], grilled: item.grilled === true });
+    out.set(item.itemId, {
+      level: item.level as DiagramNode['level'],
+      grilled: item.grilled === true,
+      quizCorrect: item.quizCorrect ?? 0,
+      quizTotal: item.quizTotal ?? 0,
+      grillStrong: item.grillStrong ?? 0,
+      grillAsked: item.grillAsked ?? 0,
+    });
   }
   return out;
 }
 
 /** Spread the comprehension cell for `key` onto a node literal:
- *  `{ ...comp(map, key) }` → `level` + `grilled`. Untracked → unknown. */
-function comp(map: Map<string, CompCell>, key: string): CompCell {
+ *  `{ ...comp(map, key) }` → level + grilled + v2 ratios. */
+function comp(map: Map<string, CompCell>, key: string): Omit<CompCell, never> {
   const c = map.get(key);
-  return { level: c?.level, grilled: c?.grilled ?? false };
+  return {
+    level: c?.level,
+    grilled: c?.grilled ?? false,
+    quizCorrect: c?.quizCorrect ?? 0,
+    quizTotal: c?.quizTotal ?? 0,
+    grillStrong: c?.grillStrong ?? 0,
+    grillAsked: c?.grillAsked ?? 0,
+  };
 }
 
 function normalizeWeight(impact: number, all: ModuleCacheRow[]): number {

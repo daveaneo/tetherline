@@ -36,7 +36,6 @@ import { ContextCacheWarmer } from '../cache/warmer.js';
 import { ContextComposer } from '../cache/context-composer.js';
 import { Navigator, frameFromBriefing } from './navigator.js';
 import { resolveNavOp, type NavOp } from './navigator-vocab.js';
-import { isConfirmationPhrase } from './confirmation-phrases.js';
 import { getTraceRecorder } from '../dev/trace.js';
 import { scoreQuizAnswer } from '../intelligence/quiz.js';
 import { getDefaultLLMAdapter } from '../intelligence/llm/index.js';
@@ -79,10 +78,6 @@ export class SessionManager {
    *  audio output. Blocks the "AI jumped in too fast" pattern. Tunable. */
   private readonly POST_USER_SILENCE_MS = 600;
   private userStoppedAt: number | null = null;
-  /** Confirmation phrases are only treated as `confirmed` within this many ms
-   *  of the last briefing being delivered. Prevents idle "got it, I need
-   *  coffee" from false-positive-confirming. */
-  private readonly CONFIRMATION_WINDOW_MS = 60_000;
   /** Rolling Q&A history threaded into the system prompt for follow-up
    *  coherence ("what about it?" needs to know what "it" was). Capped to
    *  the last few turns so prompt size stays small. */
@@ -1759,34 +1754,29 @@ export class SessionManager {
       return;
     }
 
-    // Done — finalize.
+    // Done — finalize. v2: a quiz no longer inflates `level` (level is
+    // taught/presentation only). It writes the active-recall RATIO; the
+    // displayed knowledge is derived from that.
     const correctCount = this.activeQuiz.answers.filter(a => a.correct).length;
     const total = this.activeQuiz.questions.length;
-    const previousLevel = this.db.getComprehensionRepo()
-      .get(this.activeRepoPath, this.activeQuiz.briefingId)?.level ?? 'unknown';
+    const repoPath = this.activeRepoPath;
+    const repo = this.db.getComprehensionRepo();
+    const previousLevel = repo.get(repoPath, this.activeQuiz.briefingId)?.level ?? 'unknown';
 
-    let newLevel: ComprehensionLevel = previousLevel;
-    if (correctCount === total) newLevel = 'confirmed';
-    else if (correctCount === total - 1 && total >= 3) newLevel = 'explained';
-    // ≤1 correct: stay where we are (no demotion).
-
-    if (newLevel !== previousLevel) {
-      this.observeComprehension(
-        this.activeQuiz.briefingId,
-        this.activeQuiz.label,
-        newLevel,
-        'question_asked',
-      );
-    }
-
-    // A PERFECT quiz (3/3) is an active-recall QA proof, equivalent to
-    // passing a grill — flip the separate `grilled` marker. 2/3 only
-    // raises level to 'explained' (above), never sets the proof.
-    if (correctCount === total) {
-      // observeComprehension above guarantees the row exists when 3/3
-      // raised the level; if it was already 'confirmed' the row exists
-      // too. markGrilled is a safe no-op if somehow absent.
-      this.db.getComprehensionRepo().markGrilled(this.activeRepoPath, this.activeQuiz.briefingId);
+    if (repoPath) {
+      // Taking a quiz is active engagement → ensure the row + an
+      // ≥explained level (taught is already satisfied; this just
+      // guarantees the row exists for the writes below).
+      this.observeComprehension(this.activeQuiz.briefingId, this.activeQuiz.label, 'explained', 'question_asked');
+      repo.recordQuiz(repoPath, this.activeQuiz.briefingId, correctCount, total);
+      // Each missed question → an actionable study item.
+      const correctIds = new Set(this.activeQuiz.answers.filter(a => a.correct).map(a => a.questionId));
+      for (const q of this.activeQuiz.questions) {
+        if (!correctIds.has(q.id)) repo.addWeakSpot(repoPath, this.activeQuiz.briefingId, q.question, 'quiz');
+      }
+      // A PERFECT quiz (3/3) is an active-recall QA proof, equivalent
+      // to passing a grill — flip the standalone `grilled` marker.
+      if (correctCount === total) repo.markGrilled(repoPath, this.activeQuiz.briefingId);
     }
 
     this.emit({
@@ -1796,7 +1786,7 @@ export class SessionManager {
         correct: correctCount,
         total,
         previousLevel,
-        newLevel,
+        newLevel: repo.get(repoPath, this.activeQuiz.briefingId)?.level ?? previousLevel,
       },
     });
     this.activeQuiz = null;
@@ -1861,37 +1851,43 @@ export class SessionManager {
     try {
       const result = await respondToAnswer(this.activeAnalyzer.getClient(), this.activeGrill, answer);
       await this.emitNarrationChunked(result.spoken);
-      // Update comprehension based on the running pattern. Strong
-      // answers across consecutive turns earn a bump from 'heard' or
-      // 'engaged' toward 'explained' / 'confirmed' on the topic.
+      // Strong answers under questioning are active recall — bump the
+      // topic toward 'explained' (the grilled flag + persisted ratio is
+      // set on completion in the result.done branch).
       const lastEvals = this.activeGrill.turns.slice(-3).map(t => t.evaluation);
       const strongStreak = lastEvals.filter(e => e === 'strong').length;
       if (strongStreak >= 2) {
-        // Two strong consecutive answers → bump comprehension. Reuse
-        // the 'confirmed_phrase' reason since "answered confidently
-        // under questioning" is the closest existing trigger; the
-        // type isn't extensible from here without a wider refactor.
         this.observeComprehension(
           `topic/${this.activeGrill.topic.replace(/\s+/g, '-').toLowerCase()}`,
           this.activeGrill.topic,
           'explained',
-          'confirmed_phrase',
+          'question_asked',
           {},
         );
       }
       if (result.done) {
-        // Grill PASS = a sustained-strong record over a real grill
-        // (≥3 questions, ≥60% strong). This is the separate active-
-        // recall QA proof — distinct from the passive `explained` bump
-        // above. Observe first (guarantees the row + an ≥explained
-        // level, since passing implies that depth), then flip grilled.
-        const turns = this.activeGrill.turns;
-        const strong = turns.filter(t => t.evaluation === 'strong').length;
-        const passed = turns.length >= 3 && strong >= Math.ceil(turns.length * 0.6);
-        if (passed) {
-          const topicId = `topic/${this.activeGrill.topic.replace(/\s+/g, '-').toLowerCase()}`;
-          this.observeComprehension(topicId, this.activeGrill.topic, 'explained', 'question_asked');
-          this.db.getComprehensionRepo().markGrilled(this.activeRepoPath, topicId);
+        const repoPath = this.activeRepoPath;
+        if (repoPath) {
+          const repo = this.db.getComprehensionRepo();
+          const topic = this.activeGrill.topic;
+          const topicId = `topic/${topic.replace(/\s+/g, '-').toLowerCase()}`;
+          const answered = this.activeGrill.turns.filter(t => !!t.evaluation);
+          const strong = answered.filter(t => t.evaluation === 'strong').length;
+          // Completing a grill is active engagement → at least 'explained'
+          // (guarantees the row exists for the writes below).
+          this.observeComprehension(topicId, topic, 'explained', 'question_asked');
+          // Always persist the ratio (v2 — the score must survive reload).
+          repo.recordGrill(repoPath, topicId, strong, answered.length);
+          // Each weak/partial question becomes an actionable study item.
+          for (const t of answered) {
+            if (t.evaluation === 'weak' || t.evaluation === 'partial') {
+              repo.addWeakSpot(repoPath, topicId, t.question, 'grill');
+            }
+          }
+          // PASS bar (≥3 Qs, ≥60% strong) flips the standalone QA proof.
+          if (answered.length >= 3 && strong >= Math.ceil(answered.length * 0.6)) {
+            repo.markGrilled(repoPath, topicId);
+          }
         }
         this.activeGrill = null;
       }
@@ -2452,7 +2448,7 @@ export class SessionManager {
     itemId: string,
     label: string,
     proposedLevel: ComprehensionLevel,
-    reason: 'briefing_delivered' | 'question_asked' | 'listened_through' | 'confirmed_phrase' | 'stale',
+    reason: 'briefing_delivered' | 'question_asked' | 'listened_through' | 'stale',
     opts: { secondsHeard?: number; questionsAsked?: number } = {},
   ) {
     const repoPath = this.activeRepoPath;
@@ -2460,11 +2456,9 @@ export class SessionManager {
 
     const now = Date.now();
     const lastTouch = this.lastComprehensionTouchAt.get(itemId) ?? 0;
-    // Cooldown applies to passive signals only — confirmation phrases,
-    // staleness degrade, and quiz scoring are all intentional and must
-    // always update.
+    // Cooldown applies to passive signals only — staleness degrade and
+    // quiz/grill scoring are intentional and must always update.
     const bypassCooldown =
-      reason === 'confirmed_phrase' ||
       reason === 'stale' ||
       reason === 'question_asked';
     if (!bypassCooldown && now - lastTouch < this.COMPREHENSION_COOLDOWN_MS) {
@@ -2496,22 +2490,6 @@ export class SessionManager {
     }
   }
 
-  /** Attempt to match a confirmation phrase against the last briefing. Only
-   *  fires within CONFIRMATION_WINDOW_MS of the briefing being delivered. */
-  private tryConfirmLastBriefing(text: string): boolean {
-    if (!this.lastBriefingId || !this.lastBriefingEmittedAt) return false;
-    const elapsed = Date.now() - this.lastBriefingEmittedAt;
-    if (elapsed > this.CONFIRMATION_WINDOW_MS) return false;
-    if (!isConfirmationPhrase(text)) return false;
-
-    const repoPath = this.activeRepoPath;
-    if (!repoPath) return false;
-
-    const briefing = this.db.getBriefingRepo().get(repoPath, this.lastBriefingId);
-    const label = briefing?.title ?? this.lastBriefingId;
-    this.observeComprehension(this.lastBriefingId, label, 'confirmed', 'confirmed_phrase');
-    return true;
-  }
 
   /** Map a user utterance to a briefing id. Returns null if none matches. */
   private resolveBriefingQuery(text: string, repoPath: string): string | null {
@@ -2595,16 +2573,6 @@ export class SessionManager {
         return;
       }
       this.acceptProposal();
-      return;
-    }
-
-    // Fast-path #0: confirmation phrases ("got it", "makes sense") — tracked
-    // against the most recent briefing for comprehension. Guarded: only fires
-    // within CONFIRMATION_WINDOW_MS of the briefing being emitted.
-    if (this.tryConfirmLastBriefing(text)) {
-      // Confirmation phrases are not a navigation; let them also pass through
-      // to quickCommand / intent classifier in case they meant "resume" or
-      // similar. But for now, we consume them so the AI doesn't double-respond.
       return;
     }
 
