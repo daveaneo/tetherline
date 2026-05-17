@@ -31,8 +31,26 @@ export interface ComprehensionItem {
    *  quiz (3/3). A SEPARATE active-recall QA proof — independent of and
    *  monotonic vs `level` (never set by passive observation). */
   grilled?: boolean;
+  /** v2: last regular quiz result (0/0 = never taken). */
+  quizCorrect?: number;
+  quizTotal?: number;
+  /** v2: last grill result, strong answers / answered (0/0 = never). */
+  grillStrong?: number;
+  grillAsked?: number;
   lastTouchedAt: string; // ISO
   lastSessionId: string | null;
+}
+
+/** An actionable "study this" — a weak/partial quiz/grill question.
+ *  Resolvable by the user or auto on a later clean grill; retained
+ *  after resolve for audit. */
+export interface WeakSpot {
+  repoPath: string;
+  itemId: string;
+  question: string;
+  source: 'grill' | 'quiz';
+  createdAt: string;
+  resolvedAt: string | null;
 }
 
 export interface ComprehensionMap {

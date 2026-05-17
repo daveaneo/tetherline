@@ -277,35 +277,63 @@ export const SCENES: Scene[] = [
     },
   },
   {
-    name: 'comprehension-ladder',
-    description: 'Every rung of the knowledge ladder + grill shield + project score strip',
+    name: 'knowledge-layer',
+    description: 'v2 current-layer title block: replay/quiz/grill + layer & deep bars; mixed component states + a grilled node',
     seed: () => {
       seedBase({
-        scope: 'project', view: 'logic', title: 'Tetherline', subtitle: 'Knowledge ladder — every rung',
+        scope: 'project', view: 'logic', title: 'Tetherline', subtitle: 'Knowledge model v2 — layer + deep',
         nodes: [
-          { id: 'project', label: 'Tetherline', description: 'AI-narrated weekly code review', role: 'source', weight: 1, level: 'engaged', briefingId: 'project' },
-          { id: 'module/core', label: 'Core', description: 'Git analysis, AI guide, TTS', role: 'transform', weight: 0.9, level: 'confirmed', grilled: true, briefingId: 'module/core' },
-          { id: 'module/frontend', label: 'Frontend', description: 'React room: voice, diagram, shelf', role: 'transform', weight: 0.8, level: 'explained', grilled: true, briefingId: 'module/frontend' },
+          { id: 'project', label: 'Tetherline', description: 'AI-narrated weekly code review', role: 'source', weight: 1, level: 'heard', briefingId: 'project' },
+          // Core: shown + perfect quiz + grill-passed → high layer.
+          { id: 'module/core', label: 'Core', description: 'Git analysis, AI guide, TTS', role: 'transform', weight: 0.9, level: 'heard', quizCorrect: 3, quizTotal: 3, grillStrong: 4, grillAsked: 5, grilled: true, briefingId: 'module/core' },
+          // Frontend: shown + a regular quiz, no grill.
+          { id: 'module/frontend', label: 'Frontend', description: 'React room: voice, diagram, shelf', role: 'transform', weight: 0.8, level: 'heard', quizCorrect: 2, quizTotal: 3, briefingId: 'module/frontend' },
+          // Shared: shown only (taught, untested).
           { id: 'module/shared', label: 'Shared', description: 'Types + constants across packages', role: 'guard', weight: 0.5, level: 'heard', briefingId: 'module/shared' },
-          { id: 'module/voice', label: 'Voice', description: 'Barge-in gate, narration streaming', role: 'sink', weight: 0.7, level: 'mentioned', briefingId: 'module/voice' },
-          { id: 'module/cli', label: 'CLI', description: 'Command-line entry point', role: 'sink', weight: 0.4, level: 'unknown', briefingId: 'module/cli' },
+          // Voice: never surfaced (untouched).
+          { id: 'module/voice', label: 'Voice', description: 'Barge-in gate, narration streaming', role: 'sink', weight: 0.7, level: 'unknown', briefingId: 'module/voice' },
         ],
         edges: [
           { from: 'project', to: 'module/core', kind: 'contains' },
           { from: 'project', to: 'module/frontend', kind: 'contains' },
           { from: 'project', to: 'module/shared', kind: 'contains' },
           { from: 'project', to: 'module/voice', kind: 'contains' },
-          { from: 'project', to: 'module/cli', kind: 'contains' },
         ],
       });
     },
   },
   {
-    name: 'comprehension-legend-open',
-    description: 'Knowledge ladder with the rung→meaning legend expanded',
+    name: 'knowledge-components',
+    description: 'v2 drilled into Core — leaf files (no deep), own knowledge as the fill',
     seed: () => {
-      getScene('comprehension-ladder')?.seed();
-      useSessionStore.setState({ sceneForceLegendOpen: true });
+      seedBase({
+        scope: 'module/core', view: 'logic', title: 'Core', subtitle: 'Leaf files — own knowledge, no roll-up',
+        nodes: [
+          { id: 'module/core', label: 'Core', description: 'The module', role: 'source', weight: 1, level: 'heard', quizCorrect: 2, quizTotal: 3, briefingId: 'module/core' },
+          { id: 'file/core/analyzer', label: 'analyzer.ts', description: 'LLM Q&A + skills', role: 'transform', weight: 0.8, level: 'heard', grillStrong: 5, grillAsked: 5, grilled: true },
+          { id: 'file/core/chunker', label: 'chunker.ts', description: 'Narration chunking', role: 'transform', weight: 0.7, level: 'heard', quizCorrect: 1, quizTotal: 3 },
+          { id: 'file/core/tts', label: 'audio-server.py', description: 'Whisper + Kokoro', role: 'sink', weight: 0.6, level: 'unknown' },
+        ],
+        edges: [
+          { from: 'module/core', to: 'file/core/analyzer', kind: 'contains' },
+          { from: 'module/core', to: 'file/core/chunker', kind: 'contains' },
+          { from: 'module/core', to: 'file/core/tts', kind: 'contains' },
+        ],
+      });
+    },
+  },
+  {
+    name: 'weak-spots-review',
+    description: 'v2 weak-spots review panel expanded on the current layer',
+    seed: () => {
+      getScene('knowledge-layer')?.seed();
+      useSessionStore.setState({
+        weakSpots: [
+          { itemId: 'project', question: 'How does the diagram cache stay fresh vs comprehension?', source: 'grill' },
+          { itemId: 'project', question: 'What sets the grilled QA proof?', source: 'quiz' },
+        ],
+        sceneForceWeakSpotsOpen: true,
+      });
     },
   },
 ];

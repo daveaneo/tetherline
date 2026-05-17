@@ -61,10 +61,122 @@ export function nextLevelTrigger(level: ComprehensionLevel | undefined | null): 
 }
 
 /** Minimal structural shape both ComprehensionItem and DiagramNode
- *  satisfy — keeps this module free of backend/frontend node types. */
+ *  satisfy — keeps this module free of backend/frontend node types.
+ *  v2 adds the persisted quiz/grill ratio fields. */
 export interface Leveled {
   level?: ComprehensionLevel;
   grilled?: boolean;
+  quizCorrect?: number;
+  quizTotal?: number;
+  grillStrong?: number;
+  grillAsked?: number;
+}
+
+// ── Knowledge model v2 (docs/KNOWLEDGE-MODEL-SPEC.md) ──────────────
+// Two components: taught (presentation, auto-credited) + tested
+// (quiz/grill, the real signal). Weights lowered because being shown
+// the screen is now free — it must not read as "40% known".
+export const LISTEN_W = 0.25;
+export const TEST_W = 0.75;
+
+export type TestedTier = 'grill' | 'regular' | 'none';
+
+/** A node was "taught" once its layer was presented — which the event
+ *  stream records as reaching `heard` (briefing delivered / navigated
+ *  to). Nothing above `heard` is set passively any more. */
+export function taught(n: Leveled): 0 | 1 {
+  return levelOrdinal(n.level) >= 2 ? 1 : 0;
+}
+
+export function regularRatio(n: Leveled): number {
+  return n.quizTotal && n.quizTotal > 0 ? (n.quizCorrect ?? 0) / n.quizTotal : 0;
+}
+
+export function grillRatio(n: Leveled): number {
+  return n.grillAsked && n.grillAsked > 0 ? (n.grillStrong ?? 0) / n.grillAsked : 0;
+}
+
+/** Best active-recall mastery (monotonic — best ever, never regresses,
+ *  consistent with the never-demote rule). */
+export function tested(n: Leveled): number {
+  return Math.max(regularRatio(n), grillRatio(n));
+}
+
+export function testedTier(n: Leveled): TestedTier {
+  if (n.grilled === true || (n.grillAsked ?? 0) > 0) return 'grill';
+  if ((n.quizTotal ?? 0) > 0) return 'regular';
+  return 'none';
+}
+
+/** This node's OWN knowledge, 0..100: a weighted blend of being shown
+ *  the material (cheap) and proving it (the bulk). */
+export function layerKnowledge(n: Leveled): number {
+  return Math.round(100 * (LISTEN_W * taught(n) + TEST_W * tested(n)));
+}
+
+export interface RolledScore {
+  /** This node's own knowledge (§2 layer). */
+  layer: number;
+  /** Roll-up of descendants (mean of children's `combined`); null for
+   *  a leaf (nothing beneath). */
+  deep: number | null;
+  /** What this node contributes to its parent's deep: leaf → layer;
+   *  else → mean(layer, deep). Also the node's gradient-fill value. */
+  combined: number;
+  testedTier: TestedTier;
+  grilled: boolean;
+}
+
+/** Hierarchical roll-up. Generic over (per-node inputs, parent→children
+ *  adjacency) so it works for one diagram payload (adjacency from
+ *  `contains` edges) or the full-repo item tree (adjacency from itemId
+ *  prefixes). Pure, memoized, cycle-guarded. */
+export function rollUp(
+  byId: Map<string, Leveled>,
+  childrenOf: Map<string, readonly string[]>,
+): Map<string, RolledScore> {
+  const out = new Map<string, RolledScore>();
+  const visiting = new Set<string>();
+
+  const compute = (id: string): RolledScore => {
+    const cached = out.get(id);
+    if (cached) return cached;
+    const input = byId.get(id) ?? {};
+    const layer = layerKnowledge(input);
+    const tier = testedTier(input);
+    const grilled = input.grilled === true;
+    // Cycle guard: a node mid-computation contributes as a leaf.
+    const kids = visiting.has(id) ? [] : (childrenOf.get(id) ?? []).filter(c => byId.has(c));
+    let deep: number | null = null;
+    if (kids.length > 0) {
+      visiting.add(id);
+      const mean = kids.reduce((s, c) => s + compute(c).combined, 0) / kids.length;
+      visiting.delete(id);
+      deep = Math.round(mean);
+    }
+    const combined = deep === null ? layer : Math.round((layer + deep) / 2);
+    const r: RolledScore = { layer, deep, combined, testedTier: tier, grilled };
+    out.set(id, r);
+    return r;
+  };
+
+  for (const id of byId.keys()) compute(id);
+  return out;
+}
+
+/** Build parent→children adjacency from a diagram payload's `contains`
+ *  edges (from = parent, to = child). */
+export function containsAdjacency(
+  edges: readonly { from: string; to: string; kind?: string }[],
+): Map<string, string[]> {
+  const m = new Map<string, string[]>();
+  for (const e of edges) {
+    if (e.kind !== 'contains') continue;
+    const arr = m.get(e.from) ?? [];
+    arr.push(e.to);
+    m.set(e.from, arr);
+  }
+  return m;
 }
 
 export interface KnowledgeScore {
@@ -103,15 +215,23 @@ export function projectKnowledgeScore(items: readonly Leveled[]): KnowledgeScore
  *  extractor uses). Returns shallow clones — never mutates the cached
  *  node objects. Single merge impl reused by the route and tests. */
 export function applyComprehension<
-  T extends { id: string; briefingId?: string; level?: ComprehensionLevel; grilled?: boolean },
+  T extends { id: string; briefingId?: string } & Leveled,
 >(
   nodes: readonly T[],
-  items: readonly { itemId: string; level?: ComprehensionLevel; grilled?: boolean }[],
+  items: readonly ({ itemId: string } & Leveled)[],
 ): T[] {
   const byId = new Map(items.map((it) => [it.itemId, it]));
   return nodes.map((n) => {
     const hit = byId.get(n.briefingId ?? n.id);
     if (!hit) return { ...n };
-    return { ...n, level: hit.level, grilled: hit.grilled === true };
+    return {
+      ...n,
+      level: hit.level,
+      grilled: hit.grilled === true,
+      quizCorrect: hit.quizCorrect,
+      quizTotal: hit.quizTotal,
+      grillStrong: hit.grillStrong,
+      grillAsked: hit.grillAsked,
+    };
   });
 }
