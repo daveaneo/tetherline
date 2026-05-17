@@ -308,6 +308,7 @@ export class Database {
         narration_seconds_heard REAL NOT NULL DEFAULT 0,
         questions_asked INTEGER NOT NULL DEFAULT 0,
         grilled INTEGER NOT NULL DEFAULT 0,
+        seen INTEGER NOT NULL DEFAULT 0,
         quiz_correct INTEGER NOT NULL DEFAULT 0,
         quiz_total INTEGER NOT NULL DEFAULT 0,
         grill_strong INTEGER NOT NULL DEFAULT 0,
@@ -454,7 +455,7 @@ export class Database {
     }
     // v2: persist the quiz/grill ratios so the score survives reload
     // (v1 only kept the grilled boolean). Additive, backfill 0.
-    for (const col of ['quiz_correct', 'quiz_total', 'grill_strong', 'grill_asked']) {
+    for (const col of ['quiz_correct', 'quiz_total', 'grill_strong', 'grill_asked', 'seen']) {
       if (!compColumnNames.has(col)) {
         this.db.exec(`ALTER TABLE comprehension ADD COLUMN ${col} INTEGER NOT NULL DEFAULT 0`);
       }

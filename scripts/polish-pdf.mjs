@@ -35,12 +35,12 @@ const SCENES = [
     'A top-down guided tour: header spine of covered ▸ current (wide amber) ▸ upcoming steps, with the current step name. Mirrors the tested TourPlan.fromArchitecture {items,currentIndex} shape.' },
   { name: 'breadcrumb', skill: 'You-are-here breadcrumb', blurb:
     'The persistent "you are here" position trail (e.g. CORE › TOKEN REFRESH › 3/8) shown in the header inside a deep_dive pocket, over the scoped canvas.' },
-  { name: 'knowledge-layer', skill: 'Knowledge v2 — layer + deep, scoped to current view', blurb:
-    'Two-component model. The title block is the focused layer: ▶ replay, Quiz score + retake, Grill verdict, and LAYER (this node: shown=25% + tested) vs DEEP (roll-up of components) bars. Each component is filled with a continuous gradient = its combined knowledge, with a one-line "tested NN% ⓖ/ⓠ" readout and a green ✓ grill shield. No verbal confirmation — being shown the screen is the listening credit; only quiz/grill earns the rest.' },
-  { name: 'knowledge-components', skill: 'Knowledge v2 — drilled to leaf files', blurb:
-    'Drilled into Core. Leaf files have no roll-up, so their gradient fill is their OWN knowledge; the title still shows Core\'s layer (its own quiz) vs deep (mean of the leaf files). analyzer.ts is grill-passed (shield + tested 100% ⓖ); chunker.ts tested 33% ⓠ; audio-server.py untested.' },
-  { name: 'weak-spots-review', skill: 'Knowledge v2 — weak-spots review loop', blurb:
-    'The actionable "study this" loop: every weak/partial quiz/grill question becomes a row in the review panel on the current layer, tagged by source, with restudy ▶ and resolve ✓ (resolved items are retained for audit). This is the clear pathway to learn more + the supervisor/QA trail.' },
+  { name: 'knowledge-layer', skill: 'Knowledge v3 — Seen + Quiz/Grill', blurb:
+    'Two axes, both rolled up over node ∪ descendants. Title block: ▶ replay · ↻ quiz · ⚑ grill · SEEN bar (deep briefing-coverage incl. this node — 80% here: 4 of 5 seen) · QUIZ/GRILL bar (the BEST for THIS view only — "—" because the overview was never quizzed; NOT the components\' average). Each component shows two side-by-side bars with explicit numbers: S(een) coverage + Q(uiz/Grill) best. Shared S100/Q— ("seen, not proven") is now visibly distinct from Voice S0/Q— ("never seen"). No verbal confirmation; dwell = narration actually finished playing.' },
+  { name: 'knowledge-components', skill: 'Knowledge v3 — drilled to leaf files', blurb:
+    'Drilled into Core. Title SEEN 75% (3 of 4 in the subtree seen), QUIZ/GRILL 67% = Core\'s OWN best quiz (best-for-this-view, not the leaf summary). Leaf files each show their own S/Q bars: analyzer.ts S100 Q100 ✓ (grill-passed), chunker.ts S100 Q33, audio-server.py S0 Q— (never seen / never tested).' },
+  { name: 'weak-spots-review', skill: 'Knowledge v3 — weak-spots review loop', blurb:
+    'The actionable "study this" loop: every weak/partial quiz/grill question becomes a row in the review panel on the current layer, tagged by source, with restudy ▶ and resolve ✓ (resolved items retained for audit). The clear pathway to learn more + the supervisor/QA trail.' },
 ];
 
 const dataUri = (file) => {

@@ -278,20 +278,21 @@ export const SCENES: Scene[] = [
   },
   {
     name: 'knowledge-layer',
-    description: 'v2 current-layer title block: replay/quiz/grill + layer & deep bars; mixed component states + a grilled node',
+    description: 'v3 title block (Seen deep + best Quiz/Grill for this view) + component Seen/Quiz summary bars',
     seed: () => {
       seedBase({
-        scope: 'project', view: 'logic', title: 'Tetherline', subtitle: 'Knowledge model v2 — layer + deep',
+        scope: 'project', view: 'logic', title: 'Tetherline', subtitle: 'Knowledge v3 — Seen + Quiz/Grill',
         nodes: [
-          { id: 'project', label: 'Tetherline', description: 'AI-narrated weekly code review', role: 'source', weight: 1, level: 'heard', briefingId: 'project' },
-          // Core: shown + perfect quiz + grill-passed → high layer.
-          { id: 'module/core', label: 'Core', description: 'Git analysis, AI guide, TTS', role: 'transform', weight: 0.9, level: 'heard', quizCorrect: 3, quizTotal: 3, grillStrong: 4, grillAsked: 5, grilled: true, briefingId: 'module/core' },
-          // Frontend: shown + a regular quiz, no grill.
-          { id: 'module/frontend', label: 'Frontend', description: 'React room: voice, diagram, shelf', role: 'transform', weight: 0.8, level: 'heard', quizCorrect: 2, quizTotal: 3, briefingId: 'module/frontend' },
-          // Shared: shown only (taught, untested).
-          { id: 'module/shared', label: 'Shared', description: 'Types + constants across packages', role: 'guard', weight: 0.5, level: 'heard', briefingId: 'module/shared' },
-          // Voice: never surfaced (untouched).
-          { id: 'module/voice', label: 'Voice', description: 'Barge-in gate, narration streaming', role: 'sink', weight: 0.7, level: 'unknown', briefingId: 'module/voice' },
+          // Overview watched (seen) but never quizzed at the overview level.
+          { id: 'project', label: 'Tetherline', description: 'AI-narrated weekly code review', role: 'source', weight: 1, level: 'heard', seen: true, briefingId: 'project' },
+          // Core: seen + perfect quiz + grill-passed.
+          { id: 'module/core', label: 'Core', description: 'Git analysis, AI guide, TTS', role: 'transform', weight: 0.9, level: 'heard', seen: true, quizCorrect: 3, quizTotal: 3, grillStrong: 4, grillAsked: 5, grilled: true, briefingId: 'module/core' },
+          // Frontend: seen + a regular quiz, no grill.
+          { id: 'module/frontend', label: 'Frontend', description: 'React room: voice, diagram, shelf', role: 'transform', weight: 0.8, level: 'heard', seen: true, quizCorrect: 2, quizTotal: 3, briefingId: 'module/frontend' },
+          // Shared: seen only — never tested.
+          { id: 'module/shared', label: 'Shared', description: 'Types + constants across packages', role: 'guard', weight: 0.5, level: 'heard', seen: true, briefingId: 'module/shared' },
+          // Voice: never surfaced (never seen).
+          { id: 'module/voice', label: 'Voice', description: 'Barge-in gate, narration streaming', role: 'sink', weight: 0.7, level: 'unknown', seen: false, briefingId: 'module/voice' },
         ],
         edges: [
           { from: 'project', to: 'module/core', kind: 'contains' },
@@ -304,15 +305,15 @@ export const SCENES: Scene[] = [
   },
   {
     name: 'knowledge-components',
-    description: 'v2 drilled into Core — leaf files (no deep), own knowledge as the fill',
+    description: 'v3 drilled into Core — leaf files show their own Seen + Quiz/Grill summaries',
     seed: () => {
       seedBase({
-        scope: 'module/core', view: 'logic', title: 'Core', subtitle: 'Leaf files — own knowledge, no roll-up',
+        scope: 'module/core', view: 'logic', title: 'Core', subtitle: 'Leaf files — Seen + Quiz/Grill',
         nodes: [
-          { id: 'module/core', label: 'Core', description: 'The module', role: 'source', weight: 1, level: 'heard', quizCorrect: 2, quizTotal: 3, briefingId: 'module/core' },
-          { id: 'file/core/analyzer', label: 'analyzer.ts', description: 'LLM Q&A + skills', role: 'transform', weight: 0.8, level: 'heard', grillStrong: 5, grillAsked: 5, grilled: true },
-          { id: 'file/core/chunker', label: 'chunker.ts', description: 'Narration chunking', role: 'transform', weight: 0.7, level: 'heard', quizCorrect: 1, quizTotal: 3 },
-          { id: 'file/core/tts', label: 'audio-server.py', description: 'Whisper + Kokoro', role: 'sink', weight: 0.6, level: 'unknown' },
+          { id: 'module/core', label: 'Core', description: 'The module', role: 'source', weight: 1, level: 'heard', seen: true, quizCorrect: 2, quizTotal: 3, briefingId: 'module/core' },
+          { id: 'file/core/analyzer', label: 'analyzer.ts', description: 'LLM Q&A + skills', role: 'transform', weight: 0.8, level: 'heard', seen: true, grillStrong: 5, grillAsked: 5, grilled: true },
+          { id: 'file/core/chunker', label: 'chunker.ts', description: 'Narration chunking', role: 'transform', weight: 0.7, level: 'heard', seen: true, quizCorrect: 1, quizTotal: 3 },
+          { id: 'file/core/tts', label: 'audio-server.py', description: 'Whisper + Kokoro', role: 'sink', weight: 0.6, level: 'unknown', seen: false },
         ],
         edges: [
           { from: 'module/core', to: 'file/core/analyzer', kind: 'contains' },
@@ -324,7 +325,7 @@ export const SCENES: Scene[] = [
   },
   {
     name: 'weak-spots-review',
-    description: 'v2 weak-spots review panel expanded on the current layer',
+    description: 'v3 weak-spots review panel expanded on the current layer',
     seed: () => {
       getScene('knowledge-layer')?.seed();
       useSessionStore.setState({

@@ -159,7 +159,7 @@ export async function extractProjectLogicView(p: ExtractParams): Promise<Diagram
       ...n,
       ...(matchedModule
         ? comp(compMap, `module/${matchedModule}`)
-        : { level: undefined, grilled: false, quizCorrect: 0, quizTotal: 0, grillStrong: 0, grillAsked: 0 }),
+        : { level: undefined, grilled: false, seen: false, quizCorrect: 0, quizTotal: 0, grillStrong: 0, grillAsked: 0 }),
       briefingId: matchedModule ? `module/${matchedModule}` : undefined,
     };
   });
@@ -326,6 +326,7 @@ function topModules(repo: ContextCacheRepository, repoPath: string): ModuleCache
 interface CompCell {
   level: DiagramNode['level'];
   grilled: boolean;
+  seen: boolean;
   quizCorrect: number;
   quizTotal: number;
   grillStrong: number;
@@ -342,6 +343,7 @@ function comprehensionMap(
     out.set(item.itemId, {
       level: item.level as DiagramNode['level'],
       grilled: item.grilled === true,
+      seen: item.seen === true,
       quizCorrect: item.quizCorrect ?? 0,
       quizTotal: item.quizTotal ?? 0,
       grillStrong: item.grillStrong ?? 0,
@@ -358,6 +360,7 @@ function comp(map: Map<string, CompCell>, key: string): Omit<CompCell, never> {
   return {
     level: c?.level,
     grilled: c?.grilled ?? false,
+    seen: c?.seen ?? false,
     quizCorrect: c?.quizCorrect ?? 0,
     quizTotal: c?.quizTotal ?? 0,
     grillStrong: c?.grillStrong ?? 0,

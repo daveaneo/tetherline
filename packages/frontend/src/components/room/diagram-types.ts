@@ -20,6 +20,8 @@ export interface DiagramNode {
   /** Passed a grill / perfect quiz — a separate active-recall QA proof,
    *  independent of `level`. Surfaced as the node's shield badge. */
   grilled?: boolean;
+  /** v3: briefing narration actually finished playing (Seen-coverage). */
+  seen?: boolean;
   /** v2 active-recall ratios (live-overlaid; 0/0 = never tested). */
   quizCorrect?: number;
   quizTotal?: number;

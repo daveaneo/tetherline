@@ -70,23 +70,14 @@ export interface Leveled {
   quizTotal?: number;
   grillStrong?: number;
   grillAsked?: number;
+  /** v3: the node's briefing narration actually finished playing (a
+   *  real dwell signal — shown-and-played, not merely emitted). The
+   *  sole input to the Seen-coverage metric. */
+  seen?: boolean;
 }
 
-// ── Knowledge model v2 (docs/KNOWLEDGE-MODEL-SPEC.md) ──────────────
-// Two components: taught (presentation, auto-credited) + tested
-// (quiz/grill, the real signal). Weights lowered because being shown
-// the screen is now free — it must not read as "40% known".
-export const LISTEN_W = 0.25;
-export const TEST_W = 0.75;
-
+// ── Active-recall ratios (docs/KNOWLEDGE-MODEL-SPEC.md) ────────────
 export type TestedTier = 'grill' | 'regular' | 'none';
-
-/** A node was "taught" once its layer was presented — which the event
- *  stream records as reaching `heard` (briefing delivered / navigated
- *  to). Nothing above `heard` is set passively any more. */
-export function taught(n: Leveled): 0 | 1 {
-  return levelOrdinal(n.level) >= 2 ? 1 : 0;
-}
 
 export function regularRatio(n: Leveled): number {
   return n.quizTotal && n.quizTotal > 0 ? (n.quizCorrect ?? 0) / n.quizTotal : 0;
@@ -108,59 +99,93 @@ export function testedTier(n: Leveled): TestedTier {
   return 'none';
 }
 
-/** This node's OWN knowledge, 0..100: a weighted blend of being shown
- *  the material (cheap) and proving it (the bulk). */
-export function layerKnowledge(n: Leveled): number {
-  return Math.round(100 * (LISTEN_W * taught(n) + TEST_W * tested(n)));
+
+// ── Knowledge model v3 (docs/KNOWLEDGE-MODEL-SPEC.md) ──────────────
+// Two axes per node, both summarised over node ∪ descendants:
+//  • Seen   = % of briefings in the subtree whose narration actually
+//             finished playing (real dwell — not "we emitted it").
+//             Count-based ⇒ inherently slide-weighted; a parent is the
+//             same formula one level up; a node counts ITS OWN briefing
+//             so a watched overview is never 0.  "layer" is gone —
+//             visiting a level is just one more seen unit.
+//  • Tested = best of regular-quiz (correct/asked) and grill
+//             (strong/asked).  Component shows the SUBTREE AVERAGE of
+//             best scores; the title shows the BEST for THIS view only
+//             (its own test), null ⇒ "—" (never taken).
+export function bestTestPct(n: Leveled): number {
+  return Math.round(Math.max(regularRatio(n), grillRatio(n)) * 100);
+}
+export function hasTest(n: Leveled): boolean {
+  return (n.quizTotal ?? 0) > 0 || (n.grillAsked ?? 0) > 0;
 }
 
-export interface RolledScore {
-  /** This node's own knowledge (§2 layer). */
-  layer: number;
-  /** Roll-up of descendants (mean of children's `combined`); null for
-   *  a leaf (nothing beneath). */
-  deep: number | null;
-  /** What this node contributes to its parent's deep: leaf → layer;
-   *  else → mean(layer, deep). Also the node's gradient-fill value. */
-  combined: number;
-  testedTier: TestedTier;
+export interface KnowledgeRoll {
+  /** Seen %, over node ∪ descendants (slide-weighted by count). */
+  seenPct: number;
+  seenCount: number;
+  total: number;
+  /** Subtree average of each item's best test score (0..100) —
+   *  the COMPONENT readout. */
+  testedSummary: number;
+  /** This node's OWN best test score, or null if never tested —
+   *  the TITLE readout ("best for this view, not the summary"). */
+  ownBest: number | null;
+  ownTier: TestedTier;
+  /** This node's own briefing was seen (for the per-node dot/state). */
+  seen: boolean;
   grilled: boolean;
 }
 
-/** Hierarchical roll-up. Generic over (per-node inputs, parent→children
- *  adjacency) so it works for one diagram payload (adjacency from
- *  `contains` edges) or the full-repo item tree (adjacency from itemId
- *  prefixes). Pure, memoized, cycle-guarded. */
-export function rollUp(
+/** Subtree roll-up for the v3 model. Pure, memoized, cycle-guarded.
+ *  Generic over (per-node inputs, parent→children adjacency). */
+export function knowledgeRollUp(
   byId: Map<string, Leveled>,
   childrenOf: Map<string, readonly string[]>,
-): Map<string, RolledScore> {
-  const out = new Map<string, RolledScore>();
+): Map<string, KnowledgeRoll> {
+  const subtreeCache = new Map<string, string[]>();
   const visiting = new Set<string>();
 
-  const compute = (id: string): RolledScore => {
-    const cached = out.get(id);
-    if (cached) return cached;
-    const input = byId.get(id) ?? {};
-    const layer = layerKnowledge(input);
-    const tier = testedTier(input);
-    const grilled = input.grilled === true;
-    // Cycle guard: a node mid-computation contributes as a leaf.
-    const kids = visiting.has(id) ? [] : (childrenOf.get(id) ?? []).filter(c => byId.has(c));
-    let deep: number | null = null;
-    if (kids.length > 0) {
+  // ids of node ∪ all descendants (cycle-guarded, deduped).
+  const subtree = (id: string): string[] => {
+    const c = subtreeCache.get(id);
+    if (c) return c;
+    const acc = new Set<string>([id]);
+    if (!visiting.has(id)) {
       visiting.add(id);
-      const mean = kids.reduce((s, c) => s + compute(c).combined, 0) / kids.length;
+      for (const k of childrenOf.get(id) ?? []) {
+        if (!byId.has(k)) continue;
+        for (const d of subtree(k)) acc.add(d);
+      }
       visiting.delete(id);
-      deep = Math.round(mean);
     }
-    const combined = deep === null ? layer : Math.round((layer + deep) / 2);
-    const r: RolledScore = { layer, deep, combined, testedTier: tier, grilled };
-    out.set(id, r);
-    return r;
+    const arr = [...acc];
+    subtreeCache.set(id, arr);
+    return arr;
   };
 
-  for (const id of byId.keys()) compute(id);
+  const out = new Map<string, KnowledgeRoll>();
+  for (const id of byId.keys()) {
+    const ids = subtree(id);
+    const total = ids.length;
+    let seenCount = 0;
+    let testSum = 0;
+    for (const d of ids) {
+      const n = byId.get(d) ?? {};
+      if (n.seen === true) seenCount += 1;
+      testSum += bestTestPct(n);
+    }
+    const self = byId.get(id) ?? {};
+    out.set(id, {
+      seenPct: total > 0 ? Math.round((100 * seenCount) / total) : 0,
+      seenCount,
+      total,
+      testedSummary: total > 0 ? Math.round(testSum / total) : 0,
+      ownBest: hasTest(self) ? bestTestPct(self) : null,
+      ownTier: testedTier(self),
+      seen: self.seen === true,
+      grilled: self.grilled === true,
+    });
+  }
   return out;
 }
 
@@ -177,35 +202,6 @@ export function containsAdjacency(
     m.set(e.from, arr);
   }
   return m;
-}
-
-export interface KnowledgeScore {
-  /** Weighted comprehension as a % of EVERY node (untouched = 0).
-   *  An honest whole-project progress bar for the supervisor view. */
-  score: number;
-  /** % of nodes that have passed a grill/perfect-quiz (QA proof). */
-  grillCoverage: number;
-  /** Total nodes considered (the denominator). */
-  counted: number;
-}
-
-/** Project-wide knowledge score. Denominator is ALL items ("% of
- *  everything", per product decision) — untouched nodes drag it down,
- *  so it only rises as the user genuinely learns. Never NaN. */
-export function projectKnowledgeScore(items: readonly Leveled[]): KnowledgeScore {
-  const counted = items.length;
-  if (counted === 0) return { score: 0, grillCoverage: 0, counted: 0 };
-  let weight = 0;
-  let grilled = 0;
-  for (const it of items) {
-    weight += levelOrdinal(it.level) / 5;
-    if (it.grilled === true) grilled += 1;
-  }
-  return {
-    score: Math.round((100 * weight) / counted),
-    grillCoverage: Math.round((100 * grilled) / counted),
-    counted,
-  };
 }
 
 /** Overlay live comprehension onto structural diagram nodes. The
@@ -228,6 +224,7 @@ export function applyComprehension<
       ...n,
       level: hit.level,
       grilled: hit.grilled === true,
+      seen: hit.seen === true,
       quizCorrect: hit.quizCorrect,
       quizTotal: hit.quizTotal,
       grillStrong: hit.grillStrong,

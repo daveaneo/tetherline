@@ -3,16 +3,10 @@ import {
   levelOrdinal,
   levelHeatStep,
   nextLevelTrigger,
-  projectKnowledgeScore,
   applyComprehension,
-  taught,
   tested,
   testedTier,
-  layerKnowledge,
-  rollUp,
   containsAdjacency,
-  LISTEN_W,
-  TEST_W,
   LEVEL_LABEL,
   LEVEL_REACHED_BY,
   COMPREHENSION_ORDER,
@@ -51,64 +45,11 @@ describe('comprehension model — single source of truth', () => {
     expect(nextLevelTrigger('confirmed')).toBeNull();
   });
 
-  describe('projectKnowledgeScore — "% of everything"', () => {
-    it('empty → all zero, never NaN', () => {
-      expect(projectKnowledgeScore([])).toEqual({ score: 0, grillCoverage: 0, counted: 0 });
-    });
-
-    it('all confirmed → 100', () => {
-      const items = Array.from({ length: 4 }, () => ({ level: 'confirmed' as const }));
-      expect(projectKnowledgeScore(items).score).toBe(100);
-    });
-
-    it('untouched nodes drag the score down (counted in denominator)', () => {
-      // 12 nodes, 3 confirmed (weight 1), 9 unknown (weight 0)
-      const items = [
-        ...Array.from({ length: 3 }, () => ({ level: 'confirmed' as const })),
-        ...Array.from({ length: 9 }, () => ({ level: 'unknown' as const })),
-      ];
-      // (3 * 1.0) / 12 = 25%
-      expect(projectKnowledgeScore(items)).toMatchObject({ score: 25, counted: 12 });
-    });
-
-    it('mixed levels → exact weighted average', () => {
-      // ords: 5,4,2,0 → weights 1, .8, .4, 0 → sum 2.2 / 4 = 55%
-      const items = [
-        { level: 'confirmed' as const },
-        { level: 'explained' as const },
-        { level: 'heard' as const },
-        { level: 'unknown' as const },
-      ];
-      expect(projectKnowledgeScore(items).score).toBe(55);
-    });
-
-    it('grillCoverage is independent of score', () => {
-      // all explained (score 80) but only half grilled (coverage 50)
-      const items = [
-        { level: 'explained' as const, grilled: true },
-        { level: 'explained' as const, grilled: true },
-        { level: 'explained' as const },
-        { level: 'explained' as const },
-      ];
-      const r = projectKnowledgeScore(items);
-      expect(r.score).toBe(80);
-      expect(r.grillCoverage).toBe(50);
-    });
-  });
-
-  describe('v2 two-component scoring', () => {
-    it('taught is presentation-only (>= heard), no verbal confirmation', () => {
-      expect(taught({ level: 'unknown' })).toBe(0);
-      expect(taught({ level: 'mentioned' })).toBe(0); // below heard
-      expect(taught({ level: 'heard' })).toBe(1);
-      expect(taught({ level: 'confirmed' })).toBe(1);
-    });
-
-    it('tested = best of regular vs grill ratio, monotonic', () => {
+  describe('active-recall ratio helpers', () => {
+    it('tested = best of regular vs grill ratio', () => {
       expect(tested({})).toBe(0);
       expect(tested({ quizCorrect: 2, quizTotal: 3 })).toBeCloseTo(2 / 3);
       expect(tested({ grillStrong: 4, grillAsked: 5 })).toBe(0.8);
-      // best of the two
       expect(tested({ quizCorrect: 1, quizTotal: 3, grillStrong: 4, grillAsked: 5 })).toBe(0.8);
     });
 
@@ -118,41 +59,58 @@ describe('comprehension model — single source of truth', () => {
       expect(testedTier({ grillAsked: 4 })).toBe('grill');
       expect(testedTier({ grilled: true })).toBe('grill');
     });
+  });
 
-    it('layerKnowledge blends taught (0.25) + tested (0.75)', () => {
-      expect(LISTEN_W).toBe(0.25);
-      expect(TEST_W).toBe(0.75);
-      expect(layerKnowledge({ level: 'unknown' })).toBe(0);
-      expect(layerKnowledge({ level: 'heard' })).toBe(25); // shown, untested
-      expect(layerKnowledge({ level: 'heard', quizCorrect: 3, quizTotal: 3 })).toBe(100);
-      expect(layerKnowledge({ level: 'heard', grillStrong: 4, grillAsked: 5 })).toBe(85);
-    });
-
-    it('rollUp: leaf has no deep; parent deep = mean of children combined', () => {
+  describe('v3 knowledgeRollUp — Seen coverage + tested summary', () => {
+    it('Seen% = seen briefings / total over node ∪ descendants (slide-weighted), title counts its own node', async () => {
+      const { knowledgeRollUp, containsAdjacency } = await import('@tetherline/shared');
       const byId = new Map<string, any>([
-        ['project', { level: 'heard' }],                               // layer 25
-        ['module/core', { level: 'heard', quizCorrect: 3, quizTotal: 3 }], // leaf, layer 100
-        ['module/voice', { level: 'unknown' }],                        // leaf, layer 0
+        ['project', { seen: true }],                 // overview watched
+        ['module/core', { seen: true, quizCorrect: 3, quizTotal: 3, grilled: true }],
+        ['module/frontend', { seen: true, quizCorrect: 2, quizTotal: 3 }],
+        ['module/shared', { seen: false }],          // never played
+        ['module/voice', { seen: false }],
       ]);
-      const childrenOf = containsAdjacency([
+      const adj = containsAdjacency([
         { from: 'project', to: 'module/core', kind: 'contains' },
+        { from: 'project', to: 'module/frontend', kind: 'contains' },
+        { from: 'project', to: 'module/shared', kind: 'contains' },
         { from: 'project', to: 'module/voice', kind: 'contains' },
-        { from: 'module/core', to: 'module/voice', kind: 'imports' }, // ignored
       ]);
-      const r = rollUp(byId, childrenOf);
-      expect(r.get('module/core')!.deep).toBeNull();
-      expect(r.get('module/core')!.combined).toBe(100);
-      expect(r.get('module/voice')!.combined).toBe(0);
-      // project deep = mean(100, 0) = 50; combined = mean(layer 25, deep 50) = 38
-      expect(r.get('project')!.deep).toBe(50);
-      expect(r.get('project')!.layer).toBe(25);
-      expect(r.get('project')!.combined).toBe(38);
+      const r = knowledgeRollUp(byId, adj);
+      // project subtree = 5 nodes, 3 seen (project, core, frontend) → 60%
+      expect(r.get('project')!).toMatchObject({ seenCount: 3, total: 5, seenPct: 60 });
+      // a leaf component = just itself
+      expect(r.get('module/core')!).toMatchObject({ seenCount: 1, total: 1, seenPct: 100 });
+      expect(r.get('module/shared')!.seenPct).toBe(0);
     });
 
-    it('rollUp is cycle-guarded', () => {
-      const byId = new Map<string, any>([['a', { level: 'heard' }], ['b', { level: 'heard' }]]);
-      const childrenOf = new Map<string, string[]>([['a', ['b']], ['b', ['a']]]);
-      expect(() => rollUp(byId, childrenOf)).not.toThrow();
+    it('tested: component = subtree avg-of-best; title = OWN best (null → —)', async () => {
+      const { knowledgeRollUp, containsAdjacency } = await import('@tetherline/shared');
+      const byId = new Map<string, any>([
+        ['project', { seen: true }], // overview itself never quizzed
+        ['module/core', { seen: true, grillStrong: 4, grillAsked: 5, grilled: true }], // best 80
+        ['module/frontend', { seen: true, quizCorrect: 2, quizTotal: 3 }], // best 67
+      ]);
+      const adj = containsAdjacency([
+        { from: 'project', to: 'module/core', kind: 'contains' },
+        { from: 'project', to: 'module/frontend', kind: 'contains' },
+      ]);
+      const r = knowledgeRollUp(byId, adj);
+      // title: own best = null (overview never tested) → "—"
+      expect(r.get('project')!.ownBest).toBeNull();
+      // title component-summary = avg(0 project, 80 core, 67 frontend) = 49
+      expect(r.get('project')!.testedSummary).toBe(49);
+      // a component shows its own subtree summary (leaf → its own best)
+      expect(r.get('module/core')!.ownBest).toBe(80);
+      expect(r.get('module/core')!.testedSummary).toBe(80);
+    });
+
+    it('cycle-guarded', async () => {
+      const { knowledgeRollUp } = await import('@tetherline/shared');
+      const byId = new Map<string, any>([['a', { seen: true }], ['b', { seen: false }]]);
+      const adj = new Map<string, string[]>([['a', ['b']], ['b', ['a']]]);
+      expect(() => knowledgeRollUp(byId, adj)).not.toThrow();
     });
   });
 

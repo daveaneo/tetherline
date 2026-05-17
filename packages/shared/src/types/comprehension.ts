@@ -31,6 +31,10 @@ export interface ComprehensionItem {
    *  quiz (3/3). A SEPARATE active-recall QA proof — independent of and
    *  monotonic vs `level` (never set by passive observation). */
   grilled?: boolean;
+  /** v3: the node's briefing narration actually finished playing
+   *  (real dwell — shown-and-played, not merely emitted). Sole input
+   *  to the Seen-coverage metric. */
+  seen?: boolean;
   /** v2: last regular quiz result (0/0 = never taken). */
   quizCorrect?: number;
   quizTotal?: number;
