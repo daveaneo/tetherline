@@ -57,8 +57,6 @@ interface ChildrenInfo {
   visible: (Level | undefined)[];
   /** Total number of direct children (may exceed PIP_MAX). */
   total: number;
-  /** How many children are at level=confirmed. Drives the crown. */
-  confirmed: number;
 }
 
 /** Maximum pips shown below a node before overflowing as "+N". Miller's
@@ -320,8 +318,7 @@ export function HermesDiagram() {
         .sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0));
       const total = children.length;
       const visible = children.slice(0, PIP_MAX).map(c => c.level);
-      const confirmed = children.filter(c => levelOrdinal(c.level) >= 5).length;
-      out.set(n.id, { visible, total, confirmed });
+      out.set(n.id, { visible, total });
     }
     return out;
   }, [payload]);
@@ -875,14 +872,6 @@ interface NodeViewProps {
 
 function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, concern, pinned, dimmed, blastHop, roll, childrenInfo, onClick }: NodeViewProps) {
   const [hover, setHover] = useState(false);
-  // Own-layer comprehension drives the BATTERY FILL of the node body.
-  // The whole shape changes with knowledge — `unknown` is an empty
-  // outline, `confirmed` is fully warm gold. The peripheral bar +
-  // halo treatment never read intuitively; the body fill makes the
-  // signal impossible to miss.
-  const ownLevel = node.level;
-  const ownOrdinal = levelOrdinal(ownLevel);  // 0..5 (crown logic only)
-  const ownColor = levelColor(ownLevel);
   // v3: two summary axes (subtree roll-up). Colour encodes only the
   // 4-state category; the precise numbers are the two bars below.
   const seenPct = roll?.seenPct ?? 0;
@@ -911,16 +900,12 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
   const subSize = node.isCenter ? 13 : 12;
   const lineHeight = subSize * 1.4;
 
-  // Crown ★ — fires when both own=confirmed AND every visible child pip
-  // is confirmed (i.e., what the user can SEE on this node is fully
-  // known). Doesn't require transitive completeness, just the visible
-  // set. The reward is glance-readable: a node is "done" when crowned.
-  const visibleChildrenAllConfirmed =
-    !!childrenInfo &&
-    childrenInfo.visible.length > 0 &&
-    childrenInfo.visible.every(l => levelOrdinal(l) >= 5);
-  const ownConfirmed = ownOrdinal >= 5;
-  const showCrown = ownConfirmed && (childrenInfo?.visible.length === 0 || visibleChildrenAllConfirmed);
+  // Mastery ★ (v3) — grilled (the active-recall QA proof) AND the
+  // whole subtree seen (seenPct 100). The glance-readable "done":
+  // you've been through all of it and proven it. Replaces the dead
+  // level≥confirmed trigger (confirmed is unreachable post-v2).
+  const mastered = roll?.grilled === true && (roll?.seenPct ?? 0) >= 100;
+  const showCrown = mastered;
 
   // Polished layout: wider rect (3.6× radius vs old 3.1×) so subtitle
   // text has horizontal room to breathe. Height grows with line count
@@ -969,15 +954,16 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
       data-testid={`hd-node-${node.id}`}
       data-active={active ? 'true' : 'false'}
     >
-      {/* Heatmap overlay (B1) — additive cold→warm comprehension wash
-       *  behind the node body. Rendered FIRST so it sits behind all
-       *  content; purely additive, never replaces the body fill or the
-       *  layout. Active only during whats_changed project-scope. */}
+      {/* Heatmap overlay (B1, v3) — additive comprehension wash behind
+       *  the node body during whats_changed. Re-keyed off the v3 state
+       *  colour + Seen intensity (was the now-collapsed `level`), so it
+       *  reaches its warmest tier and stays consistent with the node's
+       *  S/Q signal. Purely additive; never replaces body/layout. */}
       {heatmapOverlay && (
         <circle
           r={node.radius + 8}
-          fill={ownColor ?? 'oklch(0.30 0.015 65)'}
-          opacity={ownOrdinal === 0 ? 0.08 : 0.20}
+          fill={kState === 'none' ? 'var(--ink-300)' : stateColor}
+          opacity={kState === 'none' ? 0.06 : 0.10 + (seenPct / 100) * 0.18}
         />
       )}
       {/* Critique concern tint (B5) — additive worry wash on nodes
@@ -1105,7 +1091,7 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
         stroke={
           hover
             ? 'oklch(0.55 0.10 70)'
-            : ownConfirmed
+            : mastered
               ? 'oklch(0.62 0.10 75)'
               : touched
                 ? 'oklch(0.55 0.08 75)'
