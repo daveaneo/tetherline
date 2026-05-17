@@ -33,7 +33,6 @@ import {
   levelOrdinal,
   rollUp,
   containsAdjacency,
-  tested as testedRatio,
   testedTier,
   type RolledScore,
 } from '@tetherline/shared';
@@ -884,17 +883,26 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
   const ownLevel = node.level;
   const ownOrdinal = levelOrdinal(ownLevel);  // 0..5 (crown logic only)
   const ownColor = levelColor(ownLevel);
-  // v2: the body is a CONTINUOUS gradient of `combined` knowledge
-  // (this node's own layer for a leaf, else blended with its deep
-  // roll-up) — "fill each component with a gradient that shows the
-  // deep-knowledge level". 0 → dark ink; 100 → full warm heat. One
-  // clear axis (no level conflation), so no muddiness; cream text
-  // stays legible because the mix tops out at 36% heat into ink.
   const combined = rolled?.combined ?? 0;
+  // v2.1: a continuous colour ramp is unreadable at node size on a
+  // dark canvas (recurring complaint). Colour now encodes only the
+  // 4-state CATEGORY (perceptually distinct, not a ramp); the precise
+  // value lives in the chip below as a number + bar. State: mastered
+  // (grilled) → tested → shown (taught, untested) → not-shown.
+  const kState: 'mastered' | 'tested' | 'shown' | 'none' =
+    node.grilled === true ? 'mastered'
+      : testedTier(node) !== 'none' ? 'tested'
+        : ownOrdinal >= 2 ? 'shown'
+          : 'none';
+  const stateColor =
+    kState === 'mastered' ? 'var(--sig-okay)'
+      : kState === 'tested' ? 'var(--amber-400)'
+        : kState === 'shown' ? 'var(--cream-500)'
+          : 'var(--ink-300)';
   const bodyFill =
-    combined <= 0
+    kState === 'none'
       ? 'var(--ink-050)'
-      : `color-mix(in oklch, var(--heat-5) ${Math.round(8 + combined * 0.28)}%, var(--ink-050))`;
+      : `color-mix(in oklch, ${stateColor} 14%, var(--ink-050))`;
   const titleFill = 'var(--cream-100, #f4ebe1)';
   const subFill = 'var(--cream-500, #b8a99a)';
   // Title size tracks node size — center has the biggest type. The
@@ -1148,29 +1156,53 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
        *  none = untested). Full controls appear when this node is
        *  focused (becomes the title — see KnowledgeStrip). */}
       {(() => {
-        const t = testedRatio(node);
-        const tier = testedTier(node);
-        const y = rectHeight / 2 + 14;
-        const txt =
-          tier === 'none'
-            ? 'untested'
-            : `tested ${Math.round(t * 100)}% ${tier === 'grill' ? 'ⓖ' : 'ⓠ'}`;
+        // Status chip: state DOT (categorical colour) + value BAR
+        // (length, not colour-darkness) + explicit NUMBER. Legible at
+        // any size; the 4 states are perceptually distinct so shown
+        // (untested) and never-shown no longer collapse together.
+        const y = rectHeight / 2 + 16;
+        const dotR = 3.5;
+        const barW = 52;
+        const barH = 5;
+        const gap = 6;
+        const showBar = kState === 'tested' || kState === 'mastered';
+        const frac = Math.max(0, Math.min(1, combined / 100));
+        const valTxt = kState === 'none' ? '—' : kState === 'shown' ? 'shown' : `${combined}%`;
+        const valW = valTxt.length * 6.2 + (kState === 'mastered' ? 11 : 0);
+        const totalW = dotR * 2 + gap + barW + gap + valW;
+        const x0 = -totalW / 2;
+        const barX = x0 + dotR * 2 + gap;
         return (
-          <text
-            data-testid={`hd-tested-${node.id}`}
-            textAnchor="middle"
-            x={0}
-            y={y}
-            style={{
-              fontFamily: 'var(--mono, "Geist Mono", ui-monospace, monospace)',
-              fontSize: 10,
-              letterSpacing: '0.06em',
-              fill: tier === 'none' ? 'var(--cream-500, #b8a99a)' : 'var(--cream-300, var(--cream-400))',
-              opacity: tier === 'none' ? 0.6 : 0.95,
-            }}
-          >
-            {txt}
-          </text>
+          <g data-testid={`hd-status-${node.id}`} aria-label={`knowledge: ${kState} ${valTxt}`}>
+            {/* state dot — filled (tested/mastered) · hollow (shown) ·
+             *  faint (never shown) */}
+            <circle
+              cx={x0 + dotR} cy={y} r={kState === 'none' ? 2 : dotR}
+              fill={kState === 'shown' || kState === 'none' ? 'none' : stateColor}
+              stroke={stateColor}
+              strokeWidth={kState === 'shown' ? 1.25 : kState === 'none' ? 1 : 0}
+              opacity={kState === 'none' ? 0.5 : 1}
+            />
+            {/* value track + fill (length encodes the number) */}
+            <rect x={barX} y={y - barH / 2} width={barW} height={barH} rx={2} fill="var(--ink-100)" />
+            {showBar && (
+              <rect x={barX} y={y - barH / 2} width={barW * frac} height={barH} rx={2} fill={stateColor} />
+            )}
+            {/* explicit number / label */}
+            <text
+              x={barX + barW + gap} y={y}
+              dominantBaseline="central"
+              style={{
+                fontFamily: 'var(--mono, "Geist Mono", ui-monospace, monospace)',
+                fontSize: 10,
+                letterSpacing: '0.04em',
+                fill: showBar ? stateColor : 'var(--cream-500, #b8a99a)',
+                opacity: kState === 'none' ? 0.6 : 1,
+              }}
+            >
+              {valTxt}{kState === 'mastered' ? ' ✓' : ''}
+            </text>
+          </g>
         );
       })()}
       {/* Pip row — one dot per direct child, capped at PIP_MAX, colored
@@ -1240,29 +1272,8 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
           ★
         </text>
       )}
-      {/* Grill shield — the SEPARATE active-recall QA proof (passed a
-       *  grill or a perfect quiz), distinct from passive `level`.
-       *  Upper-left so it never collides with the pin (upper-right) or
-       *  crown (top-center). Green `--sig-okay` reads as "verified",
-       *  unmistakable vs the amber ramp. Absent when not earned — a
-       *  rare mark, like the crown. */}
-      {node.grilled && (
-        <g
-          transform={`translate(${-node.radius * 0.92}, ${-node.radius * 0.92})`}
-          aria-label="Grilled — passed a grill or perfect quiz"
-        >
-          <path
-            d="M0,-8 L7,-4 L7,3 C7,7 0,9 0,9 C0,9 -7,7 -7,3 L-7,-4 Z"
-            style={{ fill: 'var(--sig-okay)', stroke: 'var(--ink-050)', strokeWidth: 1.5 }}
-          />
-          <text
-            x={0} y={1} textAnchor="middle" dominantBaseline="central"
-            style={{ fontSize: 9, fontWeight: 700, fill: 'var(--ink-000)' }}
-          >
-            ✓
-          </text>
-        </g>
-      )}
+      {/* (Grill proof now lives in the status chip: green state +
+       *  trailing ✓ — no separate shield, one signal not two.) */}
     </g>
   );
 }
