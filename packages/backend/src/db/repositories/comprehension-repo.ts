@@ -187,6 +187,29 @@ export class ComprehensionRepository {
     this.upsert({ ...existing, seen: true, lastTouchedAt: new Date().toISOString() });
   }
 
+  /** v3 staleness: the briefing's content changed (sourceHash drift),
+   *  so the prior PROOF is invalid — clear grilled + quiz/grill ratios
+   *  + seen, and degrade the level to 'heard' (you knew the OLD
+   *  version; the depth-lock "tether" semantics, unchanged). Replaces
+   *  the v2 level-only degrade so a changed item re-counts as a gap. */
+  markStale(repoPath: string, itemId: string): void {
+    const existing = this.get(repoPath, itemId);
+    if (!existing) return;
+    const idx = COMPREHENSION_ORDER.indexOf(existing.level);
+    const level = idx > COMPREHENSION_ORDER.indexOf('heard') ? 'heard' : existing.level;
+    this.upsert({
+      ...existing,
+      level,
+      seen: false,
+      grilled: false,
+      quizCorrect: 0,
+      quizTotal: 0,
+      grillStrong: 0,
+      grillAsked: 0,
+      lastTouchedAt: new Date().toISOString(),
+    });
+  }
+
   /** Persist the last regular-quiz result (monotonic — only keeps the
    *  best mastery ratio so a worse retake never lowers the score).
    *  Requires the item to exist (caller observes it first). */
@@ -239,16 +262,6 @@ export class ComprehensionRepository {
           `SELECT * FROM weak_spots WHERE repo_path = ? AND resolved_at IS NULL ORDER BY created_at`,
         ).all(repoPath);
     return (rows as WeakSpotRow[]).map(rowToWeakSpot);
-  }
-
-  /** Regress an item's level (e.g. staleness after code changes). */
-  degrade(repoPath: string, itemId: string, toLevel: ComprehensionLevel): void {
-    const existing = this.get(repoPath, itemId);
-    if (!existing) return;
-    const currentIdx = COMPREHENSION_ORDER.indexOf(existing.level);
-    const targetIdx = COMPREHENSION_ORDER.indexOf(toLevel);
-    if (targetIdx >= currentIdx) return;
-    this.upsert({ ...existing, level: toLevel, lastTouchedAt: new Date().toISOString() });
   }
 
   buildMap(repoPath: string): ComprehensionMap {

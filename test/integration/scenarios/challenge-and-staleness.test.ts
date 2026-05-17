@@ -104,8 +104,8 @@ describe('S10/S12 — staleness + challenge flow', () => {
     expect(map.items.find(i => i.itemId === 'module/payments')!.level).toBe('explained');
   });
 
-  it('S10 — staleness: warmer degrades confirmed items when briefing sourceHash drifts', async () => {
-    // Seed a briefing + confirmed comprehension item with matching sourceHash
+  it('S10 — staleness: warmer fully resets a proven item when briefing sourceHash drifts (v3)', async () => {
+    // Seed a briefing + a fully-proven comprehension item with matching sourceHash
     h.server.db.getBriefingRepo().upsert({
       repoPath: FIXTURE, id: 'module/old', layer: 'module', title: 'old',
       opener: 'The old module.',
@@ -115,7 +115,8 @@ describe('S10/S12 — staleness + challenge flow', () => {
     });
     h.server.db.getComprehensionRepo().upsert({
       repoPath: FIXTURE, itemId: 'module/old', layer: 'module', label: 'old',
-      level: 'confirmed', narrationSecondsHeard: 10, questionsAsked: 1,
+      level: 'explained', narrationSecondsHeard: 10, questionsAsked: 1,
+      seen: true, grilled: true, quizCorrect: 3, quizTotal: 3,
       lastTouchedAt: new Date().toISOString(), lastSessionId: 'prev',
     });
 
@@ -142,8 +143,13 @@ describe('S10/S12 — staleness + challenge flow', () => {
     );
     expect(result.staled).toEqual(expect.arrayContaining(['module/old']));
 
-    // The comprehension item should have degraded confirmed → heard
+    // v3: content changed → the PROOF is stale. Level degrades to
+    // 'heard' (knew the old version); grilled/quiz/seen all cleared so
+    // it re-counts as a gap until re-proven on the new content.
     const item = h.server.db.getComprehensionRepo().get(FIXTURE, 'module/old');
     expect(item!.level).toBe('heard');
+    expect(item!.seen).toBe(false);
+    expect(item!.grilled).toBe(false);
+    expect(item!.quizTotal).toBe(0);
   });
 });

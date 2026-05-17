@@ -32,11 +32,18 @@ export async function warmBriefings(
       skipped += 1;
       continue;
     }
-    // sourceHash changed (or new briefing) — staleness signal.
+    // sourceHash changed (or new briefing) — staleness signal. v3: any
+    // prior signal (seen / grilled / quiz / grill) is now invalid since
+    // the content changed; full reset so it re-counts as a gap.
     if (existing && comprehensionRepo) {
       const item = comprehensionRepo.get(repoPath, briefing.id);
-      if (item && (item.level === 'confirmed' || item.level === 'explained')) {
-        comprehensionRepo.degrade(repoPath, briefing.id, 'heard');
+      const hadProgress =
+        !!item &&
+        (item.seen === true || item.grilled === true ||
+          (item.quizTotal ?? 0) > 0 || (item.grillAsked ?? 0) > 0 ||
+          item.level !== 'unknown');
+      if (hadProgress) {
+        comprehensionRepo.markStale(repoPath, briefing.id);
         staled.push(briefing.id);
       }
     }
