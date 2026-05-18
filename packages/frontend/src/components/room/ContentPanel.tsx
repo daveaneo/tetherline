@@ -82,12 +82,11 @@ export function ContentPanel() {
         </AnimatePresence>
 
         {/* Skill result overlay -- takes priority when present.
-         *  whats_changed is narration + diagram-heatmap only (no card):
-         *  the recap is spoken via HermesText and the warm field IS the
-         *  visual, so the generic skill card would just be a raw
-         *  skill-id "document". */}
+         *  Full-bleed MODE skills (whats_changed, grill_me) carry
+         *  themselves via their own surface + voice + HermesText; the
+         *  generic card would just be a raw skill-id "document". */}
         <AnimatePresence>
-          {skillResult && skillResult.skillName !== 'whats_changed' && (
+          {skillResult && !['whats_changed', 'grill_me'].includes(skillResult.skillName) && (
             <motion.div
               key="skill-result"
               initial={{ opacity: 0, y: -10 }}
