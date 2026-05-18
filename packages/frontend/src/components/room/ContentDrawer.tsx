@@ -33,10 +33,12 @@ export function ContentDrawer() {
   // Determine if drawer should be open and what to show
   let drawerContent: 'code' | 'diff' | 'skill' | 'conversation' | null = null;
 
-  // whats_changed is narration + diagram-heatmap only — never a drawer
-  // card (the recap is spoken; the warm field IS the visual). A raw
-  // skill-id card here was the "document that says whats_changed" bug.
-  if (skillResult && skillResult.skillName !== 'whats_changed') {
+  // Full-bleed MODE skills own the whole canvas via their own surface
+  // (whats_changed → spoken recap + diagram heatmap; grill_me → the
+  // calm `?` screen + voice + HermesText Q&A). A drawer card for these
+  // only renders a raw skill-id "document" — the "document that says
+  // whats_changed" / leaked "grill_me" bug. Never a card for them.
+  if (skillResult && !['whats_changed', 'grill_me'].includes(skillResult.skillName)) {
     drawerContent = 'skill';
   } else if (visualCue?.type === 'show_code' && visualCue.code) {
     drawerContent = 'code';

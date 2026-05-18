@@ -20,7 +20,7 @@ const SCENES = [
   { name: 'concern-tint-next', skill: 'critique — stepping concerns (client-side)', blurb:
     'WHO/WHY: same critique result; YOU click a concern row or "Next concern" (no voice, no classifier, no extra LLM call — the details all came back in the first call). WHAT: the active concern advances (here: #2 "Core couples tightly to Voice"), its detail re-speaks via the existing TTS path, and the diagram tint MOVES off Voice onto Core — proof the highlight tracks exactly what is being discussed.' },
   { name: 'grill-screen', skill: 'grill_me — quiz screen', blurb:
-    'WHO/WHY: you ask to be tested ("quiz me", "grill me on X", "test my understanding") — classifier → the grill_me skill. WHAT: a calm full-bleed "?" screen replaces the diagram for a Socratic quiz. CAVEAT: Playwright fresh-context capture timing can briefly leak the "grill_me" caption into the screenshot; the live settled DOM is clean (diagram fully replaced). Documented timing artifact, not a live defect.' },
+    'WHO/WHY: you ask to be tested ("quiz me", "grill me on X", "test my understanding") — classifier → the grill_me skill; you never name it. WHAT: a calm full-bleed "?" mode screen replaces the diagram for a Socratic quiz; the Q&A itself rides voice + HermesText, not a card. FIXED (was mislabelled a "Playwright timing artifact"): the drawer used to open a card for grill_me and — because its narration is intentionally empty — render the raw skill id "grill_me" as a heading AND overlay/​clip the screen caption. Same bug class as the old "document that says whats_changed". grill_me is now in the full-bleed suppression gate (drawer + panel), so the "?" screen is truly full-bleed and no raw id leaks.' },
   { name: 'shelf-notes', skill: 'Review Shelf · Notebook (annotate)', blurb:
     'WHO/WHY: YOU open the Review Shelf from the top chrome; the Notebook tab fills over time as the annotate skill runs ("flag this", "remember this", "note that"). WHAT: saved annotations, each attributed to a module/file. The diagram stays intact behind the shelf.' },
   { name: 'shelf-tasks', skill: 'Review Shelf · Tasks (async agent)', blurb:
@@ -118,8 +118,8 @@ const html = `<!doctype html><html><head><meta charset="utf-8"><style>
       lint 0 fails &nbsp;·&nbsp; unit green &nbsp;·&nbsp; scenes ${SCENES.length * 3}/${SCENES.length * 3}.<br/>
       Note: the broader integration arc (hermes-*/drill/voice) has pre-existing failures
       OUTSIDE the verify gate — LLM-pipeline 404s + stale v2-era assertions superseded by
-      the shipped v3 knowledge model; not regressions from this work. Caveats: grill-screen
-      Playwright capture-timing artifact; mobile chrome dense but functional at 390px.</div>
+      the shipped v3 knowledge model; not regressions from this work. Caveat: mobile chrome
+      dense but functional at 390px.</div>
   </section>
   ${pages}
 </body></html>`;
