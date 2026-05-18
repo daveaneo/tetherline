@@ -32,7 +32,10 @@ export function ContentDrawer() {
   // Determine if drawer should be open and what to show
   let drawerContent: 'code' | 'diff' | 'skill' | 'conversation' | null = null;
 
-  if (skillResult) {
+  // whats_changed is narration + diagram-heatmap only — never a drawer
+  // card (the recap is spoken; the warm field IS the visual). A raw
+  // skill-id card here was the "document that says whats_changed" bug.
+  if (skillResult && skillResult.skillName !== 'whats_changed') {
     drawerContent = 'skill';
   } else if (visualCue?.type === 'show_code' && visualCue.code) {
     drawerContent = 'code';

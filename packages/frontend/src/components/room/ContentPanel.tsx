@@ -80,9 +80,13 @@ export function ContentPanel() {
           )}
         </AnimatePresence>
 
-        {/* Skill result overlay -- takes priority when present */}
+        {/* Skill result overlay -- takes priority when present.
+         *  whats_changed is narration + diagram-heatmap only (no card):
+         *  the recap is spoken via HermesText and the warm field IS the
+         *  visual, so the generic skill card would just be a raw
+         *  skill-id "document". */}
         <AnimatePresence>
-          {skillResult && (
+          {skillResult && skillResult.skillName !== 'whats_changed' && (
             <motion.div
               key="skill-result"
               initial={{ opacity: 0, y: -10 }}

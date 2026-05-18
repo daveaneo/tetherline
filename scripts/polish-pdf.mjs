@@ -13,8 +13,8 @@ const PROOF = resolve(ROOT, 'docs/polish-proof');
 const SCENES = [
   { name: 'project-map', skill: 'Baseline project map', blurb:
     'The default radial map with no skill active. Module nodes orbit the project; each node is warm-lit by how well the user understands it (comprehension level). Header, knowledge legend, quick-chips and the voice bar are the persistent chrome.' },
-  { name: 'heatmap', skill: 'whats_changed — comprehension heatmap', blurb:
-    'Project-scope "what changed this week". An additive cold→warm wash sits behind the nodes that moved most; the narration panel states the summary. Diagram structure is never replaced — the heat is purely additive.' },
+  { name: 'heatmap', skill: 'whats_changed — "what moved this week" heatmap', blurb:
+    'A cold→warm field over the map driven by REAL git change magnitude (commits/file last ~30d, from the existing computeHeatmap data): Core hot (18), Voice medium (5), Shared faint (1), Frontend untouched → no wash. Recap is narration-only — the raw skill-id "document" card is suppressed; the diagram IS the visual. Additive overlay, never replaces structure.' },
   { name: 'concern-tint', skill: 'critique — concern tint', blurb:
     'The spoken critique names risky nodes; those nodes glow worry-red (an intentional signal color) while the critique narration is shown. Additive tint, layout unchanged.' },
   { name: 'grill-screen', skill: 'grill_me — quiz screen', blurb:

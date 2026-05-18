@@ -73,7 +73,7 @@ export const SCENES: Scene[] = [
   },
   {
     name: 'heatmap',
-    description: 'whats_changed project-scope comprehension heatmap overlay',
+    description: 'whats_changed — cold→warm "what moved this week" field over the map (no card)',
     seed: () => {
       seedBase();
       useSessionStore.setState({
@@ -82,6 +82,18 @@ export const SCENES: Scene[] = [
           narration: 'Core and the voice gate moved most this week.',
           visualPayload: {},
         } as never,
+        // Real git-heatmap shape: per-file commit counts (last ~30d).
+        // Core hot, Voice warm, Shared faint, Frontend untouched.
+        heatmap: {
+          repoPath: '/scene/tetherline',
+          generatedAt: '2026-05-18T00:00:00.000Z',
+          entries: [
+            { filePath: 'core/analyzer.ts', status: 'red', changeIntensity: 12, linesChanged: 120, familiarityScore: 0.2 },
+            { filePath: 'core/chunker.ts', status: 'yellow', changeIntensity: 6, linesChanged: 60, familiarityScore: 0.5 },
+            { filePath: 'voice/gate.ts', status: 'yellow', changeIntensity: 5, linesChanged: 50, familiarityScore: 0.4 },
+            { filePath: 'shared/types.ts', status: 'green', changeIntensity: 1, linesChanged: 10, familiarityScore: 0.9 },
+          ],
+        },
       });
     },
   },
