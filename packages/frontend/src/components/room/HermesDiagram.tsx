@@ -33,6 +33,7 @@ import {
   levelOrdinal,
   knowledgeRollUp,
   containsAdjacency,
+  changeHeatByNode,
   type KnowledgeRoll,
 } from '@tetherline/shared';
 import { levelColor } from './level-color.js';
@@ -86,6 +87,7 @@ export function HermesDiagram() {
   const phase = useSessionStore(s => s.state.phase);
   const currentBriefingId = useSessionStore(s => s.currentBriefing?.briefingId ?? null);
   const skillResult = useSessionStore(s => s.skillResult);
+  const heatmapData = useSessionStore(s => s.heatmap);
   const breadcrumbPocket = useSessionStore(s => s.breadcrumbPocket);
   const pipelineReveal = useSessionStore(s => s.pipelineReveal);
   const blastRadius = useSessionStore(s => s.blastRadius);
@@ -402,6 +404,15 @@ export function HermesDiagram() {
     );
     return knowledgeRollUp(byId, containsAdjacency(payload.edges));
   }, [payload]);
+
+  // whats_changed heat: per-node "how much moved this week" from the
+  // git heatmap the backend pushes via session:heatmap. Only computed
+  // while the whats_changed overlay is active (project scope); null
+  // otherwise so the overlay is inert. Shared pure mapper.
+  const heatByNode = useMemo(() => {
+    if (!payload || !heatmapOverlayActive(skillResult, scope)) return null;
+    return changeHeatByNode(payload.nodes.map(n => n.id), heatmapData?.entries ?? []);
+  }, [payload, heatmapData, skillResult, scope]);
 
   // Tight viewBox around the actual node bounds (+ padding for halos /
   // pulse rings / arrowheads). Without this, sparse layouts (e.g. n=2
@@ -808,6 +819,7 @@ export function HermesDiagram() {
                 anchorPulse={isAnchorMatch(n, currentChunkNodes)}
                 touched={isTouched(n, touchedNodes)}
                 heatmapOverlay={heatmapOverlayActive(skillResult, scope)}
+                changeHeat={heatByNode ? (heatByNode.get(n.id) ?? 0) : null}
                 concern={concernIds.has(n.id)}
                 pinned={pinnedIds.has(n.id)}
                 dimmed={pipeline ? !pipeline.revealed.has(n.id) : false}
@@ -859,6 +871,9 @@ interface NodeViewProps {
   anchorPulse?: boolean;
   touched?: boolean;
   heatmapOverlay?: boolean;
+  /** whats_changed per-node heat 0..1 (recent change magnitude). null
+   *  when the heatmap overlay is inactive. */
+  changeHeat?: number | null;
   concern?: boolean;
   pinned?: boolean;
   dimmed?: boolean;
@@ -870,7 +885,7 @@ interface NodeViewProps {
   onClick: () => void;
 }
 
-function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, concern, pinned, dimmed, blastHop, roll, childrenInfo, onClick }: NodeViewProps) {
+function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, changeHeat, concern, pinned, dimmed, blastHop, roll, childrenInfo, onClick }: NodeViewProps) {
   const [hover, setHover] = useState(false);
   // v3: two summary axes (subtree roll-up). Colour encodes only the
   // 4-state category; the precise numbers are the two bars below.
@@ -954,16 +969,16 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
       data-testid={`hd-node-${node.id}`}
       data-active={active ? 'true' : 'false'}
     >
-      {/* Heatmap overlay (B1, v3) — additive comprehension wash behind
-       *  the node body during whats_changed. Re-keyed off the v3 state
-       *  colour + Seen intensity (was the now-collapsed `level`), so it
-       *  reaches its warmest tier and stays consistent with the node's
-       *  S/Q signal. Purely additive; never replaces body/layout. */}
-      {heatmapOverlay && (
+      {/* whats_changed heatmap (B1) — additive cold→warm wash by how
+       *  much this node MOVED this week (changeHeat 0..1, from the git
+       *  heatmap). This is the actual "what changed" field — the recap
+       *  is spoken; the diagram is the visual. Purely additive; never
+       *  replaces body/layout. */}
+      {heatmapOverlay && changeHeat != null && changeHeat > 0 && (
         <circle
           r={node.radius + 8}
-          fill={kState === 'none' ? 'var(--ink-300)' : stateColor}
-          opacity={kState === 'none' ? 0.06 : 0.10 + (seenPct / 100) * 0.18}
+          fill={`color-mix(in oklch, var(--heat-5) ${Math.round(35 + changeHeat * 65)}%, var(--ink-200))`}
+          opacity={0.18 + changeHeat * 0.46}
         />
       )}
       {/* Critique concern tint (B5) — additive worry wash on nodes
