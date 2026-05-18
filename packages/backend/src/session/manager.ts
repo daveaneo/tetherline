@@ -1960,9 +1960,40 @@ export class SessionManager {
     if (repoPath && this.lastBriefingId) {
       this.db.getComprehensionRepo().markSeen(repoPath, this.lastBriefingId);
     }
+    // Close the whats_changed loop: being walked through a changed
+    // area = you've caught up on it. Mark its files reviewed and
+    // re-emit the heatmap so the node cools to green live as you go.
+    if (this.state.phase === 'AREA_WALKTHROUGH' || this.state.phase === 'COMPONENT_TOUR') {
+      void this.coolWalkedArea();
+    }
     // Auto-advance to next segment when narration finishes
     if ((this.state.phase === 'AREA_WALKTHROUGH' || this.state.phase === 'COMPONENT_TOUR') && !this.state.paused) {
       this.navigateNext();
+    }
+  }
+
+  /** The user was just walked through the current area's changes →
+   *  stamp its files reviewed (decision: walked-through = caught up,
+   *  no quiz gate) and recompute+re-emit the heatmap so the field
+   *  cools to green in real time. Best-effort; never blocks the tour. */
+  private async coolWalkedArea(): Promise<void> {
+    const repoPath = this.activeRepoPath;
+    const area = this.areas[this.state.areaIndex ?? -1];
+    if (!repoPath || !area?.affectedFiles?.length) return;
+    try {
+      const heatRepo = this.db.getHeatmapRepo();
+      for (const f of area.affectedFiles) {
+        heatRepo.markReviewed(repoPath, f, this.context.sessionId, '');
+      }
+      this.heatmapData = await computeHeatmap(
+        repoPath,
+        simpleGit(repoPath),
+        heatRepo.getForRepo(repoPath),
+      );
+      this.emit({ type: 'session:heatmap', payload: { heatmap: this.heatmapData } });
+    } catch {
+      /* heatmap cooling is best-effort — a git/io hiccup must not
+         break the walkthrough */
     }
   }
 
