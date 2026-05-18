@@ -65,6 +65,49 @@ export interface Scene {
   seed: () => void;
 }
 
+/** Ranked-critique fixture, shared by the concern-tint scenes. The
+ *  prose deliberately PRAISES Frontend by name; because Frontend is
+ *  never a concern `target`, it must NOT tint — that is the visual
+ *  proof the "named-at-all" bug is fixed. */
+function seedConcernTint() {
+  seedBase();
+  useSessionStore.setState({
+    critiqueActiveIndex: 0,
+    skillResult: {
+      skillName: 'critique', type: 'explanation',
+      narration:
+        "The Voice gate is the real risk: it has no test and Core leans on it heavily, so a regression there fails silently. Frontend's structure, by contrast, is clean — that part I'm not worried about.",
+      visualPayload: {
+        target: 'the current code',
+        activeIndex: 0,
+        concerns: [
+          {
+            title: 'Voice gate has no test',
+            severity: 'high',
+            targets: ['Voice'],
+            detail:
+              "The Voice gate is the real risk: it has no test and Core leans on it heavily, so a regression there fails silently. Frontend's structure, by contrast, is clean — that part I'm not worried about.",
+          },
+          {
+            title: 'Core couples tightly to Voice',
+            severity: 'medium',
+            targets: ['Core'],
+            detail:
+              'Core imports the Voice gate directly rather than through an interface, so the two move as one. It works today, but it makes the gate hard to swap or stub. Worth a seam if Voice keeps growing.',
+          },
+          {
+            title: 'Shared is thin but honest',
+            severity: 'low',
+            targets: ['Shared'],
+            detail:
+              "Shared is just types and constants — nothing alarming. It's doing exactly what it should; I'm only listing it so the picture is complete.",
+          },
+        ],
+      },
+    } as never,
+  });
+}
+
 export const SCENES: Scene[] = [
   {
     name: 'project-map',
@@ -102,16 +145,15 @@ export const SCENES: Scene[] = [
   },
   {
     name: 'concern-tint',
-    description: 'critique tint — nodes named in the spoken critique glow worry-red',
+    description: 'critique — ranked concern list; only the ACTIVE concern\'s node glows (Voice). Frontend is praised in the prose and must NOT tint.',
+    seed: () => seedConcernTint(),
+  },
+  {
+    name: 'concern-tint-next',
+    description: 'critique after stepping to concern #2 — the tint MOVED off Voice onto Core (active-only, client-side nav).',
     seed: () => {
-      seedBase();
-      useSessionStore.setState({
-        skillResult: {
-          skillName: 'critique', type: 'explanation',
-          narration: 'The Voice gate worries me — Core leans on it heavily and it has no test.',
-          visualPayload: {},
-        } as never,
-      });
+      seedConcernTint();
+      useSessionStore.setState({ critiqueActiveIndex: 1 });
     },
   },
   {

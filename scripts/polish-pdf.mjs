@@ -15,8 +15,10 @@ const SCENES = [
     'WHO/WHY: not a skill and not user-invoked — this is what you land on the moment a repo opens, before any request. The radial map of modules around the project. Each node carries its live Seen/Quiz bars and the header knowledge strip, all rendered from session state. Everything else in this deck is something layered on top of this.' },
   { name: 'heatmap', skill: 'whats_changed — "what you\'re behind on" (closeable loop)', blurb:
     'WHO/WHY: you ask in plain language ("what changed?", "catch me up") — the intent classifier maps that to the whats_changed skill; you never name or click it. Project scope only (drilled-in/per-module drift is a documented follow-up). WHAT: a spoken recap while the diagram washes warm over DRIFT — changed code you haven\'t caught up on: red (changed, never reviewed) = hot, yellow (changed since you last reviewed) = warm, green (you reviewed it SINCE it changed) = cold, unchanged = no wash. Deliberately NOT raw churn. PATHWAY (now closed): the hot nodes are the agenda — "walk me through the changes" steps each changed area; being walked through one marks its files reviewed-since-change (decision: walked-through = caught up, no quiz gate) and re-emits the heatmap so that node cools to green live. All-green = caught up for the week (the tether re-established). No card; the diagram is the whole visual.' },
-  { name: 'concern-tint', skill: 'critique — concern tint', blurb:
-    'WHO/WHY: you ask for an opinion ("is this good?", "any issues with X?", "what do you think of Y?") — classifier → the critique skill. WHAT: the spoken critique names risky nodes; exactly those glow worry-red. Additive tint, layout unchanged.' },
+  { name: 'concern-tint', skill: 'critique — ranked concerns + active tint', blurb:
+    'WHO/WHY: you ask for an opinion ("is this good?", "any issues with X?", "what do you think of Y?") — classifier → the critique skill; you never name it. WHAT: one structured call returns up to 5 genuine concerns, severity-ranked (HIGH→LOW); the voice speaks the top one and the drawer lists them all (severity pip + title, top expanded with its 3-4 sentence detail). Only the ACTIVE concern\'s nodes glow — and the LLM names those targets explicitly, so the ring matches the worry instead of the old bug where every node merely NAMED (even praised ones) lit up. The ring uses the --sig-concern design token, so "concern" is one consistent colour app-wide. Voice north-star: a structured-call failure falls back to plain spoken prose (deterministic narration match), never silence.' },
+  { name: 'concern-tint-next', skill: 'critique — stepping concerns (client-side)', blurb:
+    'WHO/WHY: same critique result; YOU click a concern row or "Next concern" (no voice, no classifier, no extra LLM call — the details all came back in the first call). WHAT: the active concern advances (here: #2 "Core couples tightly to Voice"), its detail re-speaks via the existing TTS path, and the diagram tint MOVES off Voice onto Core — proof the highlight tracks exactly what is being discussed.' },
   { name: 'grill-screen', skill: 'grill_me — quiz screen', blurb:
     'WHO/WHY: you ask to be tested ("quiz me", "grill me on X", "test my understanding") — classifier → the grill_me skill. WHAT: a calm full-bleed "?" screen replaces the diagram for a Socratic quiz. CAVEAT: Playwright fresh-context capture timing can briefly leak the "grill_me" caption into the screenshot; the live settled DOM is clean (diagram fully replaced). Documented timing artifact, not a live defect.' },
   { name: 'shelf-notes', skill: 'Review Shelf · Notebook (annotate)', blurb:
@@ -108,14 +110,16 @@ const html = `<!doctype html><html><head><meta charset="utf-8"><style>
 </style></head><body>
   <section class="page cover">
     <h1>Tetherline — Visual Polish Review</h1>
-    <div class="sub">12 skill scenes × {desktop · tablet · mobile}. Cite issues as
-      <b>page · scene · viewport</b> (e.g. "p9 · pipeline · mobile").</div>
+    <div class="sub">${SCENES.length} scenes × {desktop · tablet · mobile}. Cite issues as
+      <b>page · scene · viewport</b> (e.g. "p10 · pipeline · mobile").</div>
     <table><thead><tr><td class="pg">Pg</td><td class="sk">Skill</td><td class="sc">scene</td></tr></thead>
       <tbody>${indexRows}</tbody></table>
     <div class="gate"><b>pnpm verify: ALL GREEN</b> &nbsp;·&nbsp; typecheck 4/4 &nbsp;·&nbsp;
-      lint 0 fails (130 any-warns) &nbsp;·&nbsp; unit 339/339 &nbsp;·&nbsp; scenes 36/36.<br/>
-      Caveats: grill-screen Playwright capture-timing artifact (p5); mobile chrome dense but
-      functional at 390px.</div>
+      lint 0 fails &nbsp;·&nbsp; unit green &nbsp;·&nbsp; scenes ${SCENES.length * 3}/${SCENES.length * 3}.<br/>
+      Note: the broader integration arc (hermes-*/drill/voice) has pre-existing failures
+      OUTSIDE the verify gate — LLM-pipeline 404s + stale v2-era assertions superseded by
+      the shipped v3 knowledge model; not regressions from this work. Caveats: grill-screen
+      Playwright capture-timing artifact; mobile chrome dense but functional at 390px.</div>
   </section>
   ${pages}
 </body></html>`;

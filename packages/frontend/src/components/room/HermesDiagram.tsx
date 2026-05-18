@@ -22,7 +22,7 @@ import { useSessionStore } from '../../state/session-store.js';
 import { useAudioStore } from '../../state/audio-store.js';
 import { TimeSlider } from './TimeSlider.js';
 import { heatmapOverlayActive } from './heatmap-overlay.js';
-import { concernNodeIds, isConcernActive } from './concern-tint.js';
+import { concernNodeIds, isConcernActive, activeConcernText } from './concern-tint.js';
 import { Breadcrumb as PositionTrail } from './Breadcrumb.js';
 import { grillScreenActive } from './grill-screen.js';
 import { GrillScreen } from './GrillScreen.js';
@@ -87,6 +87,7 @@ export function HermesDiagram() {
   const phase = useSessionStore(s => s.state.phase);
   const currentBriefingId = useSessionStore(s => s.currentBriefing?.briefingId ?? null);
   const skillResult = useSessionStore(s => s.skillResult);
+  const critiqueActiveIndex = useSessionStore(s => s.critiqueActiveIndex);
   const heatmapData = useSessionStore(s => s.heatmap);
   const breadcrumbPocket = useSessionStore(s => s.breadcrumbPocket);
   const pipelineReveal = useSessionStore(s => s.pipelineReveal);
@@ -184,15 +185,19 @@ export function HermesDiagram() {
     return pinnedNodeIds(targets, (payload?.nodes ?? []).map(n => ({ id: n.id, label: n.label })));
   }, [noteArtifacts, payload]);
 
-  // Critique concern tint (B5): the nodes the critique narration
-  // names get a worry tint. Derived from the spoken text so the
-  // visual cannot disagree with the audio. Additive — never clears.
+  // Critique concern tint (B5): only the ACTIVE concern's nodes get a
+  // worry tint. For a ranked critique that's the selected concern's
+  // explicit targets (the ring moves as you step through concerns);
+  // legacy/fallback prose degrades to narration string-match. Derived
+  // text-side so the visual can't disagree with the audio. Additive.
   const concernIds = useMemo(() => {
-    if (!isConcernActive(skillResult) || !skillResult?.narration) return new Set<string>();
+    if (!isConcernActive(skillResult)) return new Set<string>();
+    const text = activeConcernText(skillResult, critiqueActiveIndex);
+    if (!text) return new Set<string>();
     return new Set(
-      concernNodeIds(skillResult.narration, (payload?.nodes ?? []).map(n => ({ id: n.id, label: n.label }))),
+      concernNodeIds(text, (payload?.nodes ?? []).map(n => ({ id: n.id, label: n.label }))),
     );
-  }, [skillResult, payload]);
+  }, [skillResult, critiqueActiveIndex, payload]);
 
   // Reset to project when phase resets to IDLE.
   useEffect(() => {
@@ -988,11 +993,12 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
         <circle
           r={node.radius + 10}
           fill="none"
-          stroke="oklch(0.62 0.19 25)"
-          strokeWidth={2.5}
-          opacity={0.7}
+          stroke="var(--sig-concern)"
+          strokeWidth={3.5}
+          opacity={0.95}
+          style={{ filter: 'drop-shadow(0 0 5px var(--sig-concern))' }}
         >
-          <animate attributeName="opacity" values="0.75;0.3;0.75" dur="1.8s" repeatCount="indefinite" />
+          <animate attributeName="opacity" values="0.95;0.5;0.95" dur="1.8s" repeatCount="indefinite" />
         </circle>
       )}
       {/* Blast-radius ripple (B4) — concentric impact rings keyed to

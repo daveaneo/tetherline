@@ -28,6 +28,7 @@ const SCENES = [
   'project-map',
   'heatmap',
   'concern-tint',
+  'concern-tint-next',
   'grill-screen',
   'shelf-notes',
   'shelf-tasks',

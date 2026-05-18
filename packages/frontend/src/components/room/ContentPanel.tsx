@@ -12,6 +12,7 @@ import { sendEvent } from '../../lib/ws-client.js';
 import { IssueDraftPreview } from '../actions/IssueDraftPreview.js';
 import { SharePanel } from '../actions/SharePanel.js';
 import { AnnotationsList } from '../actions/AnnotationsList.js';
+import { RankedCritiquePanel, type CritiqueConcern } from './RankedCritique.js';
 
 export function ContentPanel() {
   const { state, areas, analysisProgress, context } = useSession();
@@ -728,6 +729,25 @@ function SkillResultPanel({ result, onDismiss }: { result: SkillResult; onDismis
         markdown={result.visualPayload.markdown as string}
         onDismiss={onDismiss}
       />
+    );
+  }
+
+  if (
+    result.skillName === 'critique' &&
+    Array.isArray(result.visualPayload.concerns) &&
+    result.visualPayload.concerns.length > 0
+  ) {
+    return (
+      <div className="p-5 rounded-xl border border-[var(--color-accent)]/30 bg-[var(--color-accent)]/5 relative">
+        <button
+          onClick={onDismiss}
+          className="absolute top-3 right-3 text-[var(--color-text-muted)] hover:text-[var(--color-text)] text-sm"
+          aria-label="Dismiss"
+        >
+          &times;
+        </button>
+        <RankedCritiquePanel concerns={result.visualPayload.concerns as CritiqueConcern[]} />
+      </div>
     );
   }
 
