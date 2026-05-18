@@ -11,36 +11,36 @@ const PROOF = resolve(ROOT, 'docs/polish-proof');
 
 // name → { skill, blurb }. Order = test/e2e/scenes.spec.ts.
 const SCENES = [
-  { name: 'project-map', skill: 'Baseline project map', blurb:
-    'The default radial map with no skill active. Module nodes orbit the project; each node is warm-lit by how well the user understands it (comprehension level). Header, knowledge legend, quick-chips and the voice bar are the persistent chrome.' },
-  { name: 'heatmap', skill: 'whats_changed — "what moved this week" heatmap', blurb:
-    'A cold→warm field over the map driven by REAL git change magnitude (commits/file last ~30d, from the existing computeHeatmap data): Core hot (18), Voice medium (5), Shared faint (1), Frontend untouched → no wash. Recap is narration-only — the raw skill-id "document" card is suppressed; the diagram IS the visual. Additive overlay, never replaces structure.' },
+  { name: 'project-map', skill: 'Project map — the home state', blurb:
+    'WHO/WHY: not a skill and not user-invoked — this is what you land on the moment a repo opens, before any request. The radial map of modules around the project. Each node carries its live Seen/Quiz bars and the header knowledge strip, all rendered from session state. Everything else in this deck is something layered on top of this.' },
+  { name: 'heatmap', skill: 'whats_changed — "what you\'re behind on"', blurb:
+    'WHO/WHY: you trigger it by asking in plain language ("what changed?", "catch me up", "what\'s new this week") — the intent classifier maps that to the whats_changed skill; you never name or click it. WHAT: it speaks a 2–3 sentence recap while the diagram washes warm over DRIFT — code that changed AND you haven\'t caught up on: red (changed, never reviewed) = hot, yellow (changed since you last reviewed) = warm, green (changed but you kept up) = cold, unchanged = no wash. It is deliberately NOT raw churn — the point is "what are you now behind on", not "what\'s noisy". No card; the diagram is the whole visual.' },
   { name: 'concern-tint', skill: 'critique — concern tint', blurb:
-    'The spoken critique names risky nodes; those nodes glow worry-red (an intentional signal color) while the critique narration is shown. Additive tint, layout unchanged.' },
+    'WHO/WHY: you ask for an opinion ("is this good?", "any issues with X?", "what do you think of Y?") — classifier → the critique skill. WHAT: the spoken critique names risky nodes; exactly those glow worry-red. Additive tint, layout unchanged.' },
   { name: 'grill-screen', skill: 'grill_me — quiz screen', blurb:
-    'A calm, full-bleed animated "?" screen replaces the diagram for a Socratic quiz. CAVEAT: under Playwright fresh-context capture timing the text "grill_me" / the GRILLING caption can briefly leak into the frame; the live settled DOM is clean (diagram fully replaced). Documented timing artifact, not a live defect.' },
-  { name: 'shelf-notes', skill: 'annotate — Review Shelf · Notebook', blurb:
-    'The Review Shelf open on the NOTEBOOK tab with saved annotations, each attributed to a module/file. The diagram stays intact behind the shelf overlay.' },
-  { name: 'shelf-tasks', skill: 'Async task skill — Review Shelf · Tasks', blurb:
-    'The Review Shelf TASKS tab: agent task rows with state styling — done, branch:<x>, and blocked.' },
-  { name: 'descend', skill: 'DESCEND — scoped drill-in', blurb:
-    'Drilled from the project into the Core module: a scoped sub-graph (analyzer.ts / audio-server.py / diagram-extractor.ts) with the breadcrumb, retitled header and intra-module edges.' },
+    'WHO/WHY: you ask to be tested ("quiz me", "grill me on X", "test my understanding") — classifier → the grill_me skill. WHAT: a calm full-bleed "?" screen replaces the diagram for a Socratic quiz. CAVEAT: Playwright fresh-context capture timing can briefly leak the "grill_me" caption into the screenshot; the live settled DOM is clean (diagram fully replaced). Documented timing artifact, not a live defect.' },
+  { name: 'shelf-notes', skill: 'Review Shelf · Notebook (annotate)', blurb:
+    'WHO/WHY: YOU open the Review Shelf from the top chrome; the Notebook tab fills over time as the annotate skill runs ("flag this", "remember this", "note that"). WHAT: saved annotations, each attributed to a module/file. The diagram stays intact behind the shelf.' },
+  { name: 'shelf-tasks', skill: 'Review Shelf · Tasks (async agent)', blurb:
+    'WHO/WHY: same shelf, Tasks tab — rows are background agent tasks YOU dispatched ("go fix X", "audit Y"), surfaced here for review. WHAT: task rows with state styling — done · branch:<x> · blocked.' },
+  { name: 'descend', skill: 'Drill-in (navigation, not a skill)', blurb:
+    'WHO/WHY: navigation — you say "show me Core" / "go into X" or click a module node; the view scope-swaps. No skill, no classifier. WHAT: the scoped sub-graph for that module (its files, intra-module edges, retitled header, breadcrumb).' },
   { name: 'deep-dive', skill: 'deep_dive — pocket presentation', blurb:
-    'The "pocket dimension": a full-bleed ≤10-slide presentation that replaces the diagram (sandbox; exiting restores the canvas). Kicker · focus, N/M cursor, serif title + body, amber slide rail, exit hint. Slides ride on the pocket state, not a skill annotation, so the canvas is clean full-bleed.' },
-  { name: 'pipeline', skill: 'Pipeline walkthrough', blurb:
-    '"Show me the data flow" lights the graph one stage at a time in source→transform→guard→sink order; revealed nodes are lit, not-yet-revealed are dimmed. Header shows the stage strip. Reuses the tested pipelineRevealOrder core.' },
-  { name: 'blast-radius', skill: 'Blast-radius ripple', blurb:
-    '"What touches X" BFSes the import graph from the changed node and pulses concentric impact rings: hop 0 = solid warm epicenter, fading outward by hop distance. Reuses the tested blastRadiusRings core.' },
-  { name: 'guided-mode', skill: 'Guided-learning mode', blurb:
-    'A top-down guided tour: header spine of covered ▸ current (wide amber) ▸ upcoming steps, with the current step name. Mirrors the tested TourPlan.fromArchitecture {items,currentIndex} shape.' },
-  { name: 'breadcrumb', skill: 'You-are-here breadcrumb', blurb:
-    'The persistent "you are here" position trail (e.g. CORE › TOKEN REFRESH › 3/8) shown in the header inside a deep_dive pocket, over the scoped canvas.' },
-  { name: 'knowledge-layer', skill: 'Knowledge v3 — Seen + Quiz/Grill', blurb:
-    'Two axes, both rolled up over node ∪ descendants. Title block: ▶ replay · ↻ quiz · ⚑ grill · SEEN bar (deep briefing-coverage incl. this node — 80% here: 4 of 5 seen) · QUIZ/GRILL bar (the BEST for THIS view only — "—" because the overview was never quizzed; NOT the components\' average). Each component shows two side-by-side bars with explicit numbers: S(een) coverage + Q(uiz/Grill) best. Shared S100/Q— ("seen, not proven") is now visibly distinct from Voice S0/Q— ("never seen"). No verbal confirmation; dwell = narration actually finished playing.' },
-  { name: 'knowledge-components', skill: 'Knowledge v3 — drilled to leaf files', blurb:
-    'Drilled into Core. Title SEEN 75% (3 of 4 in the subtree seen), QUIZ/GRILL 67% = Core\'s OWN best quiz (best-for-this-view, not the leaf summary). Leaf files each show their own S/Q bars: analyzer.ts S100 Q100 ✓ (grill-passed), chunker.ts S100 Q33, audio-server.py S0 Q— (never seen / never tested).' },
-  { name: 'weak-spots-review', skill: 'Knowledge v3 — weak-spots review loop', blurb:
-    'The actionable "study this" loop: every weak/partial quiz/grill question becomes a row in the review panel on the current layer, tagged by source, with restudy ▶ and resolve ✓ (resolved items retained for audit). The clear pathway to learn more + the supervisor/QA trail.' },
+    'WHO/WHY: you ask to go deep ("deep dive on X", "go deeper", "really walk me through this") — classifier → the deep_dive skill. WHAT: a full-bleed ≤10-slide pocket REPLACES the diagram (a sandbox; exiting restores the exact prior canvas). Kicker·focus, N/M cursor, slide rail, exit hint.' },
+  { name: 'pipeline', skill: 'pipeline — data-flow walkthrough', blurb:
+    'WHO/WHY: you ask how data moves ("show me the data flow", "walk me through how X works end to end") — classifier → the pipeline walkthrough. WHAT: the graph lights one stage at a time source→transform→guard→sink; revealed lit, rest dimmed; header stage strip.' },
+  { name: 'blast-radius', skill: 'blast-radius — impact ripple', blurb:
+    'WHO/WHY: you ask about impact ("what touches X?", "blast radius of Y", "what depends on this?") — classifier → the blast-radius skill. WHAT: a BFS over the import graph from the changed node; concentric rings fade outward by hop distance (hop 0 = solid warm epicenter).' },
+  { name: 'guided-mode', skill: 'guided tour — planned walkthrough', blurb:
+    'WHO/WHY: you ask for a guided tour ("walk me through the project", "give me the tour", "teach me this codebase") — a top-down planned tour drives the session. WHAT: a header spine of covered ▸ current (wide amber) ▸ upcoming steps with the current step name.' },
+  { name: 'breadcrumb', skill: 'You-are-here trail (always-on chrome)', blurb:
+    'WHO/WHY: not a skill — always-on orientation chrome that appears in the header whenever you are inside a deep_dive pocket, driven by navigation depth. WHAT: the position trail, e.g. CORE › TOKEN REFRESH › 3/8, over the scoped canvas.' },
+  { name: 'knowledge-layer', skill: 'Knowledge — current layer (always-on)', blurb:
+    'WHO/WHY: not a skill — always-on chrome that renders from live session state on any layer; nobody "calls" it. WHAT: the title block is THIS view\'s own Seen + best Quiz/Grill (best-for-this-view, not an average); each component shows its rolled-up Seen / Quiz-Grill summary bars with explicit numbers. "Shared S100/Q—" (seen, not proven) is visibly distinct from "Voice S0/Q—" (never seen). Dwell = narration actually finished playing; no verbal-confirmation shortcut.' },
+  { name: 'knowledge-components', skill: 'Knowledge — drilled into a module', blurb:
+    'WHO/WHY: the same always-on knowledge chrome, after you drill into a module. WHAT: the title shows Core\'s OWN Seen + best quiz (this view only, not the leaf summary); each leaf file shows its own S/Q bars — analyzer.ts S100 Q100 ✓ (grill-passed), chunker.ts S100 Q33, audio-server.py S0 Q— (never seen / never tested).' },
+  { name: 'weak-spots-review', skill: 'Knowledge — weak-spots review loop', blurb:
+    'WHO/WHY: YOU open it from the title strip\'s "weak spots (N)"; it fills automatically as you miss quiz/grill questions. WHAT: every weak/partial question becomes a row with restudy ▶ / resolve ✓ (resolved kept for audit). The actionable pathway to learn more + the supervisor/QA trail.' },
 ];
 
 const dataUri = (file) => {
@@ -56,11 +56,11 @@ const indexRows = SCENES.map((s, i) => `
 const pages = SCENES.map((s, i) => `
   <section class="page">
     <div class="hdr">
-      <div><span class="pgno">Page ${i + 2}</span><h1>${esc(s.skill)}</h1>
-        <div class="scene">scene: <code>${s.name}</code></div></div>
+      <div><span class="pgno">Page ${i + 2}</span><h1>${esc(s.skill)}</h1></div>
       <div class="cite">cite as: <b>p${i + 2} · ${s.name} · &lt;viewport&gt;</b></div>
     </div>
     <p class="blurb">${esc(s.blurb)}</p>
+    <div class="scene">These shots are rendered from a deterministic UI test fixture (no live backend), so this exact state is reproducible and pixel-checked on every build — that is what the citation id above refers to.</div>
     <div class="shot main"><div class="vp">DESKTOP · 1440</div>
       <img src="${dataUri(`${s.name}-desktop.png`)}"/></div>
     <div class="thumbs">
