@@ -56,6 +56,9 @@ interface SessionStore {
   qaAnswerDone: boolean;
   understanding: UnderstandingState | null;
   skillResult: SkillResult | null;
+  /** Which concern is active in a ranked `critique` result. Drives the
+   *  card's expanded row and the (active-only) diagram tint. */
+  critiqueActiveIndex: number;
   skillClarification: { message: string; options: string[] } | null;
   visualLayer: VisualLayer;
   conceptualSteps: ConceptualStep[];
@@ -174,6 +177,9 @@ interface SessionStore {
   toggleComprehensionOverlay: () => void;
 
   handleServerEvent: (event: ServerEvent) => void;
+  /** Select a concern in a ranked critique. Re-speaks its detail via
+   *  the existing greeting TTS path — no LLM call, no voice routing. */
+  setCritiqueActive: (index: number) => void;
   addConversation: (speaker: 'ai' | 'you', text: string) => void;
   clearError: () => void;
   setConnected: (v: boolean) => void;
@@ -197,6 +203,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   qaAnswerDone: false,
   understanding: null,
   skillResult: null,
+  critiqueActiveIndex: 0,
   sceneDiagramPayload: null,
   breadcrumbPocket: null,
   pipelineReveal: null,
@@ -247,6 +254,21 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     };
   }),
 
+  setCritiqueActive: (index: number) => set(s => {
+    const concerns = s.skillResult?.visualPayload?.concerns as
+      | Array<{ detail?: string }>
+      | undefined;
+    if (!Array.isArray(concerns) || concerns.length === 0) return s;
+    const i = Math.max(0, Math.min(index, concerns.length - 1));
+    if (i === s.critiqueActiveIndex) return s;
+    const detail = concerns[i]?.detail;
+    // Re-speaking is the existing greeting TTS path picking up a new
+    // value — no backend call, classifier, or voice-routing involved.
+    return typeof detail === 'string' && detail.trim()
+      ? { critiqueActiveIndex: i, greeting: detail }
+      : { critiqueActiveIndex: i };
+  }),
+
   clearError: () => set({ error: null }),
   setConnected: (v: boolean) => set({ connected: v }),
 
@@ -267,6 +289,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     qaAnswerDone: false,
     understanding: null,
     skillResult: null,
+    critiqueActiveIndex: 0,
     skillClarification: null,
     visualLayer: 1 as VisualLayer,
     conceptualSteps: [],
@@ -446,7 +469,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         break;
 
       case 'skill:result':
-        set({ skillResult: event.payload.result, skillClarification: null });
+        set({ skillResult: event.payload.result, critiqueActiveIndex: 0, skillClarification: null });
         if (event.payload.result.narration) {
           get().addConversation('ai', event.payload.result.narration);
         }

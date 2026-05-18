@@ -59,3 +59,36 @@ export function isConcernActive(
 ): boolean {
   return skillResult?.skillName === 'critique';
 }
+
+interface RankedConcern {
+  targets?: string[];
+  detail?: string;
+}
+
+/** The text `concernNodeIds` should match against for the CURRENTLY
+ *  active concern. Ranked critique: the active concern's explicit
+ *  `targets` (so only nodes that concern is actually about glow, and
+ *  the tint MOVES as you step through concerns). When the skill
+ *  produced no structured concerns (LLM/structured-call fell back to
+ *  plain prose), degrade to the old behaviour — match the narration —
+ *  so the tint still works, just less precisely. */
+export function activeConcernText(
+  skillResult:
+    | { narration?: string; visualPayload?: Record<string, unknown> }
+    | null
+    | undefined,
+  activeIndex: number,
+): string {
+  const concerns = skillResult?.visualPayload?.concerns as RankedConcern[] | undefined;
+  if (Array.isArray(concerns) && concerns.length > 0) {
+    const i = Math.max(0, Math.min(activeIndex, concerns.length - 1));
+    const targets = concerns[i]?.targets;
+    if (Array.isArray(targets) && targets.length > 0) {
+      return targets.join('. ');
+    }
+    // Structured concern but no targets named → fall back to THIS
+    // concern's prose, not the whole (multi-concern) narration.
+    return concerns[i]?.detail ?? '';
+  }
+  return skillResult?.narration ?? '';
+}

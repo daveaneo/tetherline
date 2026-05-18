@@ -3,6 +3,7 @@ import { useSession } from '../../hooks/useSession.js';
 import { useSessionStore } from '../../state/session-store.js';
 import { CodeSnippet } from '../code/CodeSnippet.js';
 import { DiffView } from '../code/DiffView.js';
+import { RankedCritiquePanel, type CritiqueConcern } from './RankedCritique.js';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export function ContentDrawer() {
@@ -103,16 +104,27 @@ export function ContentDrawer() {
               />
             )}
 
-            {drawerContent === 'skill' && skillResult && (
-              <div className="space-y-4">
-                <h3 className="text-sm font-semibold text-[var(--color-accent)]">
-                  {skillResult.skillName}
-                </h3>
-                <p className="text-sm text-[var(--color-text)] leading-relaxed">
-                  {skillResult.narration}
-                </p>
-              </div>
-            )}
+            {drawerContent === 'skill' && skillResult && (() => {
+              const concerns = skillResult.visualPayload?.concerns as
+                | CritiqueConcern[]
+                | undefined;
+              if (
+                skillResult.skillName === 'critique' &&
+                Array.isArray(concerns) && concerns.length > 0
+              ) {
+                return <RankedCritiquePanel concerns={concerns} />;
+              }
+              return (
+                <div className="space-y-4">
+                  <h3 className="text-sm font-semibold text-[var(--color-accent)]">
+                    {skillResult.skillName}
+                  </h3>
+                  <p className="text-sm text-[var(--color-text)] leading-relaxed">
+                    {skillResult.narration}
+                  </p>
+                </div>
+              );
+            })()}
 
             {drawerContent === 'conversation' && lastConvo && (
               <div className="space-y-3">

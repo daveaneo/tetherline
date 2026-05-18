@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   concernNodeIds,
   isConcernActive,
+  activeConcernText,
 } from '../../packages/frontend/src/components/room/concern-tint.js';
 
 const NODES = [
@@ -42,5 +43,53 @@ describe('critique concern tint', () => {
     expect(isConcernActive({ skillName: 'critique' })).toBe(true);
     expect(isConcernActive({ skillName: 'explain' })).toBe(false);
     expect(isConcernActive(null)).toBe(false);
+  });
+});
+
+describe('activeConcernText — ranked critique, active-concern-only', () => {
+  const ranked = {
+    narration: 'concern one detail. Billing looks great though.',
+    visualPayload: {
+      concerns: [
+        { title: 'Auth fragile', severity: 'high', targets: ['Auth Store'], detail: 'concern one detail. Billing looks great though.' },
+        { title: 'Loader slow', severity: 'low', targets: ['loader.py'], detail: 'the loader is a bit slow' },
+      ],
+    },
+  };
+
+  it('returns the ACTIVE concern\'s targets, not the whole narration', () => {
+    expect(activeConcernText(ranked, 0)).toBe('Auth Store');
+    expect(activeConcernText(ranked, 1)).toBe('loader.py');
+  });
+
+  it('a node only PRAISED in the narration is never flagged (the fix)', () => {
+    // narration names "Billing" positively; targets do not → no tint.
+    const ids = concernNodeIds(activeConcernText(ranked, 0), NODES);
+    expect(ids).toEqual(['module/auth-store']);
+    expect(ids).not.toContain('module/billing');
+  });
+
+  it('the tint MOVES when the active concern changes', () => {
+    expect(concernNodeIds(activeConcernText(ranked, 0), NODES)).toEqual(['module/auth-store']);
+    expect(concernNodeIds(activeConcernText(ranked, 1), NODES)).toEqual(['file/core/loader.py']);
+  });
+
+  it('clamps an out-of-range index', () => {
+    expect(activeConcernText(ranked, 99)).toBe('loader.py');
+    expect(activeConcernText(ranked, -3)).toBe('Auth Store');
+  });
+
+  it('no targets on the concern → falls back to THAT concern\'s prose, not the full narration', () => {
+    const noTargets = {
+      narration: 'whole narration mentioning Billing',
+      visualPayload: { concerns: [{ title: 't', severity: 'high', targets: [], detail: 'just the auth store here' }] },
+    };
+    expect(activeConcernText(noTargets, 0)).toBe('just the auth store here');
+  });
+
+  it('no structured concerns → legacy fallback to narration', () => {
+    expect(activeConcernText({ narration: 'the auth store is fragile', visualPayload: {} }, 0))
+      .toBe('the auth store is fragile');
+    expect(activeConcernText(null, 0)).toBe('');
   });
 });
