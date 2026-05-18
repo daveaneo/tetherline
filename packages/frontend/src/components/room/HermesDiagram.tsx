@@ -969,11 +969,11 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
       data-testid={`hd-node-${node.id}`}
       data-active={active ? 'true' : 'false'}
     >
-      {/* whats_changed heatmap (B1) — additive cold→warm wash by how
-       *  much this node MOVED this week (changeHeat 0..1, from the git
-       *  heatmap). This is the actual "what changed" field — the recap
-       *  is spoken; the diagram is the visual. Purely additive; never
-       *  replaces body/layout. */}
+      {/* whats_changed heatmap (B1) — additive cold→warm wash by DRIFT
+       *  (changeHeat 0..1): how much changed here that you haven't
+       *  caught up on (red>yellow>green×magnitude, see change-heat.ts).
+       *  Not raw churn — the "stay tethered" signal. Recap is spoken;
+       *  the diagram is the visual. Additive; never replaces layout. */}
       {heatmapOverlay && changeHeat != null && changeHeat > 0 && (
         <circle
           r={node.radius + 8}

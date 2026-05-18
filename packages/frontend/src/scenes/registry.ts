@@ -73,25 +73,28 @@ export const SCENES: Scene[] = [
   },
   {
     name: 'heatmap',
-    description: 'whats_changed — cold→warm "what moved this week" field over the map (no card)',
+    description: 'whats_changed — DRIFT field: warm = changed code you haven\'t caught up on (no card)',
     seed: () => {
       seedBase();
       useSessionStore.setState({
         skillResult: {
           skillName: 'whats_changed', type: 'explanation',
-          narration: 'Core and the voice gate moved most this week.',
+          narration: "Core moved a lot and you haven't reviewed it. Voice shifted since you last looked. You're current on Shared.",
           visualPayload: {},
         } as never,
-        // Real git-heatmap shape: per-file commit counts (last ~30d).
-        // Core hot, Voice warm, Shared faint, Frontend untouched.
+        // Real git-heatmap shape. DRIFT, not churn: red = changed &
+        // never reviewed (HOT), yellow = changed since you reviewed
+        // (WARM), green = changed but you're caught up (COLD), absent
+        // = never moved (COLD).
         heatmap: {
           repoPath: '/scene/tetherline',
           generatedAt: '2026-05-18T00:00:00.000Z',
           entries: [
             { filePath: 'core/analyzer.ts', status: 'red', changeIntensity: 12, linesChanged: 120, familiarityScore: 0.2 },
-            { filePath: 'core/chunker.ts', status: 'yellow', changeIntensity: 6, linesChanged: 60, familiarityScore: 0.5 },
-            { filePath: 'voice/gate.ts', status: 'yellow', changeIntensity: 5, linesChanged: 50, familiarityScore: 0.4 },
-            { filePath: 'shared/types.ts', status: 'green', changeIntensity: 1, linesChanged: 10, familiarityScore: 0.9 },
+            { filePath: 'core/chunker.ts', status: 'red', changeIntensity: 6, linesChanged: 60, familiarityScore: 0.1 },
+            { filePath: 'voice/gate.ts', status: 'yellow', changeIntensity: 6, linesChanged: 60, familiarityScore: 0.5 },
+            // Shared changed a lot but you've kept up → no heat.
+            { filePath: 'shared/types.ts', status: 'green', changeIntensity: 9, linesChanged: 90, familiarityScore: 0.9 },
           ],
         },
       });
