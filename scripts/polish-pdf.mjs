@@ -24,7 +24,7 @@ const SCENES = [
   { name: 'shelf-notes', skill: 'Review Shelf · Notebook (annotate)', blurb:
     'WHO/WHY: YOU open the Review Shelf from the top chrome; the Notebook tab fills over time as the annotate skill runs ("flag this", "remember this", "note that"). WHAT: saved annotations, each attributed to a module/file. Flagging confirms via three signals — a spoken "Noted", the Notebook row, and a pin on the target node — and deliberately NOT a redundant transient drawer card (same self-confirming rule as whats_changed/grill_me). The diagram stays intact behind the shelf.' },
   { name: 'shelf-tasks', skill: 'Review Shelf · Tasks (async agent)', blurb:
-    'WHO/WHY: same shelf, Tasks tab — rows are background agent tasks YOU dispatched ("go fix X", "audit Y"), surfaced here for review. WHAT: task rows with state styling — done · branch:<x> · blocked.' },
+    'WHO/WHY: same shelf, Tasks tab — rows are background agent tasks YOU dispatched ("go fix X", "audit Y"), surfaced here for review. WHAT: task rows with the state colour-coded by signal token so the queue is scannable at a glance — blocked (needs you) = concern, done = okay-green, branch/running = neutral accent.' },
   { name: 'descend', skill: 'Drill-in (navigation, not a skill)', blurb:
     'WHO/WHY: navigation — you say "show me Core" / "go into X" or click a module node; the view scope-swaps. No skill, no classifier. WHAT: the scoped sub-graph for that module (its files, intra-module edges, retitled header, breadcrumb).' },
   { name: 'deep-dive', skill: 'deep_dive — pocket presentation', blurb:
