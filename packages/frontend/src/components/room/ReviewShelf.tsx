@@ -15,6 +15,17 @@ const SECTION_LABEL: Record<ShelfSection, string> = {
   comprehension: 'Comprehension',
 };
 
+/** Scannable task-state colour. blocked = needs you (concern), done =
+ *  finished (okay), branch/running = in flight (neutral accent).
+ *  Unknown states keep the muted default. */
+function stateColor(state: string): string {
+  const s = state.toLowerCase();
+  if (s.startsWith('blocked')) return 'var(--sig-concern)';
+  if (s.startsWith('done')) return 'var(--sig-okay)';
+  if (s.startsWith('branch:') || s.startsWith('running')) return 'var(--color-accent)';
+  return 'var(--cream-500)';
+}
+
 export function ReviewShelf() {
   const open = useShelfStore(s => s.open);
   const setOpen = useShelfStore(s => s.setOpen);
@@ -85,7 +96,7 @@ export function ReviewShelf() {
               <div className="font-serif" style={{ fontSize: 13, color: 'var(--cream-100)', lineHeight: 1.45 }}>
                 {a.summary}
                 {a.state && (
-                  <span className="font-mono" style={{ marginLeft: 8, fontSize: 10, color: 'var(--cream-500)' }}>· {a.state}</span>
+                  <span className="font-mono" style={{ marginLeft: 8, fontSize: 10, color: stateColor(a.state) }}>· {a.state}</span>
                 )}
               </div>
               {a.detail && (
