@@ -199,6 +199,21 @@ export function HermesDiagram() {
     );
   }, [skillResult, critiqueActiveIndex, payload]);
 
+  // Guided tour (B15): connect the header spine to the canvas. The
+  // node matching the CURRENT step's name gets a "you are here" amber
+  // halo, so the spine ("step 3/5 · Frontend") and the diagram agree.
+  // Deterministic label match (same idea as the concern tint).
+  const guidedFocusId = useMemo(() => {
+    if (!guidedTour || !payload) return null;
+    const cur = guidedTour.items[guidedTour.currentIndex];
+    if (!cur) return null;
+    const want = cur.name.trim().toLowerCase();
+    const hit = (payload.nodes ?? []).find(
+      n => (n.label ?? '').trim().toLowerCase() === want,
+    );
+    return hit?.id ?? null;
+  }, [guidedTour, payload]);
+
   // Reset to project when phase resets to IDLE.
   useEffect(() => {
     if (phase === 'IDLE') setScope('project');
@@ -847,6 +862,7 @@ export function HermesDiagram() {
                 heatmapOverlay={heatmapOverlayActive(skillResult, scope)}
                 changeHeat={heatByNode ? (heatByNode.get(n.id) ?? 0) : null}
                 concern={concernIds.has(n.id)}
+                guidedFocus={n.id === guidedFocusId}
                 pinned={pinnedIds.has(n.id)}
                 dimmed={pipeline ? !pipeline.revealed.has(n.id) : false}
                 blastHop={blast ? (blast.hopOf.get(n.id) ?? null) : null}
@@ -901,6 +917,9 @@ interface NodeViewProps {
    *  when the heatmap overlay is inactive. */
   changeHeat?: number | null;
   concern?: boolean;
+  /** Current guided-tour step's node — a "you are here" amber halo
+   *  that ties the header spine to the canvas. */
+  guidedFocus?: boolean;
   pinned?: boolean;
   dimmed?: boolean;
   blastHop?: number | null;
@@ -911,7 +930,7 @@ interface NodeViewProps {
   onClick: () => void;
 }
 
-function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, changeHeat, concern, pinned, dimmed, blastHop, roll, childrenInfo, onClick }: NodeViewProps) {
+function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, changeHeat, concern, guidedFocus, pinned, dimmed, blastHop, roll, childrenInfo, onClick }: NodeViewProps) {
   const [hover, setHover] = useState(false);
   // v3: two summary axes (subtree roll-up). Colour encodes only the
   // 4-state category; the precise numbers are the two bars below.
@@ -1020,6 +1039,21 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
           style={{ filter: 'drop-shadow(0 0 5px var(--sig-concern))' }}
         >
           <animate attributeName="opacity" values="0.95;0.5;0.95" dur="1.8s" repeatCount="indefinite" />
+        </circle>
+      )}
+      {/* Guided tour "you are here" (B15) — amber halo on the current
+       *  step's node so the header spine and the canvas agree. Calm,
+       *  additive; distinct from the concern tint's worry pulse. */}
+      {guidedFocus && (
+        <circle
+          r={node.radius + 9}
+          fill="none"
+          stroke="var(--amber-400)"
+          strokeWidth={2.5}
+          opacity={0.9}
+          style={{ filter: 'drop-shadow(0 0 6px var(--amber-400))' }}
+        >
+          <animate attributeName="opacity" values="0.9;0.55;0.9" dur="2.4s" repeatCount="indefinite" />
         </circle>
       )}
       {/* Blast-radius ripple (B4) — concentric impact rings keyed to
