@@ -33,12 +33,12 @@ export function ContentDrawer() {
   // Determine if drawer should be open and what to show
   let drawerContent: 'code' | 'diff' | 'skill' | 'conversation' | null = null;
 
-  // Full-bleed MODE skills own the whole canvas via their own surface
-  // (whats_changed → spoken recap + diagram heatmap; grill_me → the
-  // calm `?` screen + voice + HermesText Q&A). A drawer card for these
-  // only renders a raw skill-id "document" — the "document that says
-  // whats_changed" / leaked "grill_me" bug. Never a card for them.
-  if (skillResult && !['whats_changed', 'grill_me'].includes(skillResult.skillName)) {
+  // Skills that confirm themselves through their OWN surface get no
+  // generic drawer card (it would only add a redundant / raw-skill-id
+  // "document"): whats_changed → spoken recap + diagram heatmap;
+  // grill_me → the calm `?` screen + voice + HermesText Q&A; annotate
+  // → spoken "Noted" + the Notebook shelf row + the node pin.
+  if (skillResult && !['whats_changed', 'grill_me', 'annotate'].includes(skillResult.skillName)) {
     drawerContent = 'skill';
   } else if (visualCue?.type === 'show_code' && visualCue.code) {
     drawerContent = 'code';
