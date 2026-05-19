@@ -25,3 +25,7 @@ coverage/
 .vitest-cache/
 test-results/
 playwright-report/
+
+# Build / local tooling caches — never belong in history
+*.tsbuildinfo
+.claude/
