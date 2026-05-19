@@ -82,11 +82,11 @@ export function ContentPanel() {
         </AnimatePresence>
 
         {/* Skill result overlay -- takes priority when present.
-         *  Full-bleed MODE skills (whats_changed, grill_me) carry
-         *  themselves via their own surface + voice + HermesText; the
-         *  generic card would just be a raw skill-id "document". */}
+         *  Self-confirming skills (whats_changed, grill_me, annotate)
+         *  carry themselves via their own surface + voice; the generic
+         *  card would just be a redundant / raw skill-id "document". */}
         <AnimatePresence>
-          {skillResult && !['whats_changed', 'grill_me'].includes(skillResult.skillName) && (
+          {skillResult && !['whats_changed', 'grill_me', 'annotate'].includes(skillResult.skillName) && (
             <motion.div
               key="skill-result"
               initial={{ opacity: 0, y: -10 }}
