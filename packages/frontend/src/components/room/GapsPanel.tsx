@@ -9,17 +9,17 @@ import { useSessionStore } from '../../state/session-store.js';
 import { useAudioStore } from '../../state/audio-store.js';
 import { useGapsStore } from '../../state/gaps-store.js';
 import { sendEvent } from '../../lib/ws-client.js';
-import type { ComprehensionLevel } from '@tetherline/shared';
+import { bestTestPct, hasTest } from '@tetherline/shared';
 import { levelColor } from './level-color.js';
-
-const COLD_LEVELS: ComprehensionLevel[] = ['unknown', 'mentioned', 'heard'];
 
 interface Gap {
   id: string;
   label: string;
   reason: string;
   utterance: string;
-  level?: ComprehensionLevel;
+  // v3 readout for the tag (replaces the single level word).
+  seen?: boolean;
+  testedPct?: number | null;
 }
 
 export function GapsPanel() {
@@ -48,17 +48,23 @@ export function GapsPanel() {
       });
     }
 
-    // 2. Modules / files the system has mentioned but you haven't engaged with.
+    // 2. v3 gaps: things you either haven't actually watched (`!seen`)
+    //    or watched but never proved (`!hasTest`). Same Seen + Quiz/
+    //    Grill model the diagram uses — no more divergent `level` word.
     for (const [id, item] of comprehensionMap) {
-      if (!COLD_LEVELS.includes(item.level)) continue;
+      const tested = hasTest(item);
+      if (item.seen && tested) continue; // seen AND tested → not a gap
       // Skip the ones already covered by areas above
       if (out.some(o => o.label.toLowerCase() === item.label.toLowerCase())) continue;
       out.push({
         id,
         label: item.label,
-        reason: levelReason(item.level, item.layer),
+        reason: !item.seen
+          ? 'Not walked through yet — you haven\'t actually heard this.'
+          : 'Heard but never tested — quiz or grill to prove it.',
         utterance: `Tell me about ${item.label}.`,
-        level: item.level,
+        seen: item.seen,
+        testedPct: tested ? bestTestPct(item) : null,
       });
     }
 
@@ -248,19 +254,17 @@ export function GapsPanel() {
                       <span style={{ fontSize: 14, color: 'var(--cream-100)', fontWeight: 500 }}>
                         {gap.label}
                       </span>
-                      {gap.level && (
-                        <span
-                          className="font-mono flex-none"
-                          style={{
-                            fontSize: 9,
-                            letterSpacing: '0.16em',
-                            textTransform: 'uppercase',
-                            color: 'var(--cream-500)',
-                          }}
-                        >
-                          {gap.level}
-                        </span>
-                      )}
+                      <span
+                        className="font-mono flex-none"
+                        style={{
+                          fontSize: 9,
+                          letterSpacing: '0.16em',
+                          textTransform: 'uppercase',
+                          color: 'var(--cream-500)',
+                        }}
+                      >
+                        Seen {gap.seen ? '✓' : '–'} · Q {gap.testedPct == null ? '—' : `${gap.testedPct}%`}
+                      </span>
                     </div>
                     <p
                       className="narration"
@@ -285,11 +289,4 @@ function prettyRecallLabel(item: { itemId: string; label: string }): string {
   if (item.itemId.startsWith('file/'))   return item.itemId.slice('file/'.length);
   if (item.itemId.startsWith('code/'))   return item.itemId.slice('code/'.length).split(':')[0];
   return item.label || item.itemId;
-}
-
-function levelReason(level: ComprehensionLevel, layer: string): string {
-  if (level === 'unknown') return `In the codebase but never mentioned this session.`;
-  if (level === 'mentioned') return `Came up briefly — you haven't dug in.`;
-  if (level === 'heard') return `Briefed but not yet explored at depth.`;
-  return `Layer: ${layer}.`;
 }

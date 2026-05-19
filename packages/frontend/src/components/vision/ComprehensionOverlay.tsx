@@ -1,8 +1,7 @@
 import { useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSessionStore } from '../../state/session-store.js';
-import { LEVEL_LABEL } from '@tetherline/shared';
-import { levelColor } from '../room/level-color.js';
+import { bestTestPct, hasTest } from '@tetherline/shared';
 
 /** Toggleable overlay showing the user's comprehension levels across the
  *  briefings they've touched this session. Activates on utterance or from the
@@ -62,32 +61,41 @@ export function ComprehensionOverlay() {
             </p>
           ) : (
             <div className="space-y-2">
-              {mapEntries.map(([id, item]) => (
-                <div key={id} className="flex items-center gap-3">
-                  <span
-                    style={{
-                      width: 10, height: 10, borderRadius: 2,
-                      background: levelColor(item.level) ?? 'var(--heat-0)',
-                      flex: 'none',
-                      boxShadow: item.level === 'confirmed' ? '0 0 6px var(--amber-500)' : 'none',
-                    }}
-                  />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
-                      className="font-serif"
+              {mapEntries.map(([id, item]) => {
+                const tested = hasTest(item);
+                const pct = tested ? bestTestPct(item) : null;
+                // Same Seen + Quiz/Grill model as the diagram. Dot:
+                // grilled = proven (okay), seen = watched (amber),
+                // neither = cold.
+                const dot = item.grilled
+                  ? 'var(--sig-okay)'
+                  : item.seen ? 'var(--amber-400)' : 'var(--heat-0)';
+                return (
+                  <div key={id} className="flex items-center gap-3">
+                    <span
                       style={{
-                        fontSize: 14, letterSpacing: '-0.005em', color: 'var(--cream-900)',
-                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        width: 10, height: 10, borderRadius: 2,
+                        background: dot, flex: 'none',
+                        boxShadow: item.grilled ? '0 0 6px var(--sig-okay)' : 'none',
                       }}
-                    >
-                      {item.label}
-                    </div>
-                    <div className="font-mono" style={{ fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--cream-500)' }}>
-                      {item.layer} · {LEVEL_LABEL[item.level]}
+                    />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div
+                        className="font-serif"
+                        style={{
+                          fontSize: 14, letterSpacing: '-0.005em', color: 'var(--cream-900)',
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {item.label}
+                      </div>
+                      <div className="font-mono" style={{ fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--cream-500)' }}>
+                        {item.layer} · Seen {item.seen ? '✓' : '–'} · Q {pct === null ? '—' : `${pct}%`}{item.grilled ? ' ✓' : ''}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </motion.div>

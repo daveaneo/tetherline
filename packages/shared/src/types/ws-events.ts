@@ -84,7 +84,16 @@ export type ServerEvent =
       layer: string;
       level: 'unknown'|'mentioned'|'heard'|'engaged'|'explained'|'confirmed';
       previousLevel: 'unknown'|'mentioned'|'heard'|'engaged'|'explained'|'confirmed';
-      reason: 'briefing_delivered'|'question_asked'|'listened_through'|'confirmed_phrase'|'stale';
+      reason: 'briefing_delivered'|'question_asked'|'listened_through'|'confirmed_phrase'|'stale'|'seen'|'quiz'|'grill';
+      // v3 knowledge signal — carried so the Overlay / Gaps panels show
+      // the SAME Seen + Quiz/Grill model as the diagram (not the old
+      // single `level`). Optional ⇒ backward-compatible.
+      seen?: boolean;
+      grilled?: boolean;
+      quizCorrect?: number;
+      quizTotal?: number;
+      grillStrong?: number;
+      grillAsked?: number;
     } }
   | { type: 'session:state_changed'; payload: { state: SessionState; context: StateContext } }
   | { type: 'session:recap'; payload: { previousSession: SessionSummary; narrative: string } }
