@@ -34,7 +34,7 @@ const SCENES = [
   { name: 'blast-radius', skill: 'blast-radius — impact ripple', blurb:
     'WHO/WHY: you ask about impact ("what touches X?", "blast radius of Y", "what depends on this?") — classifier → the blast-radius skill. WHAT: a BFS over the import graph from the changed node; concentric rings fade outward by hop distance (hop 0 = solid warm epicenter).' },
   { name: 'guided-mode', skill: 'guided tour — planned walkthrough', blurb:
-    'WHO/WHY: you ask for a guided tour ("walk me through the project", "give me the tour", "teach me this codebase") — a top-down planned tour drives the session. WHAT: a header spine of covered ▸ current (wide amber) ▸ upcoming steps with the current step name.' },
+    'WHO/WHY: you ask for a guided tour ("walk me through the project", "give me the tour", "teach me this codebase") — a top-down planned tour drives the session. WHAT: a header spine of covered ▸ current (wide amber) ▸ upcoming steps with the current step name, AND the matching node on the canvas now wears a "you are here" amber halo (deterministic label match) so the spine and the diagram agree instead of leaving you to map the name yourself.' },
   { name: 'breadcrumb', skill: 'You-are-here trail (always-on chrome)', blurb:
     'WHO/WHY: not a skill — always-on orientation chrome that appears in the header whenever you are inside a deep_dive pocket, driven by navigation depth. WHAT: the position trail, e.g. CORE › TOKEN REFRESH › 3/8, over the scoped canvas.' },
   { name: 'knowledge-layer', skill: 'Knowledge — current layer (always-on)', blurb:
