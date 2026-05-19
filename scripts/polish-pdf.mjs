@@ -30,7 +30,7 @@ const SCENES = [
   { name: 'deep-dive', skill: 'deep_dive — pocket presentation', blurb:
     'WHO/WHY: you ask to go deep ("deep dive on X", "go deeper", "really walk me through this") — classifier → the deep_dive skill. WHAT: a full-bleed ≤10-slide pocket REPLACES the diagram (a sandbox; exiting restores the exact prior canvas). Kicker·focus, N/M cursor, slide rail, exit hint.' },
   { name: 'pipeline', skill: 'pipeline — data-flow walkthrough', blurb:
-    'WHO/WHY: you ask how data moves ("show me the data flow", "walk me through how X works end to end") — classifier → the pipeline walkthrough. WHAT: the graph lights one stage at a time source→transform→guard→sink; revealed lit, rest dimmed; header stage strip.' },
+    'WHO/WHY: you ask how data moves ("show me the data flow", "walk me through how X works end to end") — classifier → the pipeline walkthrough. WHAT: the graph lights one stage at a time source→transform→guard→sink; revealed lit, rest dimmed. The header strip shows the numeric stage AND highlights the CURRENT role in the source→transform→guard→sink legend (amber, same "current = amber" language as the guided-tour spine / deep-dive rail) so the taxonomy doubles as a position indicator.' },
   { name: 'blast-radius', skill: 'blast-radius — impact ripple', blurb:
     'WHO/WHY: you ask about impact ("what touches X?", "blast radius of Y", "what depends on this?") — classifier → the blast-radius skill. WHAT: a BFS over the import graph from the changed node; concentric rings fade outward by hop distance (hop 0 = solid warm epicenter).' },
   { name: 'guided-mode', skill: 'guided tour — planned walkthrough', blurb:

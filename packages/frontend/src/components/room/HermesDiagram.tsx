@@ -377,7 +377,10 @@ export function HermesDiagram() {
     const total = order.length;
     const step = Math.max(1, Math.min(pipelineReveal.step, total));
     const revealed = new Set(order.slice(0, step).map(o => o.id));
-    return { step, total, revealed };
+    const r = (order[step - 1]?.data as { role?: string } | undefined)?.role;
+    const currentRole =
+      r === 'source' || r === 'transform' || r === 'guard' || r === 'sink' ? r : null;
+    return { step, total, revealed, currentRole };
   }, [pipelineReveal, payload]);
 
   // Blast-radius ripple (B4): BFS the import graph from the changed
@@ -626,7 +629,25 @@ export function HermesDiagram() {
                   />
                 ))}
               </span>
-              <span style={{ opacity: 0.65 }}>source → transform → guard → sink</span>
+              <span style={{ display: 'flex', gap: 4 }}>
+                {(['source', 'transform', 'guard', 'sink'] as const).map((role, idx) => {
+                  const active = pipeline.currentRole === role;
+                  return (
+                    <span key={role}>
+                      {idx > 0 && <span style={{ opacity: 0.35, marginRight: 4 }}>→</span>}
+                      <span
+                        style={{
+                          opacity: active ? 1 : 0.55,
+                          color: active ? 'var(--amber-400)' : undefined,
+                          fontWeight: active ? 600 : undefined,
+                        }}
+                      >
+                        {role}
+                      </span>
+                    </span>
+                  );
+                })}
+              </span>
             </div>
           )}
           {blast && (
