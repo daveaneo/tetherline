@@ -14,6 +14,13 @@ export GIT_AUTHOR_EMAIL='fixture@tetherline.test'
 export GIT_COMMITTER_NAME='Fixture Author'
 export GIT_COMMITTER_EMAIL='fixture@tetherline.test'
 
+# Commit dates MUST be relative to "now", not hardcoded. The session
+# manager early-returns for entryMode 'updates' when no commits fall in
+# the sinceDays window — hardcoded dates silently rot past that window
+# as wall-clock advances and the whole hermes suite 404s on briefings.
+INIT_DATE="$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ)"
+FEAT_DATE="$(date -u -d '5 days ago' +%Y-%m-%dT%H:%M:%SZ)"
+
 git init -q -b main
 
 mkdir -p core utils auth payments
@@ -80,17 +87,17 @@ cat > payments/ledger.ts <<'EOF'
 export function record(amount: number) { /* ledger insert */ }
 EOF
 
-GIT_AUTHOR_DATE='2026-04-01T10:00:00Z' GIT_COMMITTER_DATE='2026-04-01T10:00:00Z' \
+GIT_AUTHOR_DATE="$INIT_DATE" GIT_COMMITTER_DATE="$INIT_DATE" \
   git add -A
-GIT_AUTHOR_DATE='2026-04-01T10:00:00Z' GIT_COMMITTER_DATE='2026-04-01T10:00:00Z' \
+GIT_AUTHOR_DATE="$INIT_DATE" GIT_COMMITTER_DATE="$INIT_DATE" \
   git commit -q -m "Initial multi-module scaffolding"
 
 cat > core/idempotency.ts <<'EOF'
 export class Store { private m = new Map<string, unknown>(); get(k: string) { return this.m.get(k); } put(k: string, v: unknown) { this.m.set(k, v); } }
 EOF
-GIT_AUTHOR_DATE='2026-04-15T10:00:00Z' GIT_COMMITTER_DATE='2026-04-15T10:00:00Z' \
+GIT_AUTHOR_DATE="$FEAT_DATE" GIT_COMMITTER_DATE="$FEAT_DATE" \
   git add -A
-GIT_AUTHOR_DATE='2026-04-15T10:00:00Z' GIT_COMMITTER_DATE='2026-04-15T10:00:00Z' \
+GIT_AUTHOR_DATE="$FEAT_DATE" GIT_COMMITTER_DATE="$FEAT_DATE" \
   git commit -q -m "Add idempotency store for safe retries"
 
 echo "fixture ready: $DEST"

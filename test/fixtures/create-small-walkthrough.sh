@@ -13,6 +13,13 @@ export GIT_AUTHOR_EMAIL='fixture@tetherline.test'
 export GIT_COMMITTER_NAME='Fixture Author'
 export GIT_COMMITTER_EMAIL='fixture@tetherline.test'
 
+# Commit dates relative to "now" — hardcoded dates silently rot past
+# the entryMode:'updates' sinceDays window as wall-clock advances,
+# which makes the manager early-return before warming briefings.
+D_INIT="$(date -u -d '21 days ago' +%Y-%m-%dT%H:%M:%SZ)"
+D_MID="$(date -u -d '12 days ago' +%Y-%m-%dT%H:%M:%SZ)"
+D_LATEST="$(date -u -d '5 days ago' +%Y-%m-%dT%H:%M:%SZ)"
+
 git init -q -b main
 
 mkdir -p src/core src/utils
@@ -49,9 +56,9 @@ export function log(msg: string): void {
 }
 EOF
 
-GIT_AUTHOR_DATE='2026-04-01T10:00:00Z' GIT_COMMITTER_DATE='2026-04-01T10:00:00Z' \
+GIT_AUTHOR_DATE="$D_INIT" GIT_COMMITTER_DATE="$D_INIT" \
   git add -A
-GIT_AUTHOR_DATE='2026-04-01T10:00:00Z' GIT_COMMITTER_DATE='2026-04-01T10:00:00Z' \
+GIT_AUTHOR_DATE="$D_INIT" GIT_COMMITTER_DATE="$D_INIT" \
   git commit -q -m "Initial project scaffolding"
 
 cat > src/core/idempotency.ts <<'EOF'
@@ -62,9 +69,9 @@ export class IdempotencyStore {
 }
 EOF
 
-GIT_AUTHOR_DATE='2026-04-15T10:00:00Z' GIT_COMMITTER_DATE='2026-04-15T10:00:00Z' \
+GIT_AUTHOR_DATE="$D_MID" GIT_COMMITTER_DATE="$D_MID" \
   git add -A
-GIT_AUTHOR_DATE='2026-04-15T10:00:00Z' GIT_COMMITTER_DATE='2026-04-15T10:00:00Z' \
+GIT_AUTHOR_DATE="$D_MID" GIT_COMMITTER_DATE="$D_MID" \
   git commit -q -m "Add idempotency store for safe retries"
 
 # Edit capture to use the store
@@ -85,9 +92,9 @@ export async function capture(params: CaptureParams): Promise<{ ok: boolean; cac
 }
 EOF
 
-GIT_AUTHOR_DATE='2026-04-18T10:00:00Z' GIT_COMMITTER_DATE='2026-04-18T10:00:00Z' \
+GIT_AUTHOR_DATE="$D_LATEST" GIT_COMMITTER_DATE="$D_LATEST" \
   git add -A
-GIT_AUTHOR_DATE='2026-04-18T10:00:00Z' GIT_COMMITTER_DATE='2026-04-18T10:00:00Z' \
+GIT_AUTHOR_DATE="$D_LATEST" GIT_COMMITTER_DATE="$D_LATEST" \
   git commit -q -m "Wire idempotency into capture so retries are safe"
 
 echo "fixture ready: $DEST"

@@ -184,9 +184,10 @@ describe('Hermes — deep exploration arc', () => {
     expect(projectBriefing.opener).toMatch(/core/i);
     expect(projectBriefing.opener).toMatch(/auth/i);
     expect(projectBriefing.opener).toMatch(/payments/i);
-    // …and surface the watch-out detail (auth dev fallback) — that's the
-    // line that makes the briefing feel like a real human guide.
-    expect(projectBriefing.opener).toMatch(/static cookie|dev mode|keyring|fallback/i);
+    // The watch-out detail (auth dev cookie fallback) is intentionally
+    // NOT in the concise project opener — the project pitch names the
+    // worlds; the non-obvious surprise surfaces on drill-in, asserted
+    // at the auth MODULE briefing below (see authBriefing.text).
     // Children = the satellites the user can drill into.
     expect(projectBriefing.children.length).toBeLessThanOrEqual(6);
     expect(projectBriefing.children).toEqual(expect.arrayContaining([

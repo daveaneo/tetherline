@@ -11,9 +11,10 @@
  *   C. Depth invariant — hearing the project briefing only promotes
  *      `project` to `heard`; module/file entries stay at `unknown`.
  *      Hearing ≠ knowing.
- *   D. Quiz — entering quiz on a layer with 3/3 correct answers bumps
- *      that layer from `heard` → `confirmed`; 2/3 → `explained`; ≤1
- *      stays at `heard` (the depth lock).
+ *   D. Quiz — v3: a quiz never inflates the comprehension level
+ *      (level reflects only what was seen/explained). A PERFECT quiz
+ *      (3/3) earns the standalone `grilled` active-recall proof
+ *      instead; partials just record the ratio.
  *   E. Children cap — every briefing surfaces at most 6 children, so
  *      the radial map never exceeds Miller's-rule cognitive load.
  *
@@ -278,7 +279,7 @@ describe('Hermes radial-map flow', () => {
     }
   }, 60_000);
 
-  it('E. quiz: 3/3 correct answers bumps comprehension from heard → confirmed', async () => {
+  it('E. quiz: 3/3 correct earns the `grilled` proof (v3: no level inflation)', async () => {
     const { devSessionId } = await h.client.startSession({
       repoPath: FIXTURE_PATH,
       entryMode: 'updates',
@@ -348,10 +349,18 @@ describe('Hermes radial-map flow', () => {
     expect(result, 'quiz:result emitted').toBeTruthy();
     expect(result.payload.correct).toBe(3);
     expect(result.payload.total).toBe(3);
-    expect(result.payload.newLevel).toBe('confirmed');
+    // v3: a quiz does NOT inflate the comprehension level — level
+    // tracks only what was actually seen/explained, so passing a quiz
+    // can never push it to `confirmed`. (Was a v2 assertion.)
+    expect(result.payload.newLevel).not.toBe('confirmed');
 
-    const after = await readComprehensionMap(FIXTURE_PATH);
-    expect(after.get('project')).toBe('confirmed');
+    // What a PERFECT quiz earns instead: the standalone `grilled`
+    // active-recall proof on the item.
+    const items = (await h.client.comprehension(FIXTURE_PATH)).items;
+    const projectItem = items.find((it: any) => it.itemId === 'project');
+    expect(projectItem, 'project comprehension item exists').toBeTruthy();
+    expect(projectItem.grilled, '3/3 quiz marks project grilled').toBe(true);
+    expect(projectItem.level, 'level not inflated to confirmed').not.toBe('confirmed');
   }, 90_000);
 
   it('F. quiz scoring tiers: 2/3 → explained, ≤1 → stays heard (no demotion)', async () => {

@@ -29,8 +29,18 @@ vi.mock('../../packages/frontend/src/lib/speech-recognition.js', () => ({
     stop() { recognizerCalls.stop++; }
   },
 }));
+// Mirror the real AudioCapture surface the PTT path now uses: start()
+// resolves a promise (onKeyDown awaits captureStartPromiseRef), and the
+// explicit Whisper boundary methods forceSpeechStart/forceSpeechEnd.
+// (Stale mock — missing these — made keyup throw before the mic
+// teardown, so the release test saw recognizer.stop === 0.)
 vi.mock('../../packages/frontend/src/lib/audio-capture.js', () => ({
-  AudioCapture: class { start() {} stop() {} },
+  AudioCapture: class {
+    async start() {}
+    stop() {}
+    forceSpeechStart() {}
+    async forceSpeechEnd() {}
+  },
 }));
 
 const originalFetch = global.fetch;
@@ -101,10 +111,13 @@ describe('push-to-talk on space', () => {
     const hook = renderHook(() => useVoiceInput());
     await act(async () => { await vi.advanceTimersByTimeAsync(1); });
 
-    act(() => { pressSpace(); });
+    await act(async () => { pressSpace(); await vi.advanceTimersByTimeAsync(1); });
     expect(recognizerCalls.start).toBe(1);
 
-    act(() => { releaseSpace(); });
+    // keyup is async (awaits capture-finalize before tearing the mic
+    // down — the Whisper POST must finish first). Flush microtasks so
+    // the post-await teardown actually runs before asserting it.
+    await act(async () => { releaseSpace(); await vi.advanceTimersByTimeAsync(1); });
     expect(sentEvents.some(e => e.type === 'user:speaking_stopped')).toBe(true);
     expect(recognizerCalls.stop).toBe(1);
     expect(hook.result.current.listening).toBe(false);
