@@ -137,7 +137,15 @@ interface SessionStore {
     depth: number;
     frames: Array<{ briefingId: string; title: string; layer: string }>;
   };
-  comprehensionMap: Map<string, { level: ComprehensionLevel; label: string; layer: string }>;
+  comprehensionMap: Map<string, {
+    level: ComprehensionLevel; label: string; layer: string;
+    // v3 knowledge signal — so the Overlay / Gaps panels render the
+    // same Seen + Quiz/Grill model as the diagram (structurally a
+    // shared `Leveled`). Optional ⇒ tolerates pre-v3 emits.
+    seen?: boolean; grilled?: boolean;
+    quizCorrect?: number; quizTotal?: number;
+    grillStrong?: number; grillAsked?: number;
+  }>;
   quickPreview: {
     repoName: string;
     commitCount: number;
@@ -558,10 +566,17 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       case 'comprehension:updated':
         set(s => {
           const next = new Map(s.comprehensionMap);
-          next.set(event.payload.itemId, {
-            level: event.payload.level,
-            label: event.payload.label,
-            layer: event.payload.layer,
+          const p = event.payload;
+          next.set(p.itemId, {
+            level: p.level,
+            label: p.label,
+            layer: p.layer,
+            seen: p.seen,
+            grilled: p.grilled,
+            quizCorrect: p.quizCorrect,
+            quizTotal: p.quizTotal,
+            grillStrong: p.grillStrong,
+            grillAsked: p.grillAsked,
           });
           return { comprehensionMap: next };
         });

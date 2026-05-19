@@ -601,20 +601,7 @@ export class SessionManager {
           this.db.getComprehensionRepo(),
         );
         for (const staledId of warmResult.staled) {
-          const item = this.db.getComprehensionRepo().get(effectivePath, staledId);
-          if (item) {
-            this.emit({
-              type: 'comprehension:updated',
-              payload: {
-                itemId: item.itemId,
-                label: item.label,
-                layer: item.layer,
-                level: item.level,
-                previousLevel: 'confirmed', // degraded from a higher level
-                reason: 'stale',
-              },
-            });
-          }
+          this.emitComprehensionUpdate(effectivePath, staledId, 'stale', 'confirmed');
         }
 
         // Pre-warm diagram payloads (project + per-module, both views)
@@ -1777,6 +1764,7 @@ export class SessionManager {
       // A PERFECT quiz (3/3) is an active-recall QA proof, equivalent
       // to passing a grill — flip the standalone `grilled` marker.
       if (correctCount === total) repo.markGrilled(repoPath, this.activeQuiz.briefingId);
+      this.emitComprehensionUpdate(repoPath, this.activeQuiz.briefingId, 'quiz');
     }
 
     this.emit({
@@ -1888,6 +1876,7 @@ export class SessionManager {
           if (answered.length >= 3 && strong >= Math.ceil(answered.length * 0.6)) {
             repo.markGrilled(repoPath, topicId);
           }
+          this.emitComprehensionUpdate(repoPath, topicId, 'grill');
         }
         this.activeGrill = null;
       }
@@ -1959,6 +1948,7 @@ export class SessionManager {
     const repoPath = this.activeRepoPath;
     if (repoPath && this.lastBriefingId) {
       this.db.getComprehensionRepo().markSeen(repoPath, this.lastBriefingId);
+      this.emitComprehensionUpdate(repoPath, this.lastBriefingId, 'seen');
     }
     // Close the whats_changed loop: being walked through a changed
     // area = you've caught up on it. Mark its files reviewed and
@@ -2481,8 +2471,39 @@ export class SessionManager {
     return 'project';
   }
 
+  /** Emit the FULL v3 comprehension signal (level + seen + quiz/grill)
+   *  for one item, read fresh from the repo. The Overlay / Gaps panels
+   *  consume this so they show the same model as the diagram instead
+   *  of the legacy single `level`. */
+  private emitComprehensionUpdate(
+    repoPath: string,
+    itemId: string,
+    reason: 'briefing_delivered' | 'question_asked' | 'listened_through' | 'confirmed_phrase' | 'stale' | 'seen' | 'quiz' | 'grill',
+    previousLevel?: ComprehensionLevel,
+  ): void {
+    const item = this.db.getComprehensionRepo().get(repoPath, itemId);
+    if (!item) return;
+    this.emit({
+      type: 'comprehension:updated',
+      payload: {
+        itemId: item.itemId,
+        label: item.label,
+        layer: item.layer,
+        level: item.level,
+        previousLevel: (previousLevel ?? item.level) as ComprehensionLevel,
+        reason,
+        seen: item.seen,
+        grilled: item.grilled,
+        quizCorrect: item.quizCorrect,
+        quizTotal: item.quizTotal,
+        grillStrong: item.grillStrong,
+        grillAsked: item.grillAsked,
+      },
+    });
+  }
+
   /** Observe a transition for a comprehension item, guarded by per-item
-   *  cooldown. Emits `comprehension:updated` when the level actually moves. */
+   *  cooldown. Emits the full v3 `comprehension:updated` after observe. */
   private observeComprehension(
     itemId: string,
     label: string,
@@ -2514,19 +2535,11 @@ export class SessionManager {
       questionsAsked: opts.questionsAsked,
     });
 
-    if (!before || before.level !== item.level) {
-      this.emit({
-        type: 'comprehension:updated',
-        payload: {
-          itemId: item.itemId,
-          label: item.label,
-          layer: item.layer,
-          level: item.level,
-          previousLevel: (before?.level ?? 'unknown') as ComprehensionLevel,
-          reason,
-        },
-      });
-    }
+    // Emit the full v3 signal whenever we reach here (the cooldown
+    // above already throttles passive spam). Not gated on level-move:
+    // seen / quiz / grill change without moving level and the panels
+    // must reflect that.
+    this.emitComprehensionUpdate(repoPath, itemId, reason, (before?.level ?? 'unknown') as ComprehensionLevel);
   }
 
 
