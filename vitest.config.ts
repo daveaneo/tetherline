@@ -20,6 +20,7 @@ export default defineConfig({
     exclude: ['test/voice/**', 'test/e2e/**', 'node_modules/**', 'dist/**'],
     testTimeout: 60_000,
     hookTimeout: 60_000,
+    globalSetup: ['./test/global-setup.ts'],
     reporters: ['default'],
     isolate: true,
     pool: 'forks',

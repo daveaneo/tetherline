@@ -26,6 +26,9 @@ export GIT_AUTHOR_EMAIL='fixture@tetherline.test'
 export GIT_COMMITTER_NAME='Fixture Author'
 export GIT_COMMITTER_EMAIL='fixture@tetherline.test'
 
+# Relative commit date — hardcoded dates rot past the sinceDays window.
+D_MIRROR="$(date -u -d '10 days ago' +%Y-%m-%dT%H:%M:%SZ)"
+
 git init -q -b main
 
 mkdir -p packages/backend/src/session packages/backend/src/intelligence
@@ -197,9 +200,9 @@ cat > test/harness.ts <<'EOF'
 export const tetherline = {} as any;
 EOF
 
-GIT_AUTHOR_DATE='2026-04-01T10:00:00Z' GIT_COMMITTER_DATE='2026-04-01T10:00:00Z' \
+GIT_AUTHOR_DATE="$D_MIRROR" GIT_COMMITTER_DATE="$D_MIRROR" \
   git add -A
-GIT_AUTHOR_DATE='2026-04-01T10:00:00Z' GIT_COMMITTER_DATE='2026-04-01T10:00:00Z' \
+GIT_AUTHOR_DATE="$D_MIRROR" GIT_COMMITTER_DATE="$D_MIRROR" \
   git commit -q -m "Initial Tetherline-mirror scaffolding"
 
 echo "fixture ready: $DEST"
