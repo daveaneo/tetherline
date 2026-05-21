@@ -582,6 +582,42 @@ export function createDevRoutes(db: Database, config: AppConfig): Router {
     }
   });
 
+  // ──────────────────────────────────────────────
+  // Debug telemetry — fire-and-forget JSONL ingest.
+  // The frontend debug-recorder POSTs a snapshot on every screen
+  // transition (phase / scope / skill / voice change) so Claude can
+  // tail /tmp/tetherline-debug.jsonl and reconstruct the experience
+  // in detail without the user copy-pasting console output. DEV only
+  // (the entire /api/dev/* router is gated by devGuard above).
+  // ──────────────────────────────────────────────
+  const DEBUG_LOG_PATH = '/tmp/tetherline-debug.jsonl';
+
+  /** POST /api/dev/telemetry — append one JSONL snapshot. */
+  router.post('/telemetry', async (req, res) => {
+    try {
+      const { appendFileSync } = await import('node:fs');
+      const line = JSON.stringify({
+        ts: new Date().toISOString(),
+        ...req.body,
+      }) + '\n';
+      appendFileSync(DEBUG_LOG_PATH, line);
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /** POST /api/dev/telemetry/clear — truncate the log to start fresh. */
+  router.post('/telemetry/clear', async (_req, res) => {
+    try {
+      const { writeFileSync } = await import('node:fs');
+      writeFileSync(DEBUG_LOG_PATH, '');
+      res.json({ ok: true, path: DEBUG_LOG_PATH });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   // Expose registry to other routers if needed.
   (router as any).__registry = registry;
 
