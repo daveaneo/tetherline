@@ -2017,6 +2017,8 @@ export class SessionManager {
     if (top?.briefingId !== briefing.id) {
       const check = this.navigator.checkPush(briefing.id);
       if (check.allowed) {
+        // eslint-disable-next-line no-console
+        console.log(`[trace] briefing.push id=${briefing.id} layer=${briefing.layer} reason=${reason} phase=${this.state.phase}`);
         this.navigator.push(frameFromBriefing(briefing, reason));
         this.emit({
           type: 'navigator:push',
@@ -2655,6 +2657,13 @@ export class SessionManager {
     const contextStr = `Phase: ${this.state.phase}. Area: ${currentArea?.name ?? 'none'}. Areas: ${this.areas.map(a => a.name).join(', ')}.`;
 
     const classification = await this.intentClassifier.classify(text, contextStr);
+
+    // Tagged log for debug-recorder review. One greppable line per
+    // user utterance → classifier decision, so we can correlate "the
+    // app did X" against "this is what the classifier picked" without
+    // having to instrument again on each diagnostic round.
+    // eslint-disable-next-line no-console
+    console.log(`[trace] classify "${text.slice(0, 80)}" -> skill=${classification.skillName} conf=${classification.confidence.toFixed(2)} params=${JSON.stringify(classification.params)} phase=${this.state.phase}`);
 
     getTraceRecorder()?.emit({
       kind: 'intent.classified',

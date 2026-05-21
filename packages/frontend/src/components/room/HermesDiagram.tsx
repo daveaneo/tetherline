@@ -174,6 +174,20 @@ export function HermesDiagram() {
     }
   }, [skillResult]);
 
+  // `visualize` skill → auto-switch to LOGIC view. The skill's
+  // narration talks about ideas / pipelines / structures; if the
+  // user is in File-map view they'd see files and the words don't
+  // match the picture (the "saw files instead of ideas/structures"
+  // bug). Switching the view makes the visual back up the words.
+  // Deduped by skillResult identity so we don't fight a manual flip.
+  const lastVisualizedRef = useRef<unknown>(null);
+  useEffect(() => {
+    if (!skillResult || skillResult.skillName !== 'visualize') return;
+    if (lastVisualizedRef.current === skillResult) return;
+    lastVisualizedRef.current = skillResult;
+    setView('logic');
+  }, [skillResult]);
+
   // Persistent pins (B10): nodes whose leaf/label matches a Notebook
   // entry's target. Derived from the shelf notes — survives sessions
   // once those are seeded.
