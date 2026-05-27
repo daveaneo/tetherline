@@ -394,6 +394,102 @@ export const SCENES: Scene[] = [
       });
     },
   },
+  // ── visualize → authored diagram (the "build new visuals" fix) ──
+  {
+    name: 'visualize-flow-pipeline',
+    description:
+      'You asked: "Show me the flow when I\'m using PersonalForge." The visualize skill AUTHORED a fresh pipeline diagram — the words and the picture now agree.',
+    seed: () => {
+      seedBase();
+      useSessionStore.setState({
+        skillResult: {
+          skillName: 'visualize', type: 'diagram',
+          narration:
+            'Three input sources — local files, web URLs, and Hugging Face datasets — converge through the FileLoader, then a Chunker breaks them into instruction-response pairs. The ModelMatcher picks the right base model for your hardware, and the GGUFWriter bakes the result into a single self-contained file you can run anywhere.',
+          visualPayload: {
+            target: 'the flow when I am using PersonalForge',
+            kind: 'pipeline',
+            diagram: {
+              scope: 'authored/personalforge-flow',
+              view: 'logic',
+              title: 'PersonalForge flow',
+              subtitle: 'Local / web / HF sources → loader → chunker → matcher → GGUF',
+              nodes: [
+                { id: 'local-files', label: 'Local files', description: 'PDFs, code, notes', role: 'source' },
+                { id: 'web-urls', label: 'Web URLs', description: 'Articles, docs', role: 'source' },
+                { id: 'hf-datasets', label: 'HF datasets', description: 'Hugging Face streams', role: 'source' },
+                { id: 'file-loader', label: 'FileLoader', description: 'Normalises inputs', role: 'transform' },
+                { id: 'chunker', label: 'Chunker', description: 'Instruction-response pairs', role: 'transform' },
+                { id: 'model-matcher', label: 'ModelMatcher', description: 'Hardware-aware pick', role: 'guard' },
+                { id: 'gguf-writer', label: 'GGUFWriter', description: 'Single self-contained file', role: 'sink' },
+              ],
+              edges: [
+                { from: 'local-files', to: 'file-loader' },
+                { from: 'web-urls', to: 'file-loader' },
+                { from: 'hf-datasets', to: 'file-loader' },
+                { from: 'file-loader', to: 'chunker', kind: 'produces' },
+                { from: 'chunker', to: 'model-matcher', kind: 'produces' },
+                { from: 'model-matcher', to: 'gguf-writer', kind: 'produces' },
+              ],
+            },
+          },
+        } as never,
+      });
+    },
+  },
+  {
+    name: 'visualize-flow-graph',
+    description:
+      'Robustness variant — you asked: "How do auth and the cache wire together?" Visualize chose a graph (not a pipeline) and authored 4 nodes with the right edges.',
+    seed: () => {
+      seedBase();
+      useSessionStore.setState({
+        skillResult: {
+          skillName: 'visualize', type: 'diagram',
+          narration:
+            'The Router hands authenticated requests to the SessionManager, which reads from the ContextCache. The TokenGate guards refresh — when it stalls, the manager holds narration so nothing talks over a hung round-trip.',
+          visualPayload: {
+            target: 'how auth and the cache wire together',
+            kind: 'graph',
+            diagram: {
+              scope: 'authored/auth-and-cache',
+              view: 'logic',
+              title: 'Auth ↔ cache',
+              subtitle: 'Router · TokenGate · SessionManager · ContextCache',
+              nodes: [
+                { id: 'router', label: 'Router', description: 'HTTP + WS entry', role: 'source' },
+                { id: 'token-gate', label: 'TokenGate', description: 'Refresh guard', role: 'guard' },
+                { id: 'session-manager', label: 'SessionManager', description: 'State machine', role: 'transform' },
+                { id: 'context-cache', label: 'ContextCache', description: 'Warm summaries', role: 'sink' },
+              ],
+              edges: [
+                { from: 'router', to: 'token-gate' },
+                { from: 'token-gate', to: 'session-manager', kind: 'produces' },
+                { from: 'session-manager', to: 'context-cache', kind: 'consumes' },
+                { from: 'router', to: 'session-manager', label: 'authed' },
+              ],
+            },
+          },
+        } as never,
+      });
+    },
+  },
+  {
+    name: 'visualize-flow-fallback',
+    description:
+      'Voice north-star — when the structured LLM call fails, visualize falls back to plain prose with no authored diagram. The cached project map stays on screen so the user still sees something coherent.',
+    seed: () => {
+      seedBase();
+      useSessionStore.setState({
+        skillResult: {
+          skillName: 'visualize', type: 'diagram',
+          narration:
+            "Couldn't author a custom diagram this time — but the project map you're on still tells the structural story: Core handles git + intelligence, Frontend renders the room and the diagram, Shared carries the types, and Voice gates barge-in.",
+          visualPayload: { target: 'the project' },
+        } as never,
+      });
+    },
+  },
 ];
 
 export function getScene(name: string): Scene | undefined {

@@ -137,7 +137,17 @@ export function HermesDiagram() {
     prevScopeRef.current = scope;
   }, [scope]);
 
-  const [payload, setPayload] = useState<DiagramPayload | null>(null);
+  const [fetchedPayload, setFetchedPayload] = useState<DiagramPayload | null>(null);
+  // When `visualize` skill returns an authored diagram, swap it in
+  // for the lifetime of the result so the words and the picture
+  // agree. Cached payload is preserved (not refetched) and restored
+  // when the skill clears.
+  const authoredPayload = useMemo(() => {
+    if (skillResult?.skillName !== 'visualize') return null;
+    const d = (skillResult.visualPayload as { diagram?: DiagramPayload } | undefined)?.diagram;
+    return d && Array.isArray(d.nodes) && d.nodes.length > 0 ? d : null;
+  }, [skillResult]);
+  const payload = authoredPayload ?? fetchedPayload;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Anti-hang (#73): the diagram must NEVER show "Composing…" forever.
@@ -291,7 +301,7 @@ export function HermesDiagram() {
     // with NO fetch, NO WS, NO backend. Production never sets this.
     const scenePayload = useSessionStore.getState().sceneDiagramPayload;
     if (scenePayload) {
-      setPayload(scenePayload);
+      setFetchedPayload(scenePayload);
       setLoading(false);
       setError(null);
       setStalled(false);
@@ -313,7 +323,7 @@ export function HermesDiagram() {
       })
       .then(j => {
         if (cancelled) return;
-        setPayload(j.diagram);
+        setFetchedPayload(j.diagram);
         setLoading(false);
       })
       .catch(err => {

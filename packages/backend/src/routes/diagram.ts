@@ -27,7 +27,20 @@ export function createDiagramRoutes(db: Database): Router {
       return;
     }
 
-    const cached = db.getDiagramCacheRepo().get(repoPath, scope, view);
+    let cached = db.getDiagramCacheRepo().get(repoPath, scope, view);
+
+    // Mirror sentinel: a logic-view cache row whose source_hash matches
+    // the file-view row is a "we fell back" mirror — same structure,
+    // different label. Serving it forever means the user never gets a
+    // real logic graph. Treat as cache-miss so the cold path retries
+    // (cheap if extractor still can't author one — same shape comes
+    // back — but eventually warming or richer summaries succeed).
+    if (cached && view === 'logic') {
+      const fileRow = db.getDiagramCacheRepo().get(repoPath, scope, 'file');
+      if (fileRow && fileRow.sourceHash === cached.sourceHash) {
+        cached = null;
+      }
+    }
 
     // Fast path: cached row exists → serve immediately. The diagram
     // warmer (called at session start, see diagram-warmer.ts) is
@@ -77,9 +90,21 @@ export function createDiagramRoutes(db: Database): Router {
         res.status(404).json({ error: 'no diagram could be composed' });
         return;
       }
-      // Cold path: persist the newly extracted diagram for next time.
-      db.getDiagramCacheRepo().upsert(composed);
-      res.json({ diagram: composed, cacheHit: false });
+      // Cold path: persist the newly extracted diagram — UNLESS the
+      // logic-view came back as a file-mirror (same source_hash as
+      // the file row). Caching a mirror would poison the slot.
+      let persisted = false;
+      if (view === 'logic') {
+        const fileRow = db.getDiagramCacheRepo().get(repoPath, scope, 'file');
+        if (!fileRow || fileRow.sourceHash !== composed.sourceHash) {
+          db.getDiagramCacheRepo().upsert(composed);
+          persisted = true;
+        }
+      } else {
+        db.getDiagramCacheRepo().upsert(composed);
+        persisted = true;
+      }
+      res.json({ diagram: composed, cacheHit: false, persisted });
     } catch (err: any) {
       res.status(500).json({ error: err?.message ?? 'diagram extract failed' });
     }
