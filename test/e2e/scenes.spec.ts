@@ -41,6 +41,9 @@ const SCENES = [
   'knowledge-layer',
   'knowledge-components',
   'weak-spots-review',
+  'visualize-flow-pipeline',
+  'visualize-flow-graph',
+  'visualize-flow-fallback',
 ];
 
 const VIEWPORTS = [
