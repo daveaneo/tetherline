@@ -4,7 +4,6 @@ import { useSessionStore } from '../../state/session-store.js';
 import { useSettingsStore } from '../../state/settings-store.js';
 import { HermesDiagram } from './HermesDiagram.js';
 import { ContentPanel } from './ContentPanel.js';
-import { ContentDrawer } from './ContentDrawer.js';
 import { NarrationBar } from './NarrationBar.js';
 import { QuickChips } from './QuickChips.js';
 import { GapsPanel } from './GapsPanel.js';
@@ -74,7 +73,11 @@ export function Room({ skipEntrance = false }: { skipEntrance?: boolean } = {}) 
 
       <div className="flex-1 relative overflow-hidden">
         <HermesDiagram />
-        <ContentDrawer />
+        {/* ContentDrawer removed (the right 42% panel blocked the diagram).
+            Skill content now flows through HermesText below: caption shows
+            the live line; expand reveals the conversation log (and the
+            RankedCritiquePanel when critique is active). Diagram-primary,
+            voice-primary, transcript-supporting. */}
 
         {showContentPanel && (
           <div
