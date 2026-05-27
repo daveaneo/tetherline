@@ -21,6 +21,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSessionStore } from '../../state/session-store.js';
+import { RankedCritiquePanel, type CritiqueConcern } from './RankedCritique.js';
 
 export function HermesText() {
   const conversationHistory = useSessionStore(s => s.conversationHistory);
@@ -28,19 +29,35 @@ export function HermesText() {
   const currentStreamChunk = useSessionStore(s => s.currentStreamChunk);
   const currentBriefing = useSessionStore(s => s.currentBriefing);
   const phase = useSessionStore(s => s.state.phase);
+  const skillResult = useSessionStore(s => s.skillResult);
+  const critiqueActiveIndex = useSessionStore(s => s.critiqueActiveIndex);
 
   const [expanded, setExpanded] = useState(false);
 
-  // What's being said RIGHT NOW. Priority: in-flight stream chunk
-  // (one being spoken) → next queued chunk → most recent briefing → most
-  // recent AI conversation entry. Empty if none of those exist.
+  // Critique with ranked concerns has structured content the caption
+  // can't capture in one line; promote it to its own caption/body
+  // mode so the words and the navigable list aren't blocked by the
+  // diagram while still keeping the canvas dominant.
+  const critiqueConcerns =
+    skillResult?.skillName === 'critique'
+      ? (skillResult.visualPayload?.concerns as CritiqueConcern[] | undefined)
+      : undefined;
+  const isRankedCritique = Array.isArray(critiqueConcerns) && critiqueConcerns.length > 0;
+  const activeConcern = isRankedCritique
+    ? critiqueConcerns![Math.max(0, Math.min(critiqueActiveIndex, critiqueConcerns!.length - 1))]
+    : null;
+
+  // What's being said RIGHT NOW. Priority: ranked critique active
+  // concern → in-flight stream chunk → next queued → most recent
+  // briefing → most recent AI conversation entry. Empty if none.
   const liveLine = useMemo(() => {
+    if (activeConcern) return `${activeConcern.title} — ${activeConcern.detail}`;
     if (currentStreamChunk?.text) return currentStreamChunk.text;
     if (streamChunks.length > 0) return streamChunks[0].text;
     if (currentBriefing?.text) return currentBriefing.text;
     const lastAi = [...conversationHistory].reverse().find(e => e.speaker === 'ai');
     return lastAi?.text ?? '';
-  }, [currentStreamChunk, streamChunks, currentBriefing, conversationHistory]);
+  }, [activeConcern, currentStreamChunk, streamChunks, currentBriefing, conversationHistory]);
 
   // Auto-scroll the expanded log to the bottom on new content.
   const logRef = useRef<HTMLDivElement | null>(null);
@@ -73,7 +90,7 @@ export function HermesText() {
                 color: 'var(--cream-500)', opacity: 0.8,
               }}
             >
-              Conversation
+              {isRankedCritique ? 'Critique' : 'Conversation'}
             </span>
             <button
               type="button"
@@ -96,6 +113,11 @@ export function HermesText() {
               color: 'var(--cream-100)',
             }}
           >
+            {isRankedCritique && critiqueConcerns && (
+              <div style={{ marginBottom: 14 }}>
+                <RankedCritiquePanel concerns={critiqueConcerns} />
+              </div>
+            )}
             {conversationHistory.map((entry, i) => (
               <div key={`${entry.timestamp}-${i}`} style={{ marginBottom: 10 }}>
                 <span
@@ -139,7 +161,7 @@ export function HermesText() {
               color: 'var(--amber-400)', marginTop: 4,
             }}
           >
-            Hermes
+            {isRankedCritique ? 'Critique' : 'Hermes'}
           </span>
           <p
             className="font-serif flex-1"
