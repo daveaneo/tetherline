@@ -46,6 +46,7 @@ const SCENES = [
   'visualize-flow-fallback',
   'artifact-card',
   'dispatch-glow',
+  'voice-thinking',
 ];
 
 const VIEWPORTS = [

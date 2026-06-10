@@ -249,6 +249,17 @@ export const SCENARIOS: Scenario[] = [
       { kind: 'wait',             delayMs: 1200 },
     ],
   },
+  {
+    id: '15-briefing-survives-floor',
+    description: 'User asks a cache-fast briefing query ("what is this project about") inside the post-silence window.',
+    whatItTests: 'Is the DIRECT-RESPONSE briefing HELD and delivered — not dropped like a proactive briefing? (Live bug 2026-06-10: the answer the user asked for was swallowed by post_user_silence.)',
+    steps: [
+      { kind: 'speaking_started', delayMs: 0 },
+      { kind: 'speaking_stopped', delayMs: 600 },
+      { kind: 'utterance',        delayMs: 50,   payload: { text: 'what is this project about' } },
+      { kind: 'wait',             delayMs: 1500 },
+    ],
+  },
 ];
 
 export async function runScenario(

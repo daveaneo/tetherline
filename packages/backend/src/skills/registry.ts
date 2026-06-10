@@ -2,6 +2,8 @@ import type { SkillName, SkillResult } from '@tetherline/shared';
 import type { AreaWithContent } from '@tetherline/shared';
 import type { IntelligenceAnalyzer } from '../intelligence/analyzer.js';
 import type { ContextComposer } from '../cache/context-composer.js';
+import type { ContextCacheRepository } from '../db/repositories/context-cache-repo.js';
+import type { DiagramCacheRepository } from '../db/repositories/diagram-cache-repo.js';
 
 export interface SkillContext {
   currentArea?: AreaWithContent;
@@ -12,6 +14,10 @@ export interface SkillContext {
   areas: AreaWithContent[];
   analyzer: IntelligenceAnalyzer;
   contextComposer?: ContextComposer;
+  /** Cached module/file summaries — lets visualize ground a flow in real
+   *  files + import edges, and serve a pre-authored flow from the cache. */
+  cacheRepo?: ContextCacheRepository;
+  diagramRepo?: DiagramCacheRepository;
 }
 
 /** Backend-side extension of the shared SkillResult: a skill may hand the

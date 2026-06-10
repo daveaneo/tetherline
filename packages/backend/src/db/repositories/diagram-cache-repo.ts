@@ -37,6 +37,10 @@ export interface DiagramNode {
   /** Briefing id this node maps to, if any — clicking sends
    *  `tell me about <node>` which the navigator routes to this. */
   briefingId?: string;
+  /** Authored-flow grounding: real file this node maps to (or undefined). */
+  evidenceFile?: string;
+  /** Authored-flow grounding: no real file backs it — render dotted. */
+  conceptual?: boolean;
 }
 
 export interface DiagramEdge {
@@ -46,9 +50,12 @@ export interface DiagramEdge {
    *  dashed for configures/guards, etc.). 'contains' is the
    *  center→satellite parent-of edge the extractor always emits and
    *  the renderer special-cases (HermesDiagram edge.kind==='contains').
-   */
-  kind?: 'produces' | 'consumes' | 'configures' | 'guards' | 'imports' | 'contains';
+   *  Authored flows may use other verbs ('feeds', 'reads') — treated as
+   *  the default semantic style. */
+  kind?: string;
   label?: string;
+  /** Authored-flow grounding: not backed by the import graph — dashed faint. */
+  inferred?: boolean;
 }
 
 export interface DiagramRow {
@@ -61,6 +68,8 @@ export interface DiagramRow {
   edges: DiagramEdge[];
   sourceHash: string;
   generatedAt: string;
+  /** Pre-authored spoken narration (warm-time flow diagrams only). */
+  narration?: string;
 }
 
 export class DiagramCacheRepository {
@@ -84,18 +93,20 @@ export class DiagramCacheRepository {
   upsert(row: DiagramRow): void {
     this.db.prepare(
       `INSERT INTO diagram_cache
-        (repo_path, scope, view, title, subtitle, nodes_json, edges_json, source_hash)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (repo_path, scope, view, title, subtitle, nodes_json, edges_json, source_hash, narration)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(repo_path, scope, view) DO UPDATE SET
          title=excluded.title,
          subtitle=excluded.subtitle,
          nodes_json=excluded.nodes_json,
          edges_json=excluded.edges_json,
          source_hash=excluded.source_hash,
+         narration=excluded.narration,
          generated_at=datetime('now')`,
     ).run(
       row.repoPath, row.scope, row.view, row.title, row.subtitle,
       JSON.stringify(row.nodes), JSON.stringify(row.edges), row.sourceHash,
+      row.narration ?? null,
     );
   }
 
@@ -119,5 +130,6 @@ function rowToDiagram(row: any): DiagramRow {
     edges: JSON.parse(row.edges_json || '[]'),
     sourceHash: row.source_hash,
     generatedAt: row.generated_at,
+    narration: row.narration ?? undefined,
   };
 }

@@ -28,6 +28,9 @@ export interface DiagramNode {
   grillStrong?: number;
   grillAsked?: number;
   briefingId?: string;
+  /** Authored-diagram grounding: this node maps to no real file/module —
+   *  rendered with a dotted "concept" outline so the demotion is visible. */
+  conceptual?: boolean;
 }
 
 export interface DiagramEdge {
@@ -35,6 +38,9 @@ export interface DiagramEdge {
   to: string;
   kind?: 'contains' | 'produces' | 'consumes' | 'configures' | 'guards' | 'imports';
   label?: string;
+  /** Authored-diagram grounding: the import graph doesn't back this edge —
+   *  rendered faint + dashed so an unverified connection reads as a guess. */
+  inferred?: boolean;
 }
 
 export interface DiagramPayload {

@@ -45,6 +45,7 @@ import { motionVariantFor, scopeTransition, prefersReducedMotion } from './trans
 import { sendEvent } from '../../lib/ws-client.js';
 import { API_PREFIX } from '@tetherline/shared';
 import type { Level, DiagramNode, DiagramEdge, DiagramPayload } from './diagram-types.js';
+import { layeredPositions, edgeKey } from './layered-layout.js';
 
 interface PositionedNode extends DiagramNode {
   x: number;
@@ -76,6 +77,8 @@ const CENTER_RADIUS = 100;
 const SATELLITE_RADIUS_MIN = 50;
 const SATELLITE_RADIUS_MAX = 70;
 const ORBIT_RADIUS = 290;
+// Uniform pill radius for layered (pipeline/sequence) flow nodes.
+const LAYERED_RADIUS = 62;
 
 /** Stable empty-array reference for Zustand selector fallbacks. Using
  *  a `?? []` literal inline causes an infinite render loop because
@@ -148,6 +151,17 @@ export function HermesDiagram() {
     return d && Array.isArray(d.nodes) && d.nodes.length > 0 ? d : null;
   }, [skillResult]);
   const payload = authoredPayload ?? fetchedPayload;
+  // Authored pipeline/sequence diagrams lay out left→right (staged flow);
+  // graph/tree and every cached scope keep the radial layout. The kind hint
+  // rode along unused until now (visualize.ts authored it, radial ignored it).
+  const authoredKind = authoredPayload
+    ? (skillResult?.visualPayload as { kind?: string } | undefined)?.kind ?? null
+    : null;
+  const layered = authoredKind === 'pipeline' || authoredKind === 'sequence';
+  const layeredLayout = useMemo(
+    () => (layered && payload ? layeredPositions(payload.nodes, payload.edges, { width: VIEWBOX_W, height: VIEWBOX_H }) : null),
+    [layered, payload],
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Anti-hang (#73): the diagram must NEVER show "Composing…" forever.
@@ -380,6 +394,20 @@ export function HermesDiagram() {
     if (!payload) return [];
     const nodes = payload.nodes;
     if (nodes.length === 0) return [];
+    // Layered authored flow: every node is a real stage (no invisible center),
+    // positioned by topological column from the pure layout engine.
+    if (layeredLayout) {
+      return nodes.map(n => {
+        const p = layeredLayout.positions.get(n.id);
+        return {
+          ...n,
+          x: p?.x ?? CENTER_X,
+          y: p?.y ?? CENTER_Y,
+          radius: LAYERED_RADIUS,
+          isCenter: false,
+        };
+      });
+    }
     const center = nodes[0];
     const satellites = nodes.slice(1);
     const out: PositionedNode[] = [
@@ -407,7 +435,7 @@ export function HermesDiagram() {
       });
     }
     return out;
-  }, [payload]);
+  }, [payload, layeredLayout]);
 
   const nodeById = useMemo(() => new Map(positioned.map(n => [n.id, n])), [positioned]);
 
@@ -840,23 +868,31 @@ export function HermesDiagram() {
               const b = nodeById.get(edge.to);
               if (!a || !b) return null;
               if (edge.kind === 'contains' && (a.isCenter || b.isCenter)) return null;
-              const path = curvedPath(a, b);
+              const isBack = layeredLayout?.backEdges.has(edgeKey(edge.from, edge.to)) ?? false;
+              const path = layeredLayout ? layeredPath(a, b, isBack) : curvedPath(a, b);
               const stroke = edgeStroke(edge.kind);
+              // Inferred edges (no import-graph support) read as a guess:
+              // faint + dashed, dimmed arrowhead. Honesty over confidence.
+              const inferred = edge.inferred === true;
+              const dash = inferred ? '3 5' : stroke.dash;
+              const color = inferred ? 'oklch(0.5 0.03 65)' : stroke.color;
+              const width = inferred ? 1 : stroke.width;
               // Containment spokes are structural — the radial layout
               // already conveys "project contains module", so an
               // arrowhead would impose a misleading dependency reading.
               // Reserve markers for semantic edges (imports / guards /
               // produces / consumes / configures).
               const showMarker = edge.kind !== 'contains';
-              const marker = stroke.markerOpacity > 0.5 ? 'hd-arrow' : 'hd-arrow-dim';
+              const marker = inferred || stroke.markerOpacity <= 0.5 ? 'hd-arrow-dim' : 'hd-arrow';
               return (
                 <path
                   key={`e-${i}`}
                   d={path}
                   fill="none"
-                  stroke={stroke.color}
-                  strokeWidth={stroke.width}
-                  strokeDasharray={stroke.dash}
+                  stroke={color}
+                  strokeWidth={width}
+                  strokeDasharray={dash}
+                  strokeOpacity={inferred ? 0.55 : 1}
                   strokeLinecap="round"
                   markerEnd={showMarker ? `url(#${marker})` : undefined}
                   data-testid={`hd-edge-${edge.from}-${edge.to}`}
@@ -1492,6 +1528,27 @@ function curvedPath(a: PositionedNode, b: PositionedNode): string {
   const c2x = bx - ux * dist * 0.32 + perpX * bow;
   const c2y = by - uy * dist * 0.32 + perpY * bow;
   return `M ${ax} ${ay} C ${c1x} ${c1y} ${c2x} ${c2y} ${bx} ${by}`;
+}
+
+/** Edge path for the layered (left→right) layout. Forward edges are calm
+ *  horizontal-tangent cubics between columns — no perpendicular bow, so a
+ *  pipeline reads as clean staged flow. Back edges (cycle-closers) and
+ *  same-column edges route UNDER the rows so they don't cross node bodies. */
+function layeredPath(a: PositionedNode, b: PositionedNode, back: boolean): string {
+  const forward = b.x > a.x + 1;
+  if (forward && !back) {
+    const x1 = a.x + a.radius * 1.4;
+    const x2 = b.x - b.radius * 1.4 - 8;
+    const midX = (x1 + x2) / 2;
+    return `M ${x1} ${a.y} C ${midX} ${a.y} ${midX} ${b.y} ${x2} ${b.y}`;
+  }
+  // Back / lateral edge: dip below both endpoints and return.
+  const ax = a.x;
+  const bx = b.x;
+  const ay = a.y + a.radius * 0.9;
+  const by = b.y + b.radius * 0.9;
+  const dip = Math.max(ay, by) + 70;
+  return `M ${ax} ${ay} C ${ax} ${dip} ${bx} ${dip} ${bx} ${by}`;
 }
 
 function edgeStroke(kind: DiagramEdge['kind']): { color: string; width: number; dash: string | undefined; markerOpacity: number } {

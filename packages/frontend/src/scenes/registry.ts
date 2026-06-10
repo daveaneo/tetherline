@@ -11,6 +11,7 @@
  * in production.
  */
 import { useSessionStore } from '../state/session-store.js';
+import { useAudioStore } from '../state/audio-store.js';
 import { useShelfStore } from '../state/shelf-store.js';
 import type { DiagramPayload } from '../components/room/diagram-types.js';
 import type { ShelfArtifact } from '@tetherline/shared';
@@ -525,6 +526,24 @@ export const SCENES: Scene[] = [
         conversationHistory: [
           { speaker: 'you', text: 'give me the install commands so I can copy-paste them', timestamp: 1 },
           { speaker: 'ai', text: "I've put the commands on screen — copy them when you're ready.", timestamp: 2 },
+        ],
+      } as never);
+    },
+  },
+  {
+    name: 'voice-thinking',
+    description:
+      '"On it — thinking" — the heard→working state during the 1.5–12s classify/generate gap. Warm amber orb + expanding ring, never "paused" (live bug 2026-06-10: processing read as stalled).',
+    seed: () => {
+      seedBase();
+      useAudioStore.setState({
+        voiceState: 'processing',
+        floorPhase: 'awaiting-response',
+        userHasFloor: true,
+      } as never);
+      useSessionStore.setState({
+        conversationHistory: [
+          { speaker: 'you', text: 'what does the core module actually do?', timestamp: 1 },
         ],
       } as never);
     },

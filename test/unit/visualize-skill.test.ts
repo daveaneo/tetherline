@@ -77,6 +77,34 @@ describe('visualize skill — authors a fresh diagram', () => {
     expect((r.visualPayload as { diagram?: unknown }).diagram).toBeUndefined();
   });
 
+  it('serves a precompiled flow from cache with ZERO LLM calls', async () => {
+    let llmCalls = 0;
+    const analyzer = {
+      structuredCallDirect: async () => { llmCalls++; return {}; },
+      answerQuestion: async () => { llmCalls++; return 'x'; },
+    };
+    const cacheRepo = {
+      getModulesForRepo: () => [{ modulePath: 'core', keyFiles: ['core/a.py'] }],
+    };
+    const diagramRepo = {
+      get: (_r: string, scope: string, view: string) =>
+        scope === 'flow/module/core' && view === 'logic'
+          ? {
+              scope: 'flow/module/core', title: 'Core workflow', subtitle: 's',
+              narration: 'Here is the core workflow.',
+              nodes: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }, { id: 'c', label: 'C' }],
+              edges: [{ from: 'a', to: 'b' }],
+            }
+          : null,
+    };
+    const ctxWithCache = { ...(ctx(analyzer) as any), cacheRepo, diagramRepo } as never;
+    const r = await visualizeSkill.execute(ctxWithCache, { target: 'core' });
+    expect(llmCalls, 'a cache hit must not call the LLM').toBe(0);
+    expect(r.narration).toBe('Here is the core workflow.');
+    const diag = (r.visualPayload as { diagram?: { scope: string } }).diagram;
+    expect(diag!.scope).toBe('flow/module/core');
+  });
+
   it('falls back to plain prose when the structured call fails (voice north-star)', async () => {
     const analyzer = {
       structuredCallDirect: async () => { throw new Error('LLM blew up'); },

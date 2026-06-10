@@ -124,8 +124,20 @@ export class SessionManager {
    *  closed — they're the reply to what the user just said, led by the seq-0
    *  ack, and dropping them silently eats the ack (live bug 2026-06-09). */
   private currentTurnStreamId: string | null = null;
+  /** The briefingId of a cache-fast briefing that is the DIRECT response to
+   *  the user's most recent utterance ("tell me about core" → module/core).
+   *  Such a briefing is HELD like the turn's stream ack instead of dropped —
+   *  otherwise the answer the user asked for is swallowed by the post-silence
+   *  window (live bug 2026-06-10). Proactive briefings (session_start /
+   *  tour_next) leave this null so they still drop when talked over. */
+  private currentTurnBriefingId: string | null = null;
+  /** Bumped on every new turn / barge-in. Async fast paths (code drill) that
+   *  emit narration after an await capture the epoch and bail if the turn was
+   *  superseded, so a stale code-walk can't claim the live turn's stream. */
+  private turnEpoch = 0;
   /** Narration held while the user holds the floor, released in order when
-   *  the floor opens. Only ever contains current-turn stream chunks. */
+   *  the floor opens. Only ever holds the current turn's response (stream
+   *  chunks or a direct-response briefing). */
   private pendingFloorNarration: Array<{ event: ServerEvent; queuedAt: number }> = [];
   private floorReleaseTimer: NodeJS.Timeout | null = null;
 
@@ -177,16 +189,22 @@ export class SessionManager {
     }
     if (suppressed && this.NARRATION_EVENT_TYPES.has(event.type)) {
       const streamId = (event.payload as { streamId?: string }).streamId;
-      if (
-        event.type === 'narration:stream_chunk' &&
-        streamId !== undefined &&
-        streamId === this.currentTurnStreamId
-      ) {
+      const briefingId = (event.payload as { briefingId?: string }).briefingId;
+      // The current turn's RESPONSE — a stream-chunk ack/answer OR the
+      // cache-fast briefing the user just asked for — is held, not dropped.
+      const isTurnResponse =
+        (event.type === 'narration:stream_chunk' &&
+          streamId !== undefined &&
+          streamId === this.currentTurnStreamId) ||
+        (event.type === 'narration:briefing' &&
+          briefingId != null &&
+          briefingId === this.currentTurnBriefingId);
+      if (isTurnResponse) {
         this.pendingFloorNarration.push({ event, queuedAt: Date.now() });
         getTraceRecorder()?.emit({
           kind: 'tts.hold',
           sessionId: this.context.sessionId || null,
-          payload: { eventType: event.type, streamId, seq: (event.payload as { seq?: number }).seq ?? null },
+          payload: { eventType: event.type, streamId: streamId ?? null, briefingId: briefingId ?? null, seq: (event.payload as { seq?: number }).seq ?? null },
         });
         return;
       }
@@ -522,6 +540,7 @@ export class SessionManager {
       this.openStreamSeq = 0;
       // Fresh session — no held floor state may carry over.
       this.currentTurnStreamId = null;
+      this.currentTurnBriefingId = null;
       this.pendingFloorNarration = [];
       if (this.floorReleaseTimer) {
         clearTimeout(this.floorReleaseTimer);
@@ -818,6 +837,21 @@ export class SessionManager {
         // hasn't drifted.
         try {
           const { warmDiagrams } = await import('../intelligence/diagram-warmer.js');
+          // Structured-call surface for the flow-precompile pass — reuses the
+          // session's Claude client (it has structuredCall) so warm-time flow
+          // authoring needs no separate analyzer wiring.
+          const flowAnalyzer = aiClient
+            ? {
+                structuredCallDirect: <T>(p: { prompt: string; toolName: string; toolDescription: string; inputSchema: unknown }) =>
+                  aiClient!.structuredCall<T>({
+                    system: 'You author small, accurate architecture/flow diagrams grounded ONLY in the files and import edges you are given.',
+                    messages: [{ role: 'user', content: p.prompt }],
+                    toolName: p.toolName,
+                    toolDescription: p.toolDescription,
+                    inputSchema: p.inputSchema as Record<string, unknown>,
+                  }),
+              }
+            : undefined;
           await warmDiagrams(
             effectivePath,
             this.db.getContextCacheRepo(),
@@ -825,6 +859,7 @@ export class SessionManager {
             this.db.getComprehensionRepo(),
             aiClient ? getDefaultLLMAdapter() : null,
             (msg) => this.emit({ type: 'analysis:progress', payload: { phase: 'warming_cache', progress: 0.55, message: msg } }),
+            flowAnalyzer,
           );
         } catch (err: any) {
           console.warn('Failed to warm diagrams:', err.message);
@@ -2488,9 +2523,19 @@ export class SessionManager {
     // delivered briefing is what just played to completion; credit it
     // as seen. This is the sole input to the Seen metric.
     const repoPath = this.activeRepoPath;
-    if (repoPath && this.lastBriefingId) {
-      this.db.getComprehensionRepo().markSeen(repoPath, this.lastBriefingId);
-      this.emitComprehensionUpdate(repoPath, this.lastBriefingId, 'seen');
+    if (repoPath) {
+      // Credit the briefing the client actually finished playing. The client
+      // sends its id explicitly now — prefer it over lastBriefingId, which is
+      // wrong if the user navigated to another briefing mid-playback. Tour
+      // segments (ids like "s1") aren't briefings → fall back to lastBriefingId.
+      const seenId =
+        segmentId && this.db.getBriefingRepo().get(repoPath, segmentId)
+          ? segmentId
+          : this.lastBriefingId;
+      if (seenId) {
+        this.db.getComprehensionRepo().markSeen(repoPath, seenId);
+        this.emitComprehensionUpdate(repoPath, seenId, 'seen');
+      }
     }
     // Close the whats_changed loop: being walked through a changed
     // area = you've caught up on it. Mark its files reviewed and
@@ -2612,6 +2657,13 @@ export class SessionManager {
       // ≥24 h → the override (short opener) or full opener.
     }
 
+    // This briefing is a DIRECT response to the user's utterance — hold it
+    // through the post-silence window instead of dropping it. Proactive
+    // briefings (session_start / tour_next / resume_pop) stay droppable.
+    if (reason === 'user_asked' || reason === 'dive_deeper') {
+      this.currentTurnBriefingId = briefing.id;
+    }
+
     this.emit({
       type: 'narration:briefing',
       payload: {
@@ -2642,11 +2694,51 @@ export class SessionManager {
     this.observeComprehension(briefing.id, briefing.title, 'heard', 'briefing_delivered', {
       secondsHeard: briefing.estimatedSeconds,
     });
+
+    // Jump-to-flow: when the user ASKS about a module ("tell me about core"),
+    // surface its pre-authored workflow right after the spoken briefing —
+    // they shouldn't have to ask twice to see the flow (live note 2026-06-10).
+    // Only on user-driven module briefings (never session_start/tour_next, so
+    // the tour keeps its files-first order); only when a flow was precompiled.
+    if ((reason === 'user_asked' || reason === 'dive_deeper') && briefing.layer === 'module' && repoPath) {
+      this.maybeSurfaceFlow(repoPath, briefing.id);
+    }
   }
 
-  private reemitBriefing(repoPath: string, briefingId: string, resumePrefix: string): void {
+  /** Emit a visualize-shaped skill:result for a precompiled module flow, so
+   *  the frontend's existing authored-swap + auto-logic-view path shows it. */
+  private maybeSurfaceFlow(repoPath: string, briefingId: string): void {
+    try {
+      const row = this.db.getDiagramCacheRepo().get(repoPath, `flow/${briefingId}`, 'logic');
+      if (!row || !row.nodes || row.nodes.length < 3) return;
+      this.emit({
+        type: 'skill:result',
+        payload: {
+          result: {
+            skillName: 'visualize',
+            type: 'diagram',
+            narration: '', // the spoken briefing already plays; don't compete for the floor
+            visualPayload: {
+              target: row.title,
+              kind: 'pipeline',
+              diagram: {
+                scope: row.scope, view: 'logic',
+                title: row.title, subtitle: row.subtitle,
+                nodes: row.nodes, edges: row.edges,
+              },
+            },
+          },
+        },
+      } as ServerEvent);
+    } catch { /* best-effort — never block a briefing on the flow lookup */ }
+  }
+
+  private reemitBriefing(repoPath: string, briefingId: string, resumePrefix: string, asTurnResponse = false): void {
     const briefing = this.db.getBriefingRepo().get(repoPath, briefingId);
     if (!briefing) return;
+    // Re-emits that are a reply to "go back" / "top" / "resume" are direct
+    // responses — hold them through the silence window like any answer.
+    if (asTurnResponse) this.currentTurnBriefingId = briefing.id;
     this.emit({
       type: 'narration:briefing',
       payload: {
@@ -2687,7 +2779,7 @@ export class SessionManager {
             breadcrumb: this.navigator.breadcrumb(),
           },
         });
-        if (current) this.reemitBriefing(repoPath, current.briefingId, 'As I was saying');
+        if (current) this.reemitBriefing(repoPath, current.briefingId, 'As I was saying', true);
         this.emit({
           type: 'visual:dispatch',
           payload: {
@@ -2724,7 +2816,7 @@ export class SessionManager {
           },
         });
         const current = this.navigator.peek();
-        if (current) this.reemitBriefing(repoPath, current.briefingId, 'Back to the top');
+        if (current) this.reemitBriefing(repoPath, current.briefingId, 'Back to the top', true);
         this.emit({
           type: 'visual:dispatch',
           payload: { transition: 'ASCEND', targetNodeId: 'project', refs: [], reason: 'navigator pop to project' },
@@ -2762,10 +2854,14 @@ export class SessionManager {
         // handler is sync, so we kick off the work and return true to
         // signal "I've taken this utterance." Errors get swallowed —
         // worst case the user just hears the existing briefing reread.
+        const codeEpoch = this.turnEpoch;
         (async () => {
           try {
             const resolved = await this.resolveCodeTarget(repoPath, target);
             if (!resolved) return;
+            // The user moved on while we were resolving — don't narrate a
+            // stale code walk over the new turn.
+            if (this.turnEpoch !== codeEpoch) return;
             const { composeCodeBriefing } = await import('../briefing/code-composer.js');
             const result = composeCodeBriefing({
               repoPath,
@@ -2773,6 +2869,7 @@ export class SessionManager {
               symbol: resolved.symbol,
             });
             if (!result) return;
+            if (this.turnEpoch !== codeEpoch) return;
             this.deliverBriefing(result.briefing, 'user_asked');
 
             // Stream the code chunks WITH their line ranges so the
@@ -2781,6 +2878,9 @@ export class SessionManager {
             // the "walk line by line" promise wouldn't be visible.
             if (result.chunks.length > 0) {
               const streamId = `code-${Date.now()}`;
+              // Register as the live turn's stream so the chunks are held
+              // (not dropped) if they land inside the silence window.
+              this.currentTurnStreamId = streamId;
               for (let i = 0; i < result.chunks.length; i++) {
                 const c = result.chunks[i];
                 this.emit({
@@ -2833,7 +2933,7 @@ export class SessionManager {
       case 'resume': {
         const current = this.navigator.peek();
         if (!current) return false;
-        this.reemitBriefing(repoPath, current.briefingId, 'Picking up where we left off');
+        this.reemitBriefing(repoPath, current.briefingId, 'Picking up where we left off', true);
         return true;
       }
     }
@@ -2869,6 +2969,10 @@ export class SessionManager {
       this.floorReleaseTimer = null;
     }
     this.discardPendingFloorNarration('superseded');
+    // A direct-response briefing held for the previous floor closure is now
+    // stale too — clear its marker and bump the epoch so async fast paths bail.
+    this.currentTurnBriefingId = null;
+    this.turnEpoch++;
     // Note: we emit a tts.queue_flush trace event immediately. The real queue
     // flush is frontend-side (audio element clear) — the backend signals via
     // narration:text with empty text, or by simply dropping any pending
@@ -3134,6 +3238,11 @@ export class SessionManager {
     // user:speaking_stopped was lost in transit, userSpeaking would stay true
     // and hold the floor (suppressing this turn's answer) forever.
     if (this.userSpeaking) this.markUserSpeakingStopped();
+    // Every utterance is a new turn: invalidate the previous turn's response
+    // markers so a stale held briefing can't masquerade as this turn's answer.
+    // (Covers typed/quick-chip turns that arrive with no speaking_started.)
+    this.currentTurnBriefingId = null;
+    this.turnEpoch++;
     getTraceRecorder()?.emit({
       kind: 'utterance.received',
       sessionId: this.context.sessionId || null,
@@ -3410,6 +3519,8 @@ export class SessionManager {
           areas: this.areas,
           analyzer: this.activeAnalyzer!,
           contextComposer: this.contextComposer ?? undefined,
+          cacheRepo: this.db.getContextCacheRepo(),
+          diagramRepo: this.db.getDiagramCacheRepo(),
         },
         params,
       );
@@ -3692,8 +3803,14 @@ export class SessionManager {
     const deviation = this.tourPlan.popDeviation();
     if (!deviation) return;
 
-    // Narrate the resume
-    this.emit({ type: 'narration:greeting', payload: { text: resumeMessage } });
+    // Narrate the resume as the current turn's stream so it's held (not
+    // dropped) if the user's "back to the tour" lands in the silence window.
+    const streamId = `nav-${Date.now()}`;
+    this.currentTurnStreamId = streamId;
+    this.emit({
+      type: 'narration:stream_chunk',
+      payload: { streamId, seq: 0, text: resumeMessage, isFinal: true, referencedNodes: [] },
+    });
 
     // Return to the saved position
     this.setState({

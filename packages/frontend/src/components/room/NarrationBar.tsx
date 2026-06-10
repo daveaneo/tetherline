@@ -16,14 +16,26 @@ const STATE_LABEL: Record<VoiceState, string> = {
   speaking: 'speaking',
   listening: 'listening',
   hearing: 'hearing you',
-  processing: 'thinking',
-  idle: 'paused',
+  processing: 'on it — thinking',
+  idle: 'mic off',
 };
 
 export function NarrationBar() {
   const voiceState = useAudioStore(s => s.voiceState);
+  const floorPhase = useAudioStore(s => s.floorPhase);
   const state = useSessionStore(s => s.state);
   const { areas } = useSession();
+
+  // "Thinking" covers the dead-air gap between the user finishing and the
+  // first reply chunk: voiceState 'processing' (utterance shipped) OR the
+  // floor sitting at 'awaiting-response' (reply not started yet). The user
+  // must see "I heard you, working" — never "paused" or "listening" — through
+  // the whole 1.5–12s wait (live bug 2026-06-10).
+  const thinking = voiceState === 'processing' || floorPhase === 'awaiting-response';
+  // A genuine session pause is the only thing that should ever say "paused".
+  const label = state.paused ? 'paused' : thinking ? STATE_LABEL.processing : STATE_LABEL[voiceState];
+  const orbState = state.paused ? 'idle' : thinking ? 'processing' : voiceState;
+  const dotColor = voiceState === 'hearing' ? 'var(--sig-okay)' : thinking ? 'var(--amber-400)' : null;
 
   return (
     <div
@@ -36,7 +48,7 @@ export function NarrationBar() {
       }}
     >
       <div className="flex items-center gap-4 flex-none">
-        <VoiceOrb state={voiceState} size={60} />
+        <VoiceOrb state={orbState} size={60} />
         <div style={{ minWidth: 104 }}>
           <div
             className="font-mono"
@@ -50,12 +62,12 @@ export function NarrationBar() {
               gap: 6,
             }}
           >
-            {voiceState === 'hearing' && (
+            {dotColor && (
               <span
                 style={{
                   width: 6, height: 6, borderRadius: '50%',
-                  background: 'var(--sig-okay)',
-                  boxShadow: '0 0 8px var(--sig-okay)',
+                  background: dotColor,
+                  boxShadow: `0 0 8px ${dotColor}`,
                 }}
               />
             )}
@@ -63,7 +75,8 @@ export function NarrationBar() {
           </div>
           <AnimatePresence mode="wait">
             <motion.div
-              key={voiceState}
+              key={label}
+              data-testid="voice-status-label"
               initial={{ opacity: 0, y: 3 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -3 }}
@@ -71,7 +84,7 @@ export function NarrationBar() {
               className="font-serif mt-0.5"
               style={{ fontSize: 16, fontStyle: 'italic', color: 'var(--amber-400)', letterSpacing: '-0.005em' }}
             >
-              {STATE_LABEL[voiceState]}
+              {label}
             </motion.div>
           </AnimatePresence>
         </div>

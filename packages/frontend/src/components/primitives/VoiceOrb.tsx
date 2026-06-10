@@ -12,6 +12,8 @@ export function VoiceOrb({ state = 'listening', size = 140 }: VoiceOrbProps) {
     <div
       className={`orb is-${state}`}
       style={{ ['--orb-size' as string]: `${size}px` }}
+      data-testid="voice-orb"
+      data-state={state}
       aria-hidden="true"
     >
       <div className="orb-halo" />

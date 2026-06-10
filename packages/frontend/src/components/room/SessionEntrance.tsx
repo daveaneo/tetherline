@@ -14,7 +14,7 @@ export function SessionEntrance({ onComplete }: { onComplete: () => void }) {
   const entryMode = useSessionStore(s => s.entryMode);
   const greeting = useSessionStore(s => s.greeting);
 
-  const nameMatch = greeting?.match(/(?:to|at|in)\s+(\S+)/i);
+  const nameMatch = greeting?.text.match(/(?:to|at|in)\s+(\S+)/i);
   const projectName = nameMatch?.[1] ?? 'your project';
 
   useEffect(() => {

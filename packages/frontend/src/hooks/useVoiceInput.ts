@@ -210,11 +210,12 @@ function handleTranscript(text: string) {
   audioStore.setVoiceState('processing');
   sendEvent({ type: 'user:utterance', payload: { text, timestamp: Date.now() } });
 
-  // Failsafe: if voiceState is still 'processing' after 10 seconds with no
+  // Failsafe: if voiceState is still 'processing' after 15 seconds with no
   // response, drop back to 'listening' so the user isn't stuck staring at
-  // a "Thinking..." overlay indefinitely when the pipeline hangs. Also
-  // reopens the floor — a dead pipeline must never leave the AI mute
-  // forever (floor deadlock = permanent silence).
+  // a "thinking" overlay indefinitely when the pipeline hangs. Also reopens
+  // the floor — a dead pipeline must never leave the AI mute forever (floor
+  // deadlock = permanent silence). 15s (not 10) so the visualize live-author
+  // path (~12s) finishes before the escape hatch trips and reopens the mic.
   setTimeout(() => {
     const s = useAudioStore.getState();
     if (s.voiceState === 'processing') {
@@ -224,7 +225,7 @@ function handleTranscript(text: string) {
     if (s.userHasFloor && s.floorPhase === 'awaiting-response') {
       s.releaseFloor();
     }
-  }, 10_000);
+  }, 15_000);
 }
 
 export function useVoiceInput() {

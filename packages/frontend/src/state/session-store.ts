@@ -53,7 +53,11 @@ interface SessionStore {
   concerns: Concern[];
   previousSession: SessionSummary | null;
   recap: string | null;
-  greeting: string | null;
+  /** The latest spoken line + (when it's a briefing) its id. The id lets the
+   *  orchestrator credit Seen on playback completion WITHOUT string-matching
+   *  the spoken text against currentBriefing.text (which diverges on
+   *  abbreviated openers — the Seen%-stuck-at-0 live bug 2026-06-10). */
+  greeting: { text: string; briefingId: string | null } | null;
   proposal: ProposalData | null;
   qaAnswer: string;
   qaAnswerDone: boolean;
@@ -302,7 +306,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     // Re-speaking is the existing greeting TTS path picking up a new
     // value — no backend call, classifier, or voice-routing involved.
     return typeof detail === 'string' && detail.trim()
-      ? { critiqueActiveIndex: i, greeting: detail }
+      ? { critiqueActiveIndex: i, greeting: { text: detail, briefingId: null } }
       : { critiqueActiveIndex: i };
   }),
 
@@ -528,7 +532,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       case 'narration:greeting':
         // Echo-gate signal — see narration:stream_chunk handler.
         useAudioStore.getState().setLastNarrationAt(Date.now());
-        set({ greeting: event.payload.text });
+        set({ greeting: { text: event.payload.text, briefingId: null } });
         get().addConversation('ai', event.payload.text);
         break;
 
@@ -584,7 +588,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             resumePrefix: event.payload.resumePrefix,
             receivedAt: Date.now(),
           },
-          greeting: event.payload.text,
+          greeting: { text: event.payload.text, briefingId: event.payload.briefingId },
         });
         get().addConversation('ai', event.payload.text);
         break;

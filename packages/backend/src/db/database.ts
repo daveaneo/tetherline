@@ -460,6 +460,12 @@ export class Database {
         this.db.exec(`ALTER TABLE comprehension ADD COLUMN ${col} INTEGER NOT NULL DEFAULT 0`);
       }
     }
+    // Pre-authored flow diagrams (scope flow/module/*) carry their own spoken
+    // narration so a cache hit can speak instantly. Additive; old rows = NULL.
+    const diagCols = new Set((this.db.pragma('table_info(diagram_cache)') as Array<{ name: string }>).map(c => c.name));
+    if (!diagCols.has('narration')) {
+      this.db.exec(`ALTER TABLE diagram_cache ADD COLUMN narration TEXT`);
+    }
     // v2 weak_spots table (CREATE IF NOT EXISTS above covers fresh DBs;
     // this guards an older DB created before the table existed).
     this.db.exec(`

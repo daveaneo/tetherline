@@ -523,10 +523,10 @@ export function useSessionOrchestrator() {
   const greetingSpokenRef = useRef<string>('');
   const greetingPhaseRef = useRef<string>('');
   const greetingDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const greetingPendingRef = useRef<string>('');
+  const greetingPendingRef = useRef<{ text: string; briefingId: string | null } | null>(null);
 
   useEffect(() => {
-    if (!greeting || greeting === greetingSpokenRef.current) return;
+    if (!greeting || greeting.text === greetingSpokenRef.current) return;
     if (state.phase === 'IDLE') return;
     if (state.paused) return;
     if (!modes.narration) return;
@@ -545,10 +545,10 @@ export function useSessionOrchestrator() {
     if (greetingDebounceRef.current) clearTimeout(greetingDebounceRef.current);
     greetingDebounceRef.current = setTimeout(() => {
       const latest = greetingPendingRef.current;
-      if (!latest || latest === greetingSpokenRef.current) return;
+      if (!latest || latest.text === greetingSpokenRef.current) return;
 
       const isQaAnswer = greetingPhaseRef.current === state.phase && greetingSpokenRef.current !== '';
-      greetingSpokenRef.current = latest;
+      greetingSpokenRef.current = latest.text;
       greetingPhaseRef.current = state.phase;
 
       // Only abort if we've already been speaking for >400ms (long enough
@@ -558,23 +558,24 @@ export function useSessionOrchestrator() {
       abortRef.current = controller;
       activeRunRef.current = '';
 
-      speakSerialized(latest, controller.signal).then(() => {
+      speakSerialized(latest.text, controller.signal).then(() => {
         if (controller.signal.aborted) return;
         // Seen% fix: briefings are spoken through THIS greeting path, but
         // nothing ever reported playback completion — markSeen() on the
-        // backend was dead code in production and "Seen" sat at 0% for
-        // whole sessions. When the text we just finished IS the current
-        // briefing, report the dwell. Guarded to non-walkthrough phases:
-        // handleSegmentFinished also auto-advances tours.
-        const sb = useSessionStore.getState();
-        const phaseNow = sb.state.phase;
+        // backend was dead code in production and "Seen" sat at 0% for whole
+        // sessions. The old check matched the SPOKEN text against
+        // currentBriefing.text, which diverges on abbreviated openers
+        // ("Picking up where we left off.") — so it never fired live. Now the
+        // greeting carries its own briefingId; credit by id, no text match.
+        // Guarded to non-walkthrough phases: handleSegmentFinished also
+        // auto-advances tours.
+        const phaseNow = useSessionStore.getState().state.phase;
         if (
-          sb.currentBriefing &&
-          sb.currentBriefing.text === latest &&
+          latest.briefingId != null &&
           phaseNow !== 'AREA_WALKTHROUGH' &&
           phaseNow !== 'COMPONENT_TOUR'
         ) {
-          sendEvent({ type: 'audio:segment_finished', payload: { segmentId: sb.currentBriefing.briefingId } });
+          sendEvent({ type: 'audio:segment_finished', payload: { segmentId: latest.briefingId } });
         }
         if (isQaAnswer) {
           if (postAnswerTimerRef.current) clearTimeout(postAnswerTimerRef.current);

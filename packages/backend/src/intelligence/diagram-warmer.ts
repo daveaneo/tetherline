@@ -18,6 +18,12 @@ import {
   extractModuleFileView,
   extractModuleLogicView,
 } from './diagram-extractor.js';
+import { authorFlow, type FlowAuthorAnalyzer } from './flow-author.js';
+import { buildFlowEvidence } from './flow-evidence.js';
+import { hashString } from '../cache/hash-utils.js';
+
+/** Bump to re-author all cached flows after a flow-format change. */
+const FLOW_SCHEMA_VERSION = 'flow-v1';
 
 export interface WarmDiagramsResult {
   written: number;
@@ -32,6 +38,9 @@ export async function warmDiagrams(
   comprehensionRepo: ComprehensionRepository,
   adapter: LLMAdapter | null,
   onProgress?: (msg: string) => void,
+  /** Structured-call surface for authoring grounded flow diagrams. When
+   *  absent, the flow-precompile pass is skipped (flows author live on ask). */
+  flowAnalyzer?: FlowAuthorAnalyzer,
 ): Promise<WarmDiagramsResult> {
   const params = { repoPath, cacheRepo, comprehensionRepo, adapter };
   let written = 0;
@@ -98,6 +107,45 @@ export async function warmDiagrams(
         if (logicRow) tryWrite(logicRow);
       } catch { errors += 1; }
     } else { skipped += 1; }
+  }
+
+  // Pre-author a grounded FLOW diagram per top module (scope flow/module/*).
+  // A cache hit lets "show me the core workflow" appear in <100ms, and lets
+  // "tell me about core" auto-surface the flow. Skip on matching sourceHash.
+  if (flowAnalyzer) {
+    for (let i = 0; i < modules.length; i++) {
+      const m = modules[i];
+      const evidence = buildFlowEvidence(m.modulePath, {
+        repoPath,
+        modules: [{ modulePath: m.modulePath, keyFiles: m.keyFiles }],
+      });
+      if (!evidence) { continue; }
+      const scope = `flow/module/${evidence.moduleName}`;
+      const sourceHash = hashString(JSON.stringify([
+        FLOW_SCHEMA_VERSION, m.summary, evidence.files, evidence.importEdges,
+      ]));
+      const existing = diagramRepo.get(repoPath, scope, 'logic');
+      if (existing && existing.sourceHash === sourceHash) { skipped += 1; continue; }
+      try {
+        onProgress?.(`Authoring ${evidence.moduleName} workflow...`);
+        const flow = await authorFlow({
+          target: m.modulePath,
+          projectContext: `Repo at ${repoPath}. Module "${m.modulePath}": ${m.summary}`,
+          evidence,
+          analyzer: flowAnalyzer,
+        });
+        if (flow && flow.nodes.length >= 3) {
+          diagramRepo.upsert({
+            repoPath, scope, view: 'logic',
+            title: flow.title, subtitle: flow.subtitle,
+            nodes: flow.nodes, edges: flow.edges,
+            sourceHash, narration: flow.narration,
+            generatedAt: '',
+          });
+          written += 1;
+        } else { errors += 1; }
+      } catch { errors += 1; }
+    }
   }
 
   return { written, skipped, errors };

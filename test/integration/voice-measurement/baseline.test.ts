@@ -153,6 +153,9 @@ describe('Voice interaction — baseline measurement', () => {
     const supersededRow = rows.find(r => r.scenario.id === '14-superseded-turn-stays-silent')!;
     expect(supersededRow.metrics.discardedPending, 'superseded turn must be discarded').toBeGreaterThan(0);
     expect(supersededRow.metrics.emitsDuringUserSpeech).toBe(0);
+    // Scenario 15 path must never regress the floor either.
+    const briefingRow = rows.find(r => r.scenario.id === '15-briefing-survives-floor')!;
+    expect(briefingRow.metrics.emitsDuringUserSpeech, 'briefing hold must not regress the gate').toBe(0);
 
     const passCount = (key: string) => rows.filter(r => (r.scores as any)[key] === 'pass').length;
     // eslint-disable-next-line no-console
@@ -164,4 +167,24 @@ describe('Voice interaction — baseline measurement', () => {
     // eslint-disable-next-line no-console
     console.log(`[voice-${label}] selfInterrupts pass rate:`, `${passCount('selfInterrupts')}/${rows.length}`);
   }, 60_000);
+
+  it('delivers a direct-response briefing that lands inside the silence window', async () => {
+    // The metric layer scores stream chunks; this asserts the RAW briefing
+    // event reaches the client (the swallowed-answer live bug 2026-06-10).
+    const scenario = SCENARIOS.find(s => s.id === '15-briefing-survives-floor')!;
+    const started = await h.client.startSession({ repoPath: FIXTURE, entryMode: 'updates', sinceDays: 30 });
+    await new Promise(r => setTimeout(r, 100));
+    const startIdx = (await h.client.events(started.devSessionId)).events.length;
+    await runScenario(h.client, started.devSessionId, scenario);
+
+    const t0 = Date.now();
+    let delivered = false;
+    while (Date.now() - t0 < 4000) {
+      const evs = (await h.client.events(started.devSessionId, startIdx)).events as Array<{ type: string; payload?: any }>;
+      if (evs.some(e => e.type === 'narration:briefing' && e.payload?.briefingId === 'project')) { delivered = true; break; }
+      await new Promise(r => setTimeout(r, 50));
+    }
+    expect(delivered, 'the briefing the user asked for must be heard, not dropped').toBe(true);
+    await h.client.resetSession(started.devSessionId);
+  }, 30_000);
 });

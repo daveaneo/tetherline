@@ -86,7 +86,7 @@ function primeSession(opts: {
   useSessionStore.setState({
     ...useSessionStore.getState(),
     state: { phase: opts.phase as any, areaIndex: 0, segmentIndex: 0, paused: false } as any,
-    greeting: opts.greeting ?? null,
+    greeting: opts.greeting != null ? { text: opts.greeting, briefingId: null } : null,
     entryMode: opts.entryMode ?? null,
     areas: [],
     proposal: null,
@@ -160,11 +160,11 @@ describe('useSessionOrchestrator does not self-interrupt', () => {
     // Burst three greetings inside 200ms — should coalesce to the last one only
     await act(async () => { await vi.advanceTimersByTimeAsync(50); });
     await act(async () => {
-      useSessionStore.setState({ ...useSessionStore.getState(), greeting: 'Second.' } as any);
+      useSessionStore.setState({ ...useSessionStore.getState(), greeting: { text: 'Second.', briefingId: null } } as any);
       await vi.advanceTimersByTimeAsync(50);
     });
     await act(async () => {
-      useSessionStore.setState({ ...useSessionStore.getState(), greeting: 'Third and final.' } as any);
+      useSessionStore.setState({ ...useSessionStore.getState(), greeting: { text: 'Third and final.', briefingId: null } } as any);
       await vi.advanceTimersByTimeAsync(400);
     });
 
