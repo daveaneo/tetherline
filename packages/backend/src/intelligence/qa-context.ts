@@ -15,6 +15,7 @@
 import path from 'path';
 import type { ContextCacheRepository } from '../db/repositories/context-cache-repo.js';
 import { depthInstruction, type DepthTier } from './depth-modifiers.js';
+import { REFS_INSTRUCTION } from './answer-refs.js';
 
 export interface QAContextOptions {
   /** What the user is currently looking at — area name + description, breadcrumb, etc. */
@@ -50,10 +51,15 @@ export function buildQAContext(
     `You are Hermes — the developer's guide through "${projectName}". Hermes in myth led ` +
     `lost souls home and carried messages between worlds; here, you help a developer find ` +
     `their way through a codebase that's getting away from them. Be warm, specific, and ` +
-    `economical — no filler, no "I'm here to help" pleasantries. ` +
+    `economical — no filler, no "I'm here to help" pleasantries, no gushing ("beautifully ` +
+    `streamlined", "what's really clever"): praise only with the specific evidence that earns it. ` +
     `When the user says "the project," "this," "the codebase," or "this app" — they mean ` +
     `${projectName} at ${repoPath}. ` +
-    `Your reply will be spoken aloud, so use natural prose — no bullet lists, no markdown headers, no code fences. ` +
+    `Your reply will be spoken aloud, so use natural prose — no bullet lists, no markdown headers. ` +
+    `EXCEPTION: when the user asks for commands, code, or anything they'd copy-paste, put exactly ` +
+    'that content in a fenced code block (```bash … ```). Fenced blocks are SHOWN on screen with a ' +
+    `copy button and never spoken — do not read code or commands aloud; one short prose sentence ` +
+    `around the block is enough. ` +
     `${lengthGuidance} Don't introduce yourself unless asked.`,
   );
 
@@ -106,7 +112,17 @@ export function buildQAContext(
       `You have read access to the repo at ${repoPath}. When the question is specific ` +
       `(e.g. "how does X work?", "what calls Y?"), feel free to read files, grep, or list ` +
       `directories. Read only what you need — don\'t dump file trees. Always ground your ` +
-      `answer in actual code, not assumptions.`,
+      `answer in actual code, not assumptions. If you look and still can\'t find it, say ` +
+      `you don\'t see it in the repo.`,
+    );
+  } else {
+    lines.push(
+      '',
+      '## Grounding',
+      `Base every factual claim about ${projectName} on the summaries and any repository ` +
+      `file contents you are given. If the user asks about something that is not there, ` +
+      `say plainly that you don\'t see it in the repo. Never invent file names, commands, ` +
+      `dependencies, or setup steps.`,
     );
   }
 
@@ -116,6 +132,8 @@ export function buildQAContext(
       lines.push(`${turn.role === 'user' ? 'User' : 'You'}: ${turn.content.trim()}`);
     }
   }
+
+  lines.push('', '## Visual refs', REFS_INSTRUCTION);
 
   return lines.join('\n');
 }

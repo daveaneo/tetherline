@@ -12,7 +12,18 @@ export interface IClaudeClient {
     system: string;
     messages: IClaudeMessage[];
     maxTokens?: number;
+    /** Per-call model override (e.g. Haiku for intent classification). */
+    model?: string;
   }): Promise<string>;
+
+  /** True token streaming (both concrete clients implement it; optional
+   *  so lightweight test doubles don't have to). */
+  streamTextLive?(params: {
+    system: string;
+    messages: IClaudeMessage[];
+    maxTokens?: number;
+    model?: string;
+  }): import('./llm/types.js').LLMStreamHandle;
 
   structuredCall<T>(params: {
     system: string;
@@ -21,5 +32,7 @@ export interface IClaudeClient {
     toolDescription: string;
     inputSchema: Record<string, unknown>;
     maxTokens?: number;
+    /** Per-call model override (e.g. Haiku for intent classification). */
+    model?: string;
   }): Promise<T>;
 }

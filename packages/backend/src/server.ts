@@ -111,5 +111,14 @@ export async function createServer(overrides: { port?: number; repoPath?: string
     handleWebSocket(ws, db, config);
   });
 
+  // Fire-and-forget: synthesize the instant-ack phrases into the TTS cache
+  // so the first spoken ack of any session is a cache hit (~300ms audible).
+  // Skipped in tests (no sidecar, no OpenAI key → resolves quietly).
+  if (process.env.NODE_ENV !== 'test' && !process.env.VITEST) {
+    import('./tts/ack-prewarm.js')
+      .then(m => m.prewarmSpokenAcks(db, config))
+      .catch(() => { /* best-effort */ });
+  }
+
   return { app, wss, server, db, config, digestScheduler };
 }

@@ -107,7 +107,7 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
-function extractKeywords(text: string): string[] {
+export function extractKeywords(text: string): string[] {
   const stopWords = new Set(['the', 'a', 'an', 'is', 'are', 'was', 'were', 'what', 'how', 'does', 'do', 'this', 'that', 'it', 'in', 'on', 'for', 'to', 'of', 'and', 'or']);
   return text.toLowerCase().split(/\W+/).filter(w => w.length > 2 && !stopWords.has(w));
 }

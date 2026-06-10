@@ -1,5 +1,4 @@
-import type { Skill, SkillContext } from './registry.js';
-import type { SkillResult } from '@tetherline/shared';
+import type { BackendSkillResult, Skill, SkillContext } from './registry.js';
 import { constraintInstruction } from './params-helper.js';
 
 export const explainSkill: Skill = {
@@ -9,7 +8,7 @@ export const explainSkill: Skill = {
   // The prompt self-adapts concept↔entity; a deep multi-slide treatment
   // is the separate explicit `deep_dive`, not this rung.
   description: 'Explain code, architecture, or a concept (grounded in this repo) with narration and visuals',
-  async execute(context: SkillContext, params: Record<string, string>): Promise<SkillResult> {
+  async execute(context: SkillContext, params: Record<string, string>): Promise<BackendSkillResult> {
     const target = params.target ?? params.file ?? params.component ?? params.topic ?? params.concept ?? 'the current area';
 
     // Default brevity moved to "2-3 conversational sentences" — explain
@@ -27,14 +26,30 @@ export const explainSkill: Skill = {
         ['target', 'file', 'component', 'topic', 'concept', 'nodeId'],
         '2-3 conversational sentences. The user can say "more detail" for depth, or "deep dive" for the full guided treatment.',
       ),
-      'Spoken aloud — natural prose, no markdown.',
+      'Spoken aloud — natural prose, no markdown, EXCEPT fenced code blocks: anything the user would ' +
+      'copy-paste (commands, code) goes in a ```fence``` — it is lifted to the screen with a copy ' +
+      'button, never spoken.',
     ].join(' ');
 
-    const narration = await context.analyzer.answerQuestion(
-      prompt,
-      `Current area: ${context.currentArea?.name ?? 'none'}. File: ${context.currentFile ?? 'none'}. Repo: ${context.repoPath}.`,
-    );
+    const ctx = `Current area: ${context.currentArea?.name ?? 'none'}. File: ${context.currentFile ?? 'none'}. Repo: ${context.repoPath}.`;
 
+    // Explain is the dominant real-world skill — stream its answer so the
+    // first sentence speaks ~1-2s after the LLM starts, instead of waiting
+    // for the full completion. Falls back to the one-shot path when the
+    // client can't stream (lightweight test doubles).
+    const stream = context.analyzer.answerQuestionStream(prompt, ctx, { params, currentFile: context.currentFile });
+    if (stream) {
+      return {
+        skillName: 'explain',
+        type: 'explanation',
+        narration: '',
+        narrationStream: stream,
+        visualPayload: { target },
+        diagramChanges: params.nodeId ? { focusNodeId: params.nodeId } : undefined,
+      };
+    }
+
+    const narration = await context.analyzer.answerQuestion(prompt, ctx, { params, currentFile: context.currentFile });
     return {
       skillName: 'explain',
       type: 'explanation',

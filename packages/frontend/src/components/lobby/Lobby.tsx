@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { api } from '../../lib/api-client.js';
 import { sendEvent } from '../../lib/ws-client.js';
@@ -105,9 +105,16 @@ export function Lobby() {
     setEntryModeRepo(selectedRepo);
   };
 
-  const handleStartSession = (mode: EntryMode) => {
+  // Double-fire guard: button click + the dialog's voice-select effect can
+  // both land in the same tick. One session:start per dialog open; reset
+  // when a new repo dialog opens. (The backend has its own idempotency
+  // guard as the backstop.)
+  const startSentRef = useRef(false);
+  useEffect(() => { if (entryModeRepo) startSentRef.current = false; }, [entryModeRepo]);
+  const handleStartSession = useCallback((mode: EntryMode) => {
     const target = entryModeRepo;
-    if (!target) return;
+    if (!target || startSentRef.current) return;
+    startSentRef.current = true;
     // For full project review we want the WHOLE git history, not just
     // the recent window. The "updates" mode is what uses `windowDays`.
     const sinceDays = mode === 'full_walkthrough' || mode === 'onboarding' || mode === 'explore'
@@ -116,7 +123,7 @@ export function Lobby() {
     useSessionStore.setState({ activeRepoPath: target.path, entryMode: mode });
     sendEvent({ type: 'session:start', payload: { repoPath: target.path, sinceDays, entryMode: mode } });
     setEntryModeRepo(null);
-  };
+  }, [entryModeRepo, windowDays]);
 
   const handleResumeSession = (sessionId: string) => {
     sendEvent({ type: 'session:resume', payload: { sessionId } });
@@ -424,14 +431,23 @@ function EntryModeDialog({ repo, onSelect, onClose }: { repo: Repo; onSelect: (m
   const speechToasts = useAudioStore(s => s.speechToasts);
   const lastToast = speechToasts[speechToasts.length - 1];
 
+  // Act on each toast at most ONCE. The effect used to re-fire whenever
+  // `onSelect` changed identity (a fresh function every parent render),
+  // double-sending session:start for the same spoken phrase.
+  const consumedToastRef = useRef<unknown>(null);
   useEffect(() => {
-    if (!lastToast) return;
+    if (!lastToast || consumedToastRef.current === lastToast) return;
     const text = lastToast.text.toLowerCase();
     if (text.startsWith('[')) return;
-    if (text.includes('full') || text.includes('walkthrough') || text.includes('everything')) onSelect('full_walkthrough');
-    else if (text.includes('update') || text.includes('what changed') || text.includes("what's new") || text.includes('recent')) onSelect('updates');
-    else if (text.includes('onboarding') || text.includes('learn') || text.includes('program')) onSelect('onboarding');
-    else if (text.includes('explore') || text.includes('manual') || text.includes('free') || text.includes('self')) onSelect('explore');
+    let mode: EntryMode | null = null;
+    if (text.includes('full') || text.includes('walkthrough') || text.includes('everything')) mode = 'full_walkthrough';
+    else if (text.includes('update') || text.includes('what changed') || text.includes("what's new") || text.includes('recent')) mode = 'updates';
+    else if (text.includes('onboarding') || text.includes('learn') || text.includes('program')) mode = 'onboarding';
+    else if (text.includes('explore') || text.includes('manual') || text.includes('free') || text.includes('self')) mode = 'explore';
+    if (mode) {
+      consumedToastRef.current = lastToast;
+      onSelect(mode);
+    }
   }, [lastToast, onSelect]);
 
   return (

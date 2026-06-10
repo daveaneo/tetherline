@@ -33,8 +33,16 @@ const RULES: Rule[] = [
   { pattern: /\bto the top\b/, produce: () => ({ kind: 'pop_to_project' }) },
 
   // --- Pop (up one level) ---
-  { pattern: /\b(back up|go up|step up|one level up|up a level|go back up)\b/, produce: () => ({ kind: 'pop' }) },
+  { pattern: /\b(back up|go up|step up|one level up|up a level|go back up|zoom (?:back )?out)\b/, produce: () => ({ kind: 'pop' }) },
   { pattern: /^(go back|back|take me back)\s*\.?\s*$/, produce: () => ({ kind: 'pop' }) },
+
+  // --- Targeted drill verbs ("go deeper ON X", "zoom into X") ---
+  // MUST precede the generic dive-deeper rule, whose \bgo deeper\b would
+  // otherwise swallow the targeted form and lose the X.
+  { pattern: /^(?:go|dive|drill) deeper (?:on|into) (?:the )?([\w./-]{2,})[\s?.!]*$/,
+    produce: (m) => ({ kind: 'push_named', target: m[1] }) },
+  { pattern: /^zoom (?:in(?:to)?|in on) (?:the )?([\w./-]{2,})[\s?.!]*$/,
+    produce: (m) => ({ kind: 'push_named', target: m[1] }) },
 
   // --- Code-layer drill ("walk me through capture", "show me the handleQuestion function") ---
   // Always check this BEFORE the generic named drill so "walk me through capture"
@@ -98,6 +106,8 @@ export const CANONICAL_NAV_PHRASES: Array<{ phrase: string; expected: NavOp['kin
   { phrase: 'step up', expected: 'pop' },
   { phrase: 'one level up', expected: 'pop' },
   { phrase: 'up a level', expected: 'pop' },
+  { phrase: 'zoom out', expected: 'pop' },
+  { phrase: 'zoom back out', expected: 'pop' },
 
   // PUSH_NAMED
   { phrase: 'tell me about payments', expected: 'push_named', target: 'payments' },
@@ -105,6 +115,10 @@ export const CANONICAL_NAV_PHRASES: Array<{ phrase: string; expected: NavOp['kin
   { phrase: 'what is the payments module', expected: 'push_named', target: 'payments' },
   { phrase: 'how does ledger work', expected: 'push_named', target: 'ledger' },
   { phrase: "let's look at webhooks", expected: 'push_named', target: 'webhooks' },
+  { phrase: 'go deeper on payments', expected: 'push_named', target: 'payments' },
+  { phrase: 'dive deeper into ledger', expected: 'push_named', target: 'ledger' },
+  { phrase: 'zoom into webhooks', expected: 'push_named', target: 'webhooks' },
+  { phrase: 'zoom in on the core', expected: 'push_named', target: 'core' },
 
   // DIVE_DEEPER
   { phrase: 'dive deeper', expected: 'dive_deeper' },

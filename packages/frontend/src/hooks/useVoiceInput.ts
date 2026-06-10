@@ -105,23 +105,65 @@ function isLikelyNoiseArtifact(text: string): boolean {
 const TTS_END_GATE_MS = 1500;
 const NARRATION_GATE_MS = 12_000;
 
+/** PTT keyup sets this — the transcript arriving from that hold is an
+ *  EXPLICIT user gesture, so it bypasses the self-echo content match
+ *  (the user may legitimately repeat words the AI just spoke, e.g. a
+ *  suggested command phrase). Cleared on first use / timeout. */
+let expectPttTranscriptUntil = 0;
+export function markPttTranscriptExpected(): void {
+  expectPttTranscriptUntil = Date.now() + 5000;
+}
+
 function handleTranscript(text: string) {
-  // Drop transcripts that arrived while the AI was speaking — those are
-  // echo from speakers bleeding into the mic, not a user utterance.
-  // Without this guard the AI would "hear" itself and trigger another
-  // Q&A round, producing the self-interrupt loop the user reported.
-  // PTT (hold space) is the explicit way to talk over the AI.
   const audio = useAudioStore.getState();
-  if (audio.isPlaying) return;
-  if (audio.lastTtsEndAt && Date.now() - audio.lastTtsEndAt < TTS_END_GATE_MS) {
-    // Echo-gate: speakers may still be reverberating or Whisper may be
-    // flushing a buffer that includes the tail of the AI's TTS. Drop.
+  const viaPtt = Date.now() < expectPttTranscriptUntil;
+  if (viaPtt) expectPttTranscriptUntil = 0;
+  // Gated speech is logged GREYED in the conversation log rather than
+  // silently eaten — the user can see "I heard you but ignored it (echo
+  // gate); hold Space to talk over me." No toast (real echo would spam).
+  const dropGated = () => {
+    if (!isLikelyNoiseArtifact(text)) {
+      useSessionStore.getState().addConversation('you', text, { muted: true });
+    }
+  };
+  /** This speech episode produced nothing actionable: resume any ducked
+   *  playback and tell the backend the floor is free again. */
+  const resolveDiscarded = () => {
+    if (audio.userHasFloor) {
+      audio.resumeFromFloor('noise');
+      sendEvent({ type: 'user:speaking_stopped' });
+    }
+  };
+
+  // Self-echo content match runs FIRST — authoritative regardless of any
+  // timing window. The live bug: the AI spoke 'say "back to the tour"',
+  // the mic transcribed its own words 12s later (just past the narration
+  // gate) and EXECUTED the command. Content matching catches what timing
+  // gates structurally cannot. PTT bypasses (explicit gesture).
+  if (!viaPtt && audio.matchesRecentSpokenText(text)) {
+    dropGated();
+    resolveDiscarded();
     return;
   }
-  if (audio.lastNarrationAt && Date.now() - audio.lastNarrationAt < NARRATION_GATE_MS) {
-    // Stronger gate: a narration event recently arrived; its audio
-    // is likely still playing even if isPlaying says otherwise.
-    return;
+
+  if (!audio.userHasFloor && !viaPtt) {
+    // No floor episode (e.g. Web Speech without VAD wiring, or stale
+    // transcripts): the classic time gates apply. When the floor IS held,
+    // the VAD already confirmed this as user speech — the time gates
+    // would eat a legitimate barge-in (PTT bypasses them the same way).
+    if (audio.isPlaying) { dropGated(); return; }
+    if (audio.lastTtsEndAt && Date.now() - audio.lastTtsEndAt < TTS_END_GATE_MS) {
+      // Echo-gate: speakers may still be reverberating or Whisper may be
+      // flushing a buffer that includes the tail of the AI's TTS. Drop.
+      dropGated();
+      return;
+    }
+    if (audio.lastNarrationAt && Date.now() - audio.lastNarrationAt < NARRATION_GATE_MS) {
+      // Stronger gate: a narration event recently arrived; its audio
+      // is likely still playing even if isPlaying says otherwise.
+      dropGated();
+      return;
+    }
   }
 
   // Check for navigation commands FIRST so legitimate single-word commands
@@ -131,7 +173,17 @@ function handleTranscript(text: string) {
   if (!command && isLikelyNoiseArtifact(text)) {
     // Drop silently — don't even toast. The user didn't speak; we shouldn't
     // pretend they did or generate a filler reply.
+    resolveDiscarded();
     return;
+  }
+
+  // Real user speech survived every gate. If it arrived via a floor
+  // episode, finish the barge-in: hard-flush the interrupted answer
+  // (stale by definition — the user talked over it) and keep the floor
+  // closed until this turn's response starts streaming.
+  if (audio.userHasFloor) {
+    audio.claimFloorForUtterance();
+    sendEvent({ type: 'user:speaking_stopped' });
   }
 
   const audioStore = useAudioStore.getState();
@@ -143,6 +195,9 @@ function handleTranscript(text: string) {
   if (command) {
     audioStore.setVoiceState('processing');
     COMMAND_TO_EVENT[command]?.();
+    // Commands act instantly and produce no response stream — release the
+    // floor now or the drain loop would stay frozen until the failsafe.
+    useAudioStore.getState().releaseFloor();
     setTimeout(() => {
       if (useAudioStore.getState().voiceState === 'processing') {
         useAudioStore.getState().setVoiceState('listening');
@@ -157,12 +212,17 @@ function handleTranscript(text: string) {
 
   // Failsafe: if voiceState is still 'processing' after 10 seconds with no
   // response, drop back to 'listening' so the user isn't stuck staring at
-  // a "Thinking..." overlay indefinitely when the pipeline hangs.
+  // a "Thinking..." overlay indefinitely when the pipeline hangs. Also
+  // reopens the floor — a dead pipeline must never leave the AI mute
+  // forever (floor deadlock = permanent silence).
   setTimeout(() => {
     const s = useAudioStore.getState();
     if (s.voiceState === 'processing') {
       s.addSpeechToast('[no response — releasing mic]');
       s.setVoiceState('listening');
+    }
+    if (s.userHasFloor && s.floorPhase === 'awaiting-response') {
+      s.releaseFloor();
     }
   }, 10_000);
 }
@@ -236,25 +296,41 @@ export function useVoiceInput() {
 
     if (effectiveMode === 'whisper') {
       // Use AudioCapture with echo cancellation + Whisper.
-      // Voice barge-in is INTENTIONALLY disabled — the AI's own audio
-      // bleeds into the mic and triggers self-interrupt. Push-to-talk
-      // (hold space) is the deliberate interrupt gesture; see the PTT
-      // useEffect above.
+      // Floor protocol (duck-and-confirm): the capture layer soft-pauses
+      // AI playback at sound-detect and confirms the floor at the 100ms
+      // VAD confirm. Real speech then hard-flushes in handleTranscript;
+      // noise/echo resumes playback from the pause point. The OLD
+      // destructive barge-in (hard-kill at sound-detect, no recovery)
+      // is gone; PTT remains the explicit always-works override.
       const capture = new AudioCapture({
         onSpeechStart: () => {
-          // UI-only feedback: orb shows we're hearing something. We do
-          // NOT flush AI playback or signal speaking_started — that path
-          // belongs to PTT now.
+          // VAD confirmed speech: orb feedback + tell the backend the
+          // user holds the floor (it holds this turn's chunks instead
+          // of dropping them, and stops talking over the user).
           useAudioStore.getState().setVoiceState('hearing');
+          sendEvent({ type: 'user:speaking_started' });
         },
         onSpeechEnd: () => {
           const audioStore = useAudioStore.getState();
           if (audioStore.voiceState === 'hearing') {
             audioStore.setVoiceState('processing');
           }
+          // NOTE: user:speaking_stopped is deliberately NOT sent here —
+          // Whisper hasn't transcribed yet. The episode resolves in
+          // handleTranscript (utterance/command sent) or onSpeechDiscarded.
         },
         onTranscript: (text) => {
           handleTranscript(text);
+        },
+        onSpeechDiscarded: () => {
+          // The episode produced no usable transcript — the duck was a
+          // false alarm. Resume playback and free the backend floor.
+          const a = useAudioStore.getState();
+          if (a.userHasFloor) {
+            a.resumeFromFloor('noise');
+            sendEvent({ type: 'user:speaking_stopped' });
+          }
+          if (a.voiceState === 'processing') a.setVoiceState('listening');
         },
         onError: (error) => {
           useAudioStore.getState().addSpeechToast(`[${error}]`);
@@ -325,6 +401,26 @@ export function useVoiceInput() {
   useEffect(() => {
     useAudioStore.getState().setStopMicFn(stopListening);
   }, [stopListening]);
+
+  // Floor watchdog: a held floor that never resolves (VAD confirmed but
+  // Whisper hung, lost callbacks, tab refocus weirdness) must not mute the
+  // AI forever. 8s without resolution → resume + free the backend floor.
+  // ('awaiting-response' is excluded — the 10s processing failsafe owns it.)
+  useEffect(() => {
+    const iv = setInterval(() => {
+      const a = useAudioStore.getState();
+      if (
+        a.userHasFloor &&
+        a.floorHeldSince !== null &&
+        a.floorPhase !== 'awaiting-response' &&
+        Date.now() - a.floorHeldSince > 8000
+      ) {
+        a.resumeFromFloor('timeout');
+        sendEvent({ type: 'user:speaking_stopped' });
+      }
+    }, 1000);
+    return () => clearInterval(iv);
+  }, []);
 
   // Auto-stop when returning to IDLE
   const phase = useSessionStore(s => s.state.phase);
@@ -404,6 +500,10 @@ export function useVoiceInput() {
       ptHoldActiveRef.current = false;
       useAudioStore.getState().setPttHoldStartedAt(null);
       sendEvent({ type: 'user:speaking_stopped' });
+      // The transcript from this hold is an explicit gesture — it must
+      // bypass the self-echo content match (the user may deliberately
+      // repeat a phrase the AI just suggested).
+      markPttTranscriptExpected();
       // Wait for the start to complete (race with fast taps), then close
       // the PTT recording window — this triggers the Whisper POST and
       // surfaces the transcript via the onTranscript callback. Awaiting
@@ -474,11 +574,14 @@ export function useVoiceInput() {
 
 /** Wire callbacks for the Web Speech API fallback */
 function wireWebSpeechCallbacks(recognizer: VoiceCommandRecognizer) {
-  // Voice barge-in is disabled — see the AudioCapture branch above for the
-  // rationale. Hold space to interrupt the AI; the recognizer here is only
-  // for transcribing what the user actually says.
+  // Floor parity with the Whisper path. The browser's speechstart is
+  // already a confirmed-speech signal (no RMS/confirm stage), so duck
+  // and confirm in one step.
   recognizer.onSpeechStart = () => {
     const audioStore = useAudioStore.getState();
+    audioStore.duckForFloor();
+    audioStore.confirmFloor();
+    sendEvent({ type: 'user:speaking_started' });
     audioStore.setVoiceState('hearing');
     audioStore.addSpeechToast('[hearing...]');
   };
@@ -507,6 +610,13 @@ function wireWebSpeechCallbacks(recognizer: VoiceCommandRecognizer) {
   };
 
   recognizer.onError = (error) => {
+    // Discard parity: a recognizer error (no-speech, no-match, aborted)
+    // means the floor episode resolves with nothing — resume playback.
+    const a = useAudioStore.getState();
+    if (a.userHasFloor && a.floorPhase !== 'awaiting-response') {
+      a.resumeFromFloor('noise');
+      sendEvent({ type: 'user:speaking_stopped' });
+    }
     useAudioStore.getState().addSpeechToast(`[Mic error: ${error}]`);
   };
 

@@ -47,6 +47,15 @@ const CORRECTION_PHRASES = [
   "no i want",
 ];
 
+/**
+ * Intent classification runs on Haiku: the task is a constrained 11-way
+ * label pick where Haiku matches Sonnet in practice, and classification
+ * latency is dead air in the voice loop (it sits between the spoken ack
+ * and the first answer token). Env-overridable for the CLI/local case.
+ */
+export const CLASSIFIER_MODEL =
+  process.env.TETHERLINE_CLASSIFIER_MODEL || 'claude-haiku-4-5';
+
 export class IntentClassifier {
   private lastClassification: IntentClassification | null = null;
   private lastUtterance: string = '';
@@ -158,6 +167,7 @@ Confidence guidance:
           required: ['skillName', 'confidence', 'params'],
         },
         maxTokens: 256,
+        model: CLASSIFIER_MODEL,
       });
 
       return {

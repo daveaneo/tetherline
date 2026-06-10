@@ -36,6 +36,7 @@ export const compareSkill: Skill = {
     const narration = await context.analyzer.answerQuestion(
       prompt,
       `Current area: ${context.currentArea?.name ?? 'none'}. Affected files: ${context.currentArea?.affectedFiles?.slice(0, 10).join(', ') ?? 'none'}.`,
+      { params, currentFile: context.currentFile },
     );
 
     // v1 narrated tour (B7): structural compares walk A → B → synthesis

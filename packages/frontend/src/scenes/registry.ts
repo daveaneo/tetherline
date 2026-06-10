@@ -490,6 +490,45 @@ export const SCENES: Scene[] = [
       });
     },
   },
+  {
+    name: 'dispatch-glow',
+    description:
+      'Settled dispatch ring — after an answer about Core, a static persistent ring marks "we are talking about THIS" until the next answer (aged ts ⇒ deterministic settled state, no SMIL).',
+    seed: () => {
+      seedBase();
+      useSessionStore.setState({
+        visualDispatch: {
+          transition: 'IN_PLACE',
+          targetNodeId: 'module/core',
+          refs: ['module/core'],
+          reason: 'refs-resolved',
+          ts: Date.now() - 10_000, // aged ⇒ settled static ring
+        },
+        touchedNodes: new Set(['module/core']),
+      } as never);
+    },
+  },
+  {
+    name: 'artifact-card',
+    description:
+      'Copyable commands card — fenced code lifted OUT of a spoken answer onto the canvas with a Copy button (the voice says "on screen", never reads the script aloud).',
+    seed: () => {
+      seedBase();
+      useSessionStore.setState({
+        activeArtifact: {
+          id: 'scene-artifact-1',
+          kind: 'commands',
+          language: 'bash',
+          body: 'git clone https://github.com/example/personalforge\ncd personalforge\npython3 -m venv .venv\nsource .venv/bin/activate\npip install -r requirements.txt\npython main.py',
+          receivedAt: 0,
+        },
+        conversationHistory: [
+          { speaker: 'you', text: 'give me the install commands so I can copy-paste them', timestamp: 1 },
+          { speaker: 'ai', text: "I've put the commands on screen — copy them when you're ready.", timestamp: 2 },
+        ],
+      } as never);
+    },
+  },
 ];
 
 export function getScene(name: string): Scene | undefined {

@@ -19,6 +19,34 @@ export interface TaggedChunk {
   referencedNodes: string[];
 }
 
+/** First N sentences ship solo for fastest first-word time. */
+export const SOLO_SENTENCE_COUNT = 2;
+/** From sentence N on, short sentences merge until the buffer reaches this. */
+export const MERGE_MAX_CHARS = 200;
+/** Sentence boundary: terminator + whitespace + a started next sentence, or a blank line. */
+export const SENTENCE_BOUNDARY = /(?<=[.!?])\s+(?=[A-Z"'(])|\n{2,}/;
+
+/** Tag one chunk of text with the node labels it mentions. `sortedLabels`
+ *  must be sorted longest-first so "FileLoader" matches before "File".
+ *  Word-boundary, case-insensitive; labels may contain punctuation (file.py). */
+export function tagChunkWithAnchors(text: string, sortedLabels: string[]): TaggedChunk {
+  const found = new Set<string>();
+  for (const label of sortedLabels) {
+    // Escape regex metas; match as a whole word, case-insensitive.
+    const safe = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Use lookarounds for non-word boundaries so "FileLoader" inside
+    // "FileLoader." still matches.
+    const re = new RegExp(`(^|[^A-Za-z0-9_])${safe}([^A-Za-z0-9_]|$)`, 'i');
+    if (re.test(text)) found.add(label);
+  }
+  return { text, referencedNodes: [...found] };
+}
+
+/** Sort labels for tagChunkWithAnchors. */
+export function sortLabelsForAnchoring(nodeLabels: string[]): string[] {
+  return [...nodeLabels].sort((a, b) => b.length - a.length);
+}
+
 /** Tag chunks with the diagram-node labels they mention. `nodeLabels`
  *  is the set of currently-known node display names (e.g. ["core",
  *  "FileLoader", "PairGenerator"]) — the chunker matches on word
@@ -31,21 +59,8 @@ export function chunkAnswerWithAnchors(
   if (nodeLabels.length === 0) {
     return chunks.map(text => ({ text, referencedNodes: [] }));
   }
-  // Sort longer labels first so "FileLoader" matches before "File".
-  const sorted = [...nodeLabels].sort((a, b) => b.length - a.length);
-  return chunks.map(text => {
-    const found = new Set<string>();
-    for (const label of sorted) {
-      // Escape regex metas; match as a whole word, case-insensitive.
-      const safe = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      // Allow node labels with internal punctuation (file.py); use
-      // lookarounds for non-word boundaries so "FileLoader" inside
-      // "FileLoader." still matches.
-      const re = new RegExp(`(^|[^A-Za-z0-9_])${safe}([^A-Za-z0-9_]|$)`, 'i');
-      if (re.test(text)) found.add(label);
-    }
-    return { text, referencedNodes: [...found] };
-  });
+  const sorted = sortLabelsForAnchoring(nodeLabels);
+  return chunks.map(text => tagChunkWithAnchors(text, sorted));
 }
 
 export function chunkAnswerForStreaming(answer: string): string[] {
@@ -58,13 +73,13 @@ export function chunkAnswerForStreaming(answer: string): string[] {
 
   for (let i = 0; i < sentences.length; i++) {
     const s = sentences[i];
-    // First two sentences ship solo for fastest first-word time.
-    if (i < 2) {
+    // First sentences ship solo for fastest first-word time.
+    if (i < SOLO_SENTENCE_COUNT) {
       chunks.push(s);
       continue;
     }
-    // Group remaining short sentences (< 80 chars) together for rhythm.
-    if (buf.length + s.length < 200) {
+    // Group remaining short sentences together for rhythm.
+    if (buf.length + s.length < MERGE_MAX_CHARS) {
       buf = buf ? `${buf} ${s}` : s;
     } else {
       if (buf) chunks.push(buf);
@@ -76,11 +91,11 @@ export function chunkAnswerForStreaming(answer: string): string[] {
   return chunks;
 }
 
-function splitIntoSentences(text: string): string[] {
+export function splitIntoSentences(text: string): string[] {
   // Split on sentence terminators, but keep the punctuation. Also handle
   // newlines as soft breaks so list-style answers chunk reasonably.
   const parts = text
-    .split(/(?<=[.!?])\s+(?=[A-Z"'(])|\n{2,}/)
+    .split(SENTENCE_BOUNDARY)
     .map(s => s.trim())
     .filter(Boolean);
   return parts;

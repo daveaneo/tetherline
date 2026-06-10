@@ -15,6 +15,9 @@ export type TraceKind =
   | 'tts.emit'              // server emitted a narration event (any kind)
   | 'tts.queue_flush'       // queue cleared in response to user speech
   | 'tts.drop'              // narration suppressed because user holds the floor
+  | 'tts.hold'              // current-turn chunk held while user holds the floor
+  | 'tts.release'           // held chunks released after the floor opened
+  | 'tts.discard_pending'   // held chunks discarded (user spoke again — turn superseded)
   | 'user.speaking_started' // mic voice activity began
   | 'user.speaking_stopped' // mic voice activity ended
   | 'audio.segment_started' // client started playing a segment
@@ -22,6 +25,7 @@ export type TraceKind =
   | 'narration.emitted'
   | 'phase.changed'
   | 'visual.update'
+  | 'qa.route'              // which answer path a question took: retrieval | agentic
   | 'error';
 
 export interface TraceEvent {

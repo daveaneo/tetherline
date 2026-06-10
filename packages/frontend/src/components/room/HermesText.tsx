@@ -119,7 +119,7 @@ export function HermesText() {
               </div>
             )}
             {conversationHistory.map((entry, i) => (
-              <div key={`${entry.timestamp}-${i}`} style={{ marginBottom: 10 }}>
+              <div key={`${entry.timestamp}-${i}`} style={{ marginBottom: 10, opacity: entry.muted ? 0.45 : 1 }}>
                 <span
                   className="font-mono"
                   style={{
@@ -131,6 +131,11 @@ export function HermesText() {
                   {entry.speaker === 'you' ? 'You' : 'Hermes'}
                 </span>
                 <span>{entry.text}</span>
+                {entry.muted && (
+                  <span className="font-mono" style={{ fontSize: 9, marginLeft: 8, color: 'var(--ink-400)' }}>
+                    (ignored — echo gate; hold Space to talk over me)
+                  </span>
+                )}
               </div>
             ))}
             {streamChunks.length > 0 && (

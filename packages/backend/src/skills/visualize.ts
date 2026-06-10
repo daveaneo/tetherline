@@ -161,6 +161,7 @@ export const visualizeSkill: Skill = {
       const narration = await context.analyzer.answerQuestion(
         `Describe the visual structure of ${target} for a diagram. What are the key components and how do they connect? Keep it brief — this will be narrated aloud.`,
         `Repo: ${context.repoPath}. Areas: ${context.areas.map(a => a.name).join(', ')}.`,
+        { params, currentFile: context.currentFile },
       );
       return {
         skillName: 'visualize',

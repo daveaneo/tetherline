@@ -41,6 +41,22 @@ export interface VoiceMetrics {
   /** Whether the server emitted a `tts.queue_flush` at all after a user
    *  speaking event. false = no flush happened (bug). */
   flushed: boolean;
+
+  /** From the first `utterance.received` to the first stream-chunk
+   *  `tts.emit` at-or-after it — i.e. did the spoken ack actually reach
+   *  the client, and how fast? null when the trace has no utterance OR
+   *  the ack never made it out (the pre-fix floor gate DROPPED acks that
+   *  landed inside the post-user-silence window). */
+  ackDeliveredMs: number | null;
+  /** Number of utterance.received events (lets reports distinguish
+   *  "no ack because no utterance" from "ack dropped"). */
+  utteranceCount: number;
+  /** Count of `tts.hold` events — current-turn chunks held (not dropped)
+   *  while the user held the floor. */
+  heldCount: number;
+  /** Count of `tts.discard_pending` events — held turns superseded by the
+   *  user speaking again. */
+  discardedPending: number;
 }
 
 export interface ScenarioTrace {
@@ -56,6 +72,9 @@ export function computeVoiceMetrics(events: TraceEvent[]): VoiceMetrics {
     e.kind === 'user.speaking_stopped' ||
     e.kind === 'tts.emit' ||
     e.kind === 'tts.queue_flush' ||
+    e.kind === 'tts.hold' ||
+    e.kind === 'tts.discard_pending' ||
+    e.kind === 'utterance.received' ||
     e.kind === 'audio.segment_started' ||
     e.kind === 'audio.segment_ended',
   );
@@ -143,6 +162,21 @@ export function computeVoiceMetrics(events: TraceEvent[]): VoiceMetrics {
     }
   }
 
+  // ack_delivered: first utterance → first stream-chunk emit after it.
+  // The seq-0 ack leads every turn stream, so the first stream-chunk emit
+  // after the utterance IS the ack reaching the client.
+  const firstUtterance = voiceEvents.find(e => e.kind === 'utterance.received');
+  let ackDeliveredMs: number | null = null;
+  if (firstUtterance) {
+    const ut = Date.parse(firstUtterance.ts);
+    const ackEmit = voiceEvents.find(e =>
+      e.kind === 'tts.emit' &&
+      (e.payload as { eventType?: string } | undefined)?.eventType === 'narration:stream_chunk' &&
+      Date.parse(e.ts) >= ut,
+    );
+    if (ackEmit) ackDeliveredMs = Date.parse(ackEmit.ts) - ut;
+  }
+
   return {
     timeToFlushMs,
     emitsDuringUserSpeech,
@@ -151,6 +185,10 @@ export function computeVoiceMetrics(events: TraceEvent[]): VoiceMetrics {
     selfInterrupts,
     overlapMs,
     flushed,
+    ackDeliveredMs,
+    utteranceCount: voiceEvents.filter(e => e.kind === 'utterance.received').length,
+    heldCount: voiceEvents.filter(e => e.kind === 'tts.hold').length,
+    discardedPending: voiceEvents.filter(e => e.kind === 'tts.discard_pending').length,
   };
 }
 
@@ -175,5 +213,15 @@ export function scoreMetrics(m: VoiceMetrics): Record<keyof VoiceMetrics, 'pass'
       : m.overlapMs <= 300 ? 'warn'
       : 'fail',
     flushed: m.flushed ? 'pass' : 'fail' as any,
+    // Quick commands answer without an ack stream, so a missing ack is
+    // only conclusively a failure when held chunks prove a turn stream
+    // existed (it was held but never released = dropped/discarded turn).
+    ackDeliveredMs: m.utteranceCount === 0 ? 'n/a'
+      : m.ackDeliveredMs === null ? (m.heldCount > 0 && m.discardedPending === 0 ? 'fail' : 'n/a')
+      : m.ackDeliveredMs <= 2000 ? 'pass'
+      : 'warn',
+    utteranceCount: 'n/a',
+    heldCount: 'n/a',
+    discardedPending: 'n/a',
   };
 }

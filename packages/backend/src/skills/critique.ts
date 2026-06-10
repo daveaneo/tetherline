@@ -111,6 +111,7 @@ export const critiqueSkill: Skill = {
           'Spoken aloud — natural prose, no bullets.',
         ].join(' '),
         ctx,
+        { params, currentFile: context.currentFile },
       );
       return {
         skillName: 'critique',

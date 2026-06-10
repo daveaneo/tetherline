@@ -49,6 +49,19 @@ export function detectDepth(text: string, currentTier: DepthTier = 'normal'): De
   return { tier: currentTier, changed: false };
 }
 
+/** Hard sentence cap per tier — the enforcement backstop behind
+ *  depthInstruction's soft prompt guidance. The answer streamer aborts
+ *  the LLM stream at this many sentences and appends the steering hook,
+ *  so a runaway answer can never become a 90-second monologue. */
+export function sentenceCap(tier: DepthTier): number {
+  switch (tier) {
+    case 'tldr': return 2;
+    case 'deep': return 8;
+    case 'normal':
+    default: return 4;
+  }
+}
+
 /** Length guidance the QA scaffold injects into the LLM system prompt
  *  for the given tier. Keep these terse — the scaffold is already long. */
 export function depthInstruction(tier: DepthTier): string {

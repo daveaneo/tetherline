@@ -76,11 +76,12 @@ function writeReport(rows: MetricsRow[], outPath: string, label: string) {
   lines.push('| `selfInterrupts` | 0 | AI started a new segment before the old one ended. |');
   lines.push('| `overlapMs` | ≤100ms | How long AI audio + user audio overlapped. |');
   lines.push('| `flushed` | true | Did the server clear its queue at all on user speech? |');
+  lines.push('| `ackDeliveredMs` | ≤2000ms | The spoken ack must SURVIVE the floor gate (held + released, not dropped). |');
   lines.push('');
   lines.push('## Per-scenario results');
   lines.push('');
-  lines.push('| # | Scenario | Flush | To-Flush | During | Leaks | To-Respond | Self-int | Overlap |');
-  lines.push('|---|---|---|---|---|---|---|---|---|');
+  lines.push('| # | Scenario | Flush | To-Flush | During | Leaks | To-Respond | Self-int | Overlap | Ack |');
+  lines.push('|---|---|---|---|---|---|---|---|---|---|');
   for (const { scenario, metrics, scores } of rows) {
     const mark = (s?: string) => s === 'pass' ? '✅' : s === 'warn' ? '⚠️' : s === 'fail' ? '❌' : '—';
     lines.push(
@@ -91,7 +92,8 @@ function writeReport(rows: MetricsRow[], outPath: string, label: string) {
       `${metrics.emitsBeforeFlush} ${mark(scores.emitsBeforeFlush)} | ` +
       `${metrics.timeToRespondMs ?? '—'}ms ${mark(scores.timeToRespondMs)} | ` +
       `${metrics.selfInterrupts} ${mark(scores.selfInterrupts)} | ` +
-      `${metrics.overlapMs}ms ${mark(scores.overlapMs)} |`,
+      `${metrics.overlapMs}ms ${mark(scores.overlapMs)} | ` +
+      `${metrics.ackDeliveredMs ?? '—'}ms ${mark(scores.ackDeliveredMs)} |`,
     );
   }
   lines.push('');
@@ -104,7 +106,7 @@ function writeReport(rows: MetricsRow[], outPath: string, label: string) {
   lines.push('| Metric | Pass rate |');
   lines.push('|---|---|');
   const keys = ['flushed', 'timeToFlushMs', 'emitsDuringUserSpeech', 'emitsBeforeFlush',
-                'timeToRespondMs', 'selfInterrupts', 'overlapMs'];
+                'timeToRespondMs', 'selfInterrupts', 'overlapMs', 'ackDeliveredMs'];
   for (const k of keys) lines.push(`| ${k} | ${pass(k)}/${total} |`);
   lines.push('');
 
@@ -141,6 +143,16 @@ describe('Voice interaction — baseline measurement', () => {
     const rows = await runAllScenarios(h);
     writeReport(rows, path.resolve(outPath), label);
     expect(rows.length).toBe(SCENARIOS.length);
+
+    // Hard contracts for the floor hold-and-release scenarios. Pre-fix,
+    // scenario 13's ack traced tts.drop and never reached the client
+    // (ackDeliveredMs === null) — this is the failing-first assertion.
+    const ackRow = rows.find(r => r.scenario.id === '13-ack-survives-floor')!;
+    expect(ackRow.metrics.ackDeliveredMs, 'the ack must reach the client').not.toBeNull();
+    expect(ackRow.metrics.emitsDuringUserSpeech, 'holding must not regress the gate').toBe(0);
+    const supersededRow = rows.find(r => r.scenario.id === '14-superseded-turn-stays-silent')!;
+    expect(supersededRow.metrics.discardedPending, 'superseded turn must be discarded').toBeGreaterThan(0);
+    expect(supersededRow.metrics.emitsDuringUserSpeech).toBe(0);
 
     const passCount = (key: string) => rows.filter(r => (r.scores as any)[key] === 'pass').length;
     // eslint-disable-next-line no-console

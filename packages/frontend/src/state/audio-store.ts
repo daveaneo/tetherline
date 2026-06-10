@@ -11,6 +11,14 @@ export interface SpeechToast {
   timestamp: number;
 }
 
+/** Lifecycle of the user's conversational floor.
+ *  open → nobody is claiming the mic;
+ *  provisional → VAD heard sound, playback is ducked, awaiting the 100ms confirm;
+ *  confirmed → real speech confirmed, still transcribing;
+ *  awaiting-response → a real utterance shipped; floor stays closed until the
+ *  turn's response stream starts (or a failsafe releases it). */
+export type FloorPhase = 'open' | 'provisional' | 'confirmed' | 'awaiting-response';
+
 interface AudioStore {
   currentSegment: NarrationSegment | null;
   isPlaying: boolean;
@@ -24,6 +32,43 @@ interface AudioStore {
   muteOutput: () => void;
   unmuteOutput: () => void;
   flushOnInterrupt: () => void;
+
+  // ── Conversational floor (the AI must NEVER talk over the user) ──
+  /** True from the moment speech is detected until the floor is released.
+   *  While held, the orchestrator must not START any new TTS clip. */
+  userHasFloor: boolean;
+  floorPhase: FloorPhase;
+  /** Audio element is soft-paused at its position (resumable — distinct from
+   *  the destructive flushOnInterrupt stop). */
+  floorPaused: boolean;
+  floorHeldSince: number | null;
+  /** Bumped by flushOnInterrupt. The orchestrator aborts its in-flight speak
+   *  promise on change — a hard-stopped element doesn't reliably fire
+   *  `ended`, which used to leave the serialized speech tail pending. */
+  flushEpoch: number;
+  /** VAD heard sound while the AI may be speaking: soft-pause playback and
+   *  take the floor provisionally. Resumable; does NOT touch isPlaying. */
+  duckForFloor: () => void;
+  /** Provisional → confirmed (VAD 100ms confirm / Web Speech speechstart). */
+  confirmFloor: () => void;
+  /** The sound wasn't real user speech (no transcript / echo / noise):
+   *  resume playback from the pause point and reopen the floor. */
+  resumeFromFloor: (reason: 'noise' | 'timeout') => void;
+  /** A transcript survived all gates — this is real user speech. Hard-flush
+   *  playback; floor stays closed until the turn's response starts. */
+  claimFloorForUtterance: () => void;
+  /** Fully reopen the floor (response started / failsafe / error). */
+  releaseFloor: () => void;
+
+  // ── Self-echo suppression (content-based) ──
+  /** Ring buffer of text the AI recently spoke. Transcripts that match are
+   *  the mic hearing our own speaker output — never user speech. Timing
+   *  gates alone can't catch echo that lands just past their windows (live
+   *  bug: the AI spoke "say 'back to the tour'", transcribed itself 12s
+   *  later, and executed the command). */
+  recentSpokenText: Array<{ text: string; at: number }>;
+  recordSpokenText: (text: string) => void;
+  matchesRecentSpokenText: (transcript: string) => boolean;
 
   // Interrupt backoff — prevents AI from speaking immediately after being interrupted
   interruptBackoffUntil: number;
@@ -82,6 +127,18 @@ interface AudioStore {
   clearQueue: () => void;
 }
 
+/** Lowercase, strip punctuation, collapse whitespace — transcript vs spoken
+ *  text comparison must survive Whisper's punctuation/casing choices. */
+function normalizeSpeech(s: string): string {
+  return s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+}
+
+const SPOKEN_TEXT_WINDOW_MS = 20_000;
+const SPOKEN_TEXT_MAX_ENTRIES = 10;
+/** Below this many normalized chars a substring match is meaningless
+ *  ("ok", "next" would false-positive constantly). */
+const SELF_ECHO_MIN_CHARS = 6;
+
 export const useAudioStore = create<AudioStore>((set, get) => ({
   currentSegment: null,
   isPlaying: false,
@@ -102,6 +159,13 @@ export const useAudioStore = create<AudioStore>((set, get) => ({
   voiceMode: 'unknown',
   pttHoldStartedAt: null,
 
+  userHasFloor: false,
+  floorPhase: 'open' as FloorPhase,
+  floorPaused: false,
+  floorHeldSince: null,
+  flushEpoch: 0,
+  recentSpokenText: [],
+
   setAudioElement: (el) => set({ audioElement: el }),
   muteOutput: () => {
     const el = get().audioElement;
@@ -115,7 +179,65 @@ export const useAudioStore = create<AudioStore>((set, get) => ({
     const el = get().audioElement;
     if (el) { el.pause(); el.currentTime = el.duration || 0; }
     if ('speechSynthesis' in window) speechSynthesis.cancel();
-    set({ queue: [], currentSegment: null, isPlaying: false });
+    set(s => ({ queue: [], currentSegment: null, isPlaying: false, floorPaused: false, flushEpoch: s.flushEpoch + 1 }));
+  },
+
+  duckForFloor: () => {
+    const s = get();
+    if (s.userHasFloor) return; // idempotent — already ducked/claimed
+    if (s.isPlaying) {
+      // Soft pause, position preserved. isPlaying deliberately stays true:
+      // flipping it would stamp lastTtsEndAt (re-arming the echo gate
+      // against the user's REAL transcript) and reset the capture layer's
+      // echo calibration mid-episode.
+      s.audioElement?.pause();
+      if ('speechSynthesis' in window && speechSynthesis.speaking) speechSynthesis.pause();
+      set({ floorPaused: true, userHasFloor: true, floorPhase: 'provisional', floorHeldSince: Date.now() });
+    } else {
+      set({ userHasFloor: true, floorPhase: 'provisional', floorHeldSince: Date.now() });
+    }
+  },
+  confirmFloor: () => {
+    if (!get().userHasFloor) return;
+    set({ floorPhase: 'confirmed' });
+  },
+  resumeFromFloor: (_reason) => {
+    const s = get();
+    if (!s.userHasFloor) return;
+    if (s.floorPaused) {
+      void s.audioElement?.play()?.catch(() => {});
+      if ('speechSynthesis' in window && speechSynthesis.paused) speechSynthesis.resume();
+    }
+    set({ floorPaused: false, userHasFloor: false, floorPhase: 'open', floorHeldSince: null });
+  },
+  claimFloorForUtterance: () => {
+    get().flushOnInterrupt();
+    set({ userHasFloor: true, floorPhase: 'awaiting-response', floorPaused: false });
+  },
+  releaseFloor: () => set({ userHasFloor: false, floorPhase: 'open', floorPaused: false, floorHeldSince: null }),
+
+  recordSpokenText: (text) => {
+    const t = text.trim();
+    if (!t) return;
+    const now = Date.now();
+    set(s => ({
+      recentSpokenText: [...s.recentSpokenText, { text: t, at: now }]
+        .filter(e => now - e.at < SPOKEN_TEXT_WINDOW_MS)
+        .slice(-SPOKEN_TEXT_MAX_ENTRIES),
+    }));
+  },
+  matchesRecentSpokenText: (transcript) => {
+    const norm = normalizeSpeech(transcript);
+    if (norm.length < SELF_ECHO_MIN_CHARS) return false;
+    const now = Date.now();
+    return get().recentSpokenText.some(e => {
+      if (now - e.at >= SPOKEN_TEXT_WINDOW_MS) return false;
+      const spoken = normalizeSpeech(e.text);
+      // Either containment direction: a short transcript is usually a
+      // fragment of the spoken sentence; an over-eager transcript can
+      // also swallow a short spoken phrase whole.
+      return spoken.includes(norm) || (spoken.length >= SELF_ECHO_MIN_CHARS && norm.includes(spoken));
+    });
   },
   unmuteOutput: () => {
     // After a hard stop, we don't resume — the orchestrator will play the next segment

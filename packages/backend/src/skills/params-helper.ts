@@ -46,8 +46,14 @@ export function constraintInstruction(
 ): string {
   const hints = formatParamsAsConstraints(params, excludeKeys);
   if (!hints) return defaultBrevity;
+  // The default brevity must survive unrelated params (topic, context,
+  // file…) — only an explicit length-ish constraint may replace it.
+  // Before this guard, ANY extracted param evicted the "2-3 sentences"
+  // default and answers ballooned into 90-second monologues.
+  const hasLengthConstraint = /\b(word|sentence|line|paragraph|length|short|long|brief|detail)\w*\b/i.test(hints);
   return (
     `Honor these user constraints exactly: ${hints}. ` +
+    (hasLengthConstraint ? '' : `Unless those constraints say otherwise: ${defaultBrevity} `) +
     `Output ONLY the answer itself — no preamble like "here is", "let me", "sure", and no trailing commentary or follow-up question.`
   );
 }

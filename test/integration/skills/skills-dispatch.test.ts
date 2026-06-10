@@ -59,22 +59,29 @@ describe('skill dispatch — each skill routable via the intent classifier', () 
 
         const before = (await h.client.events(started.devSessionId)).total;
         await h.client.utter(started.devSessionId, skill.utterance);
-        await new Promise(r => setTimeout(r, 250));
 
-        const { events } = await h.client.events(started.devSessionId, before);
         // We assert at least ONE of: skill:result, narration:greeting (for
         // skills that emit as greeting), or session:state_changed (for
         // nav-type that advances phase). This tolerates the variations
         // between skill implementations without letting a broken path slip.
-        const meaningful = events.filter(e =>
+        // Poll (instead of a fixed sleep) — /utter is fire-and-forget and
+        // the pipeline's wall-clock varies under full-suite load; the
+        // event is still REQUIRED to arrive.
+        const isMeaningful = (e: { type: string }) =>
           e.type === 'skill:result' ||
           e.type === 'narration:greeting' ||
           e.type === 'narration:quick_answer' ||
           e.type === 'narration:briefing' ||
           e.type === 'navigator:push' ||
           e.type === 'session:state_changed' ||
-          e.type === 'visual:layer_change',
-        );
+          e.type === 'visual:layer_change';
+        const deadline = Date.now() + 8000;
+        let meaningful: unknown[] = [];
+        while (Date.now() < deadline && meaningful.length === 0) {
+          const { events } = await h.client.events(started.devSessionId, before);
+          meaningful = events.filter(isMeaningful);
+          if (meaningful.length === 0) await new Promise(r => setTimeout(r, 50));
+        }
         expect(meaningful.length).toBeGreaterThan(0);
       } finally {
         await h.stop();

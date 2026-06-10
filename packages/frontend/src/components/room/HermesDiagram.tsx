@@ -243,46 +243,53 @@ export function HermesDiagram() {
     if (phase === 'IDLE') setScope('project');
   }, [phase]);
 
-  // C1: skill executions with a target node steer the diagram. When a
-  // skill (explain, summarize, teach, compare, visualize, critique)
-  // returns a visualPayload.target that matches a known module name,
-  // drill the diagram there BEFORE the AI starts speaking — so the
-  // user has a visual referent for the words they're about to hear
-  // ("this module" / "these files" land on the right thing).
-  // 200ms framer-motion crossfade is handled by the diagram fetch
-  // effect's natural re-render.
-  //
-  // Dedupe via ref: the effect's deps are [skillResult, payload], but
-  // setScope changes the payload (after refetch), which re-runs this
-  // effect with the SAME skillResult against the new node set. The
-  // fuzzy substring match would then drill again, e.g. "core" → first
-  // matches `module/core`, then re-fires and matches `file/core/loader.py`
-  // (which also contains the substring "core"). Track the last-acted
-  // skillResult reference and only react when it actually changes.
-  const knownNodeIds = useMemo(() => new Set(payload?.nodes.map(n => n.id) ?? []), [payload]);
-  const lastSteeredSkillResultRef = useRef<unknown>(null);
+  // Visual dispatch (the single sink): the backend resolves every
+  // answered turn — Q&A, skills, voice nav verbs — through
+  // dispatchVisual and emits ONE visual:dispatch event. The diagram
+  // applies it here: DESCEND/LATERAL drill the scope, ASCEND climbs,
+  // IN_PLACE pulses the refs. This replaced the old C1 substring-steer
+  // effect (which only fired for skills and could double-drill).
+  const visualDispatch = useSessionStore(s => s.visualDispatch);
+  const [dispatchPulseIds, setDispatchPulseIds] = useState<Set<string>>(() => new Set());
+  // Two-stage acknowledgment: a strong 3s attack pulse, then a STATIC
+  // "we're talking about THIS" ring that persists until the NEXT
+  // dispatch. The old 6s subtle pulse registered as nothing — a full
+  // live session read as "the screen never changed".
+  const [dispatchSettled, setDispatchSettled] = useState(true);
+  const lastDispatchTsRef = useRef<number>(0);
   useEffect(() => {
-    if (!skillResult) return;
-    if (lastSteeredSkillResultRef.current === skillResult) return;
-    lastSteeredSkillResultRef.current = skillResult;
-    const target = (skillResult.visualPayload?.target as string | undefined)?.toLowerCase().trim();
-    if (!target) return;
-    // Match the skill's free-form target string to a node id. Try
-    // direct id, then module/X, then a substring match against any
-    // known node label.
-    const candidate = `module/${target}`;
-    if (knownNodeIds.has(candidate)) {
-      setScope(candidate);
+    if (!visualDispatch || visualDispatch.ts === lastDispatchTsRef.current) return;
+    lastDispatchTsRef.current = visualDispatch.ts;
+    const { transition, targetNodeId, refs } = visualDispatch;
+    if ((transition === 'DESCEND' || transition === 'LATERAL') && targetNodeId?.startsWith('module/')) {
+      setScope(targetNodeId);
+    } else if (transition === 'ASCEND') {
+      setScope(targetNodeId && targetNodeId.startsWith('module/') ? targetNodeId : 'project');
+    }
+    // Acknowledgment ring on the subject + refs — persists until the next
+    // answer replaces it, even when nothing matched (center ring).
+    const pulse = new Set<string>(refs);
+    if (targetNodeId) pulse.add(targetNodeId);
+    setDispatchPulseIds(pulse);
+    // Age-derived settling: scene seeds use an old ts and render the
+    // deterministic static ring (no SMIL → pixel-diff stable).
+    const age = Date.now() - visualDispatch.ts;
+    if (age >= 3000) {
+      setDispatchSettled(true);
       return;
     }
-    // Fuzzy: any node id that includes the target word
-    for (const id of knownNodeIds) {
-      if (id.toLowerCase().includes(target)) {
-        setScope(id);
-        return;
-      }
-    }
-  }, [skillResult, knownNodeIds]);
+    setDispatchSettled(false);
+    const t = setTimeout(() => setDispatchSettled(true), 3000 - age);
+    return () => clearTimeout(t);
+  }, [visualDispatch]);
+
+  // Mirror the local scope to the backend so the dispatcher classifies
+  // DESCEND vs ASCEND against what the user actually sees. Single effect
+  // catches every setScope caller (click, Esc, TimeSlider, dispatch).
+  useEffect(() => {
+    if (phase === 'IDLE') return;
+    sendEvent({ type: 'diagram:scope', payload: { scope } });
+  }, [scope, phase]);
 
   // Bounded wait: once a session is active, the diagram has a grace
   // window to appear. If it doesn't (missing repoPath from a failed
@@ -882,6 +889,14 @@ export function HermesDiagram() {
                 node={n}
                 active={n.briefingId !== null && n.briefingId === currentBriefingId}
                 anchorPulse={isAnchorMatch(n, currentChunkNodes)}
+                dispatchRing={isDispatchPulse(n, dispatchPulseIds) ? (dispatchSettled ? 'settled' : 'pulse') : null}
+                breathKey={
+                  !dispatchSettled &&
+                  visualDispatch?.targetNodeId &&
+                  isDispatchPulse(n, new Set([visualDispatch.targetNodeId]))
+                    ? visualDispatch.ts
+                    : null
+                }
                 touched={isTouched(n, touchedNodes)}
                 heatmapOverlay={heatmapOverlayActive(skillResult, scope)}
                 changeHeat={heatByNode ? (heatByNode.get(n.id) ?? 0) : null}
@@ -917,7 +932,22 @@ function isAnchorMatch(node: PositionedNode, anchors: string[]): boolean {
   const normalized = anchors.map(a => a.toLowerCase());
   const idWithoutPrefix = node.id.replace(/^(module|file|concept)\//, '').toLowerCase();
   const label = node.label.toLowerCase();
-  return normalized.includes(idWithoutPrefix) || normalized.includes(label);
+  // Full ids too — visual-dispatch refs and newer chunk tags carry
+  // `module/core`-style node ids, not just bare labels.
+  return normalized.includes(node.id.toLowerCase())
+    || normalized.includes(idWithoutPrefix)
+    || normalized.includes(label);
+}
+
+/** Acknowledgment pulse from a visual:dispatch — refs are full node ids. */
+function isDispatchPulse(node: PositionedNode, ids: Set<string>): boolean {
+  if (ids.size === 0) return false;
+  if (ids.has(node.id)) return true;
+  const leaf = node.id.split('/').pop() ?? '';
+  for (const id of ids) {
+    if (id === leaf || id.split('/').pop() === leaf) return true;
+  }
+  return false;
 }
 
 /** Persistent-halo membership check — node was referenced in any
@@ -935,6 +965,11 @@ interface NodeViewProps {
   node: PositionedNode;
   active: boolean;
   anchorPulse?: boolean;
+  /** visual:dispatch acknowledgment: 'pulse' = first 3s strong attack,
+   *  'settled' = static persistent ring until the next dispatch. */
+  dispatchRing?: 'pulse' | 'settled' | null;
+  /** Re-keys a one-shot scale breath on the dispatch TARGET node. */
+  breathKey?: number | null;
   touched?: boolean;
   heatmapOverlay?: boolean;
   /** whats_changed per-node heat 0..1 (recent change magnitude). null
@@ -954,7 +989,7 @@ interface NodeViewProps {
   onClick: () => void;
 }
 
-function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, changeHeat, concern, guidedFocus, pinned, dimmed, blastHop, roll, childrenInfo, onClick }: NodeViewProps) {
+function DiagramNodeView({ node, active, anchorPulse, dispatchRing, breathKey, touched, heatmapOverlay, changeHeat, concern, guidedFocus, pinned, dimmed, blastHop, roll, childrenInfo, onClick }: NodeViewProps) {
   const [hover, setHover] = useState(false);
   // v3: two summary axes (subtree roll-up). Colour encodes only the
   // 4-state category; the precise numbers are the two bars below.
@@ -1037,6 +1072,17 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
       style={{ cursor: node.isCenter ? 'default' : 'pointer', transition: 'opacity 0.45s ease' }}
       data-testid={`hd-node-${node.id}`}
       data-active={active ? 'true' : 'false'}
+    >
+    {/* Inner wrapper carries the one-shot scale "breath" on the dispatch
+     *  TARGET (re-keyed per dispatch ts). It must be a separate element:
+     *  framer animates via style.transform, which would override the
+     *  outer g's positioning transform attribute. No breath → no framer
+     *  transform → renders identically to before. */}
+    <motion.g
+      key={breathKey ?? 'static'}
+      animate={breathKey ? { scale: [1, 1.06, 1] } : undefined}
+      transition={breathKey ? { duration: 0.6, ease: 'easeOut' } : undefined}
+      style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
     >
       {/* whats_changed heatmap (B1) — additive cold→warm wash by DRIFT
        *  (changeHeat 0..1): how much changed here that you haven't
@@ -1146,12 +1192,46 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
           <animate attributeName="opacity" values="0.95;0.35;0.95" dur="1s" repeatCount="indefinite" />
         </circle>
       )}
+      {/* Dispatch acknowledgment — every answered turn visibly moves the
+       *  screen. Stage 1 ('pulse', first 3s): a strong expanding ring no
+       *  one can miss. Stage 2 ('settled'): a STATIC rounded-rect ring
+       *  matching the card shape — "we are talking about THIS" — that
+       *  persists until the next answer replaces it. (The old 6s subtle
+       *  pulse registered as nothing: a whole live session read as "the
+       *  screen never changed".) */}
+      {dispatchRing === 'pulse' && !active && (
+        <circle
+          r={node.radius + 10}
+          fill="none"
+          stroke="oklch(0.86 0.18 95)"
+          strokeWidth={3.5}
+          opacity={0.9}
+        >
+          <animate attributeName="r" values={`${node.radius + 6};${node.radius + 24};${node.radius + 6}`} dur="0.8s" repeatCount="indefinite" />
+          <animate attributeName="opacity" values="1;0.3;1" dur="0.8s" repeatCount="indefinite" />
+        </circle>
+      )}
+      {dispatchRing === 'settled' && !active && (
+        <rect
+          x={-rectWidth / 2 - 7}
+          y={-rectHeight / 2 - 7}
+          width={rectWidth + 14}
+          height={rectHeight + 14}
+          rx={18}
+          ry={18}
+          fill="none"
+          stroke="oklch(0.78 0.14 85)"
+          strokeWidth={2}
+          opacity={0.7}
+          data-testid="dispatch-settled-ring"
+        />
+      )}
       {/* Frontier pulse — very subtle slow glow on nodes the user
        *  has heard about but not yet engaged with. The "one ask away
        *  from explained" affordance: signals where the natural next
-       *  question lies. Off when the node is also active or anchor-
-       *  pulsing (those signals are stronger and shouldn't fight). */}
-      {!active && !anchorPulse && node.level === 'heard' && (
+       *  question lies. Off when the node is also active, anchor-
+       *  pulsing, or dispatch-ringed (stronger signals win). */}
+      {!active && !anchorPulse && !dispatchRing && node.level === 'heard' && (
         // Matches the node CARD shape (rounded-rect), not a circle —
         // a circle behind the rounded-rect read as a stray misaligned
         // halo (design-review). Same rx as the body for a clean glow.
@@ -1345,6 +1425,7 @@ function DiagramNodeView({ node, active, anchorPulse, touched, heatmapOverlay, c
       )}
       {/* (Grill proof now lives in the status chip: green state +
        *  trailing ✓ — no separate shield, one signal not two.) */}
+    </motion.g>
     </g>
   );
 }

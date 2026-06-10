@@ -37,6 +37,9 @@ export interface ConversationEntry {
   speaker: 'ai' | 'you';
   text: string;
   timestamp: number;
+  /** Heard but intentionally NOT acted on (echo gate). Rendered dimmed
+   *  in the log so dropped speech is visible instead of silently eaten. */
+  muted?: boolean;
 }
 
 interface SessionStore {
@@ -176,6 +179,24 @@ interface SessionStore {
    *  the last chunk so the orchestrator knows when to stop the player. */
   streamChunks: Array<{ streamId: string; seq: number; text: string; range?: [number, number]; filePath?: string; referencedNodes?: string[] }>;
   streamingFinal: boolean;
+  /** streamId of the stream currently being received. New-stream detection
+   *  keys on this — NOT on queue emptiness, because with incremental
+   *  (token-streamed) emission the queue regularly drains to empty
+   *  mid-stream and later chunks of the same stream must append. */
+  currentStreamId: string | null;
+  /** Every chunk of the current stream as RECEIVED (consumed or not) —
+   *  the transcript/snapshot assembly source. The queue only holds the
+   *  unspoken backlog, so joining it on isFinal loses consumed chunks. */
+  streamTranscript: Array<{ text: string; referencedNodes?: string[] }>;
+  /** Latest visual:dispatch from the backend — the single sink through
+   *  which every answered turn drives the diagram (focus pulse, drill,
+   *  ascend, lateral). `ts` dedupes effect application. */
+  visualDispatch: { transition: string; targetNodeId?: string; refs: string[]; reason: string; ts: number } | null;
+  /** Fenced code lifted out of a spoken answer — rendered as a copyable
+   *  ArtifactCard on the canvas. One at a time; a new artifact replaces
+   *  the previous, dismiss clears. */
+  activeArtifact: { id: string; kind: 'commands' | 'code'; title?: string; language?: string; body: string; receivedAt: number } | null;
+  dismissArtifact: () => void;
   /** The chunk currently being spoken. Written by the orchestrator's
    *  stream player — `consumeStreamChunk` returns the head AND records
    *  it here so the CodePanel can highlight the live line range. */
@@ -188,7 +209,7 @@ interface SessionStore {
   /** Select a concern in a ranked critique. Re-speaks its detail via
    *  the existing greeting TTS path — no LLM call, no voice routing. */
   setCritiqueActive: (index: number) => void;
-  addConversation: (speaker: 'ai' | 'you', text: string) => void;
+  addConversation: (speaker: 'ai' | 'you', text: string, opts?: { muted?: boolean }) => void;
   clearError: () => void;
   setConnected: (v: boolean) => void;
   resetSession: () => void;
@@ -238,6 +259,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   recallItems: [],
   streamChunks: [],
   streamingFinal: false,
+  currentStreamId: null,
+  streamTranscript: [],
+  visualDispatch: null,
+  activeArtifact: null,
+  dismissArtifact: () => set({ activeArtifact: null }),
   currentStreamChunk: null,
   consumeStreamChunk: () => {
     const chunks = get().streamChunks;
@@ -254,11 +280,14 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   // both `narration:greeting` and `narration:briefing` (or two
   // briefings) with identical text on warm-cache replay, which was
   // showing as "AI / AI" duplicates in the conversation log.
-  addConversation: (speaker, text) => set(s => {
+  addConversation: (speaker, text, opts) => set(s => {
     const last = s.conversationHistory[s.conversationHistory.length - 1];
     if (last && last.speaker === speaker && last.text === text) return s;
     return {
-      conversationHistory: [...s.conversationHistory.slice(-49), { speaker, text, timestamp: Date.now() }],
+      conversationHistory: [
+        ...s.conversationHistory.slice(-49),
+        { speaker, text, timestamp: Date.now(), ...(opts?.muted ? { muted: true } : {}) },
+      ],
     };
   }),
 
@@ -316,14 +345,11 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   recallItems: [],
   streamChunks: [],
   streamingFinal: false,
+  currentStreamId: null,
+  streamTranscript: [],
+  visualDispatch: null,
+  activeArtifact: null,
   currentStreamChunk: null,
-  consumeStreamChunk: () => {
-    const chunks = get().streamChunks;
-    if (chunks.length === 0) return null;
-    const [head, ...rest] = chunks;
-    set({ streamChunks: rest, currentStreamChunk: head });
-    return head;
-  },
     showComprehensionOverlay: false,
   }),
 
@@ -389,21 +415,33 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         // arriving inside the echo window get suppressed (the AI's TTS
         // is about to play; any mic capture is speaker-bleed).
         useAudioStore.getState().setLastNarrationAt(Date.now());
+        // With incremental emission the first chunk (the spoken ack) arrives
+        // ~300ms after the utterance — clear the "thinking" state then, not
+        // when the full answer lands.
+        if (useAudioStore.getState().voiceState === 'processing') {
+          useAudioStore.getState().setVoiceState('listening');
+        }
         const { streamId, seq, text, isFinal, range, filePath, referencedNodes } = event.payload;
         set(s => {
-          // First chunk of a new stream resets the prior queue + final flag.
-          const isNewStream = s.streamChunks.length === 0
-            || s.streamChunks[0].streamId !== streamId;
+          // New-stream detection keys on the stream id — the queue may have
+          // drained to empty mid-stream when chunks arrive over time.
+          const isNewStream = s.currentStreamId !== streamId;
           const queue = isNewStream
             ? [{ streamId, seq, text, range, filePath, referencedNodes }]
             : [...s.streamChunks, { streamId, seq, text, range, filePath, referencedNodes }];
+          const transcript = isNewStream
+            ? [{ text, referencedNodes }]
+            : [...s.streamTranscript, { text, referencedNodes }];
           const updates: Partial<SessionStore> = {
             streamChunks: queue,
             streamingFinal: isFinal,
+            currentStreamId: streamId,
+            streamTranscript: transcript,
           };
           if (isFinal) {
-            // Conversation transcript: log the full assembled answer.
-            const fullText = queue.map(c => c.text).join(' ');
+            // Conversation transcript: assembled from EVERY received chunk
+            // (consumed ones included), not just the unspoken backlog.
+            const fullText = transcript.map(c => c.text).join(' ');
             updates.conversationHistory = [
               ...s.conversationHistory.slice(-49),
               { speaker: 'ai', text: fullText, timestamp: Date.now() },
@@ -413,7 +451,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             // pair the AI answer with its question.
             const lastUser = [...s.conversationHistory].reverse().find(e => e.speaker === 'you');
             const allReferenced = new Set<string>();
-            for (const c of queue) {
+            for (const c of transcript) {
               for (const n of c.referencedNodes ?? []) allReferenced.add(n);
             }
             const snapshot: TurnSnapshot = {
@@ -433,6 +471,28 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
           }
           return updates;
         });
+        break;
+      }
+
+      case 'visual:dispatch': {
+        const { transition, targetNodeId, refs, reason } = event.payload;
+        set(s => {
+          const merged = new Set(s.touchedNodes);
+          for (const r of refs) merged.add(r);
+          return {
+            visualDispatch: { transition, targetNodeId, refs, reason, ts: Date.now() },
+            touchedNodes: merged,
+          };
+        });
+        break;
+      }
+
+      case 'visual:artifact': {
+        const { id, kind, title, language, body } = event.payload;
+        // Dedupe by id (WS replays); a NEW artifact replaces the old card.
+        if (get().activeArtifact?.id !== id) {
+          set({ activeArtifact: { id, kind, title, language, body, receivedAt: Date.now() } });
+        }
         break;
       }
 

@@ -19,6 +19,7 @@ async function main() {
     console.log(`Tetherline running at http://localhost:${port}`);
     console.log(`Analyzing repo: ${repoPath}`);
     digestScheduler.start();
+    void probeAudioSidecar();
   });
 
   const shutdown = () => {
@@ -31,6 +32,33 @@ async function main() {
 
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+}
+
+// One-shot probe so the operator knows whether voice (Whisper + Kokoro)
+// will work this session. Web Speech fallback covers Chrome/Edge — but
+// the silent-mic class of bugs always traces back to this. Retries for
+// ~15s because `pnpm dev` starts the sidecar in parallel and Whisper +
+// Kokoro model loading takes a few seconds on cold start.
+async function probeAudioSidecar() {
+  const url = process.env.AUDIO_SERVER_URL ?? 'http://127.0.0.1:3848';
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    try {
+      const r = await fetch(`${url}/health`, { signal: AbortSignal.timeout(1500) });
+      if (r.ok) {
+        const body = (await r.json()) as { tts?: boolean; stt?: boolean };
+        console.log(`[audio] sidecar ok at ${url} (stt=${!!body.stt} tts=${!!body.tts})`);
+        return;
+      }
+    } catch {
+      // not up yet — retry
+    }
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  console.warn(
+    `[audio] sidecar unreachable at ${url} after 15s — STT/TTS will fall ` +
+    `back to browser Web Speech (Chrome/Edge only). Run: pnpm dev:audio`
+  );
 }
 
 main().catch(err => {

@@ -44,6 +44,8 @@ const SCENES = [
   'visualize-flow-pipeline',
   'visualize-flow-graph',
   'visualize-flow-fallback',
+  'artifact-card',
+  'dispatch-glow',
 ];
 
 const VIEWPORTS = [

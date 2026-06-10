@@ -1,6 +1,6 @@
 import type Anthropic from '@anthropic-ai/sdk';
-import type { LLMAdapter, LLMRequest } from './llm/index.js';
-import { AnthropicLLMAdapter, getDefaultLLMAdapter } from './llm/index.js';
+import type { LLMAdapter, LLMRequest, LLMStreamHandle } from './llm/index.js';
+import { AnthropicLLMAdapter, getDefaultLLMAdapter, streamLLM } from './llm/index.js';
 
 /**
  * Thin wrapper over an LLMAdapter that preserves the call shape the rest of
@@ -27,15 +27,34 @@ export class ClaudeClient {
     system: string;
     messages: Anthropic.MessageParam[];
     maxTokens?: number;
+    model?: string;
   }): Promise<string> {
     const req: LLMRequest = {
-      model: this.model,
+      model: params.model ?? this.model,
       system: params.system,
       messages: params.messages,
       maxTokens: params.maxTokens ?? 4096,
     };
     const resp = await this.adapter.complete(req);
     return resp.text;
+  }
+
+  /**
+   * True token streaming variant of streamText. Falls back to a single-delta
+   * stream when the installed adapter (cassette/mock) has no native stream().
+   */
+  streamTextLive(params: {
+    system: string;
+    messages: Anthropic.MessageParam[];
+    maxTokens?: number;
+    model?: string;
+  }): LLMStreamHandle {
+    return streamLLM(this.adapter, {
+      model: params.model ?? this.model,
+      system: params.system,
+      messages: params.messages,
+      maxTokens: params.maxTokens ?? 4096,
+    });
   }
 
   async structuredCall<T>(params: {
@@ -45,9 +64,10 @@ export class ClaudeClient {
     toolDescription: string;
     inputSchema: Record<string, unknown>;
     maxTokens?: number;
+    model?: string;
   }): Promise<T> {
     const req: LLMRequest = {
-      model: this.model,
+      model: params.model ?? this.model,
       system: params.system,
       messages: params.messages,
       maxTokens: params.maxTokens ?? 8192,

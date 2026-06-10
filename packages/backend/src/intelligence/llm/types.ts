@@ -30,9 +30,35 @@ export interface LLMResponse {
   id: string;
   /** Milliseconds the call took (wall-clock from complete()). */
   elapsedMs: number;
+  /** True when the stream was aborted before completion; `text` holds what arrived. */
+  aborted?: boolean;
+}
+
+/**
+ * Handle over a live token stream. Contract:
+ * - `deltas` yields raw text fragments in arrival order and yields at least once
+ *   (a non-streaming fallback yields the whole completion as one delta).
+ * - `final` resolves with the same LLMResponse shape complete() returns and
+ *   NEVER rejects on abort — after abort() it resolves with the text received
+ *   so far and `aborted: true`. Mid-stream transport errors likewise resolve
+ *   with partial text rather than rejecting. Only establishment failures
+ *   (no tokens ever arrived) may reject — callers treat that as a normal
+ *   LLM error.
+ * - `abort()` is idempotent and cancels the underlying API stream / subprocess.
+ */
+export interface LLMStreamHandle {
+  deltas: AsyncIterable<string>;
+  final: Promise<LLMResponse>;
+  abort(): void;
 }
 
 export interface LLMAdapter {
   name: string;
   complete(req: LLMRequest): Promise<LLMResponse>;
+  /**
+   * Optional true token streaming. Callers must go through streamLLM() in
+   * llm/index.ts, never call this directly — streamLLM provides the
+   * complete()-based fallback for adapters that don't implement it.
+   */
+  stream?(req: LLMRequest): LLMStreamHandle;
 }

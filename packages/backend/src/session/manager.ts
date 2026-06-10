@@ -38,7 +38,9 @@ import { Navigator, frameFromBriefing } from './navigator.js';
 import { resolveNavOp, type NavOp } from './navigator-vocab.js';
 import { getTraceRecorder } from '../dev/trace.js';
 import { scoreQuizAnswer } from '../intelligence/quiz.js';
+import type { LLMStreamHandle } from '../intelligence/llm/types.js';
 import { getDefaultLLMAdapter } from '../intelligence/llm/index.js';
+import { classifyArtifact, extractFencedArtifacts, type ExtractedArtifact } from '../intelligence/fence-extract.js';
 import type { ComprehensionItemLayer, ComprehensionLevel } from '@tetherline/shared';
 
 export class SessionManager {
@@ -66,6 +68,25 @@ export class SessionManager {
   private proposalSuggestedOrder: string[] = [];
   private visualLayer: VisualLayer = 1;
   private contextComposer: ContextComposer | null = null;
+  /** Grounding retriever — live file contents for Q&A prompts. */
+  private retriever: import('../intelligence/retriever.js').Retriever | null = null;
+  /** Alias→node map for narration anchors + the visual dispatcher. */
+  private anchorIndex: import('../intelligence/anchor-index.js').AnchorIndex | null = null;
+  /** The diagram scope the FRONTEND is currently showing (mirrored via
+   *  the diagram:scope client event). 'project' at the root. */
+  private clientScope = 'project';
+  /** Idempotency guard: a duplicate session:start (double-click, voice
+   *  dialog double-fire, WS reconnect replay) must not run the whole
+   *  start pipeline twice (double opener, double briefing.push). */
+  private startGuard: { repoPath: string; startedAt: number; inFlight: boolean } | null = null;
+  /** Session-open narration stream: greeting → opener → updates recap →
+   *  proposal all share ONE streamId so the frontend queue APPENDS
+   *  (a second streamId would wipe still-queued opener chunks). */
+  private openStreamId: string | null = null;
+  private openStreamSeq = 0;
+  /** Set after an anchors-only answer offered "want me to dig through the
+   *  code?" — an affirmative next utterance escalates to the agentic path. */
+  private pendingEscalation: { question: string; expiresAt: number } | null = null;
   private navigator = new Navigator();
   /** Timestamp of the last narration:briefing emit — lets us derive a rough
    *  resume position when the user interrupts mid-speech. */
@@ -87,10 +108,26 @@ export class SessionManager {
    *  it ("shorter" / "more detail"). The QA scaffold uses this to steer
    *  the LLM's output length on every answer. */
   private depthTier: import('../intelligence/depth-modifiers.js').DepthTier = 'normal';
+  /** Previous spoken ack — pickAck never repeats it twice in a row. */
+  private lastAck: string | null = null;
+  /** Set when an answer was truncated at the sentence cap. A bare "tell me
+   *  more" within 2 minutes re-asks this question at the deep tier (the
+   *  aborted stream's tail was never generated — re-asking is the only
+   *  correct source for the longer answer). */
+  private lastTruncated: { question: string; params: Record<string, string>; at: number } | null = null;
   /** Cooldown per comprehension item — same item can only transition once every
    *  30s, protects against chatty transcripts double-counting. */
   private readonly COMPREHENSION_COOLDOWN_MS = 30_000;
   private lastComprehensionTouchAt = new Map<string, number>();
+  /** The stream id minted for the answer to the user's MOST RECENT utterance.
+   *  Chunks of this stream are HELD (not dropped) when the floor gate is
+   *  closed — they're the reply to what the user just said, led by the seq-0
+   *  ack, and dropping them silently eats the ack (live bug 2026-06-09). */
+  private currentTurnStreamId: string | null = null;
+  /** Narration held while the user holds the floor, released in order when
+   *  the floor opens. Only ever contains current-turn stream chunks. */
+  private pendingFloorNarration: Array<{ event: ServerEvent; queuedAt: number }> = [];
+  private floorReleaseTimer: NodeJS.Timeout | null = null;
 
   private rawEmit: (event: ServerEvent) => void;
   /** Event types that carry AI speech. When the user holds the floor, these
@@ -119,14 +156,40 @@ export class SessionManager {
     this.rawEmit = emit;
   }
 
-  /** Gated emit — drops AI speech events while the user holds the floor.
+  /** Gated emit — while the user holds the floor, AI speech events are
+   *  HELD if they belong to the current turn's answer stream (the reply to
+   *  what the user just said, led by the seq-0 ack) and DROPPED otherwise
+   *  (greetings, briefings, stale streams — proactive content the user
+   *  talked over). Held chunks are released in order once the floor opens.
    *  All other events (state changes, errors, progress) flow through.
    *
    *  Gate is disabled when `TETHERLINE_DISABLE_FLOOR_SUPPRESSION=1` so we can
    *  measure the pre-fix baseline reproducibly. */
   private emit(event: ServerEvent): void {
     const gateDisabled = process.env.TETHERLINE_DISABLE_FLOOR_SUPPRESSION === '1';
-    if (!gateDisabled && this.NARRATION_EVENT_TYPES.has(event.type) && this.shouldSuppressNarration()) {
+    const suppressed = !gateDisabled && this.shouldSuppressNarration();
+    // Ordering invariant: any un-suppressed emit drains held chunks FIRST,
+    // so a held seq-0 ack can never arrive after a later seq of the same
+    // stream. The release timer is just the backstop for when no further
+    // emits happen (exactly the lone-ack situation).
+    if (!suppressed && this.pendingFloorNarration.length > 0) {
+      this.flushPendingFloorNarration();
+    }
+    if (suppressed && this.NARRATION_EVENT_TYPES.has(event.type)) {
+      const streamId = (event.payload as { streamId?: string }).streamId;
+      if (
+        event.type === 'narration:stream_chunk' &&
+        streamId !== undefined &&
+        streamId === this.currentTurnStreamId
+      ) {
+        this.pendingFloorNarration.push({ event, queuedAt: Date.now() });
+        getTraceRecorder()?.emit({
+          kind: 'tts.hold',
+          sessionId: this.context.sessionId || null,
+          payload: { eventType: event.type, streamId, seq: (event.payload as { seq?: number }).seq ?? null },
+        });
+        return;
+      }
       getTraceRecorder()?.emit({
         kind: 'tts.drop',
         sessionId: this.context.sessionId || null,
@@ -136,6 +199,40 @@ export class SessionManager {
     }
     this.traceNarrationEvent(event);
     this.rawEmit(event);
+  }
+
+  /** Release narration held during the floor closure, in arrival order.
+   *  Re-checks suppression (a speaking_started may have raced the timer);
+   *  bails if still closed — markUserSpeakingStopped re-arms the timer. */
+  private flushPendingFloorNarration(): void {
+    if (this.pendingFloorNarration.length === 0) return;
+    const gateDisabled = process.env.TETHERLINE_DISABLE_FLOOR_SUPPRESSION === '1';
+    if (!gateDisabled && this.shouldSuppressNarration()) return;
+    const pending = this.pendingFloorNarration;
+    this.pendingFloorNarration = [];
+    const heldForMs = Date.now() - pending[0].queuedAt;
+    for (const { event } of pending) {
+      this.traceNarrationEvent(event);
+      this.rawEmit(event);
+    }
+    getTraceRecorder()?.emit({
+      kind: 'tts.release',
+      sessionId: this.context.sessionId || null,
+      payload: { count: pending.length, heldForMs },
+    });
+  }
+
+  /** Drop held narration — the user spoke again, so the held turn is stale
+   *  (a fresh utterance with a fresh ack is coming). */
+  private discardPendingFloorNarration(reason: string): void {
+    if (this.pendingFloorNarration.length === 0) return;
+    const count = this.pendingFloorNarration.length;
+    this.pendingFloorNarration = [];
+    getTraceRecorder()?.emit({
+      kind: 'tts.discard_pending',
+      sessionId: this.context.sessionId || null,
+      payload: { count, reason },
+    });
   }
 
   private traceNarrationEvent(event: ServerEvent): void {
@@ -232,6 +329,13 @@ export class SessionManager {
       case 'audio:segment_finished':
         this.handleSegmentFinished(event.payload.segmentId);
         break;
+      case 'diagram:scope':
+        // Frontend mirrors its local scope so dispatchVisual classifies
+        // DESCEND/ASCEND/LATERAL against what the user actually sees.
+        if (/^(project$|module\/|file\/|concept\/)/.test(event.payload.scope)) {
+          this.clientScope = event.payload.scope;
+        }
+        break;
       case 'user:utterance':
         this.handleUtterance(event.payload.text).catch(err => {
           this.emit({ type: 'error', payload: { code: 'UTTERANCE_FAILED', message: err.message ?? 'Failed to handle utterance', recoverable: true } });
@@ -324,10 +428,68 @@ export class SessionManager {
     await this.startSession(effectivePath, 365); // Use full history for onboarding
   }
 
+  /** Chunk + emit session-open narration on the single open stream. */
+  private async emitOpenChunks(text: string, isFinal: boolean): Promise<void> {
+    const trimmed = text.trim();
+    if (!trimmed && !isFinal) return;
+    if (!this.openStreamId) {
+      this.openStreamId = `open-${this.context.sessionId || Date.now()}`;
+      this.openStreamSeq = 0;
+    }
+    const { chunkAnswerWithAnchors } = await import('../intelligence/sentence-chunker.js');
+    const nodeLabels = await this.knownNodeLabels();
+    const tagged = trimmed ? chunkAnswerWithAnchors(trimmed, nodeLabels) : [];
+    if (tagged.length === 0 && isFinal) tagged.push({ text: trimmed || ' ', referencedNodes: [] });
+    for (let i = 0; i < tagged.length; i++) {
+      this.emit({
+        type: 'narration:stream_chunk',
+        payload: {
+          streamId: this.openStreamId,
+          seq: this.openStreamSeq++,
+          text: tagged[i].text,
+          isFinal: isFinal && i === tagged.length - 1,
+          referencedNodes: tagged[i].referencedNodes,
+        },
+      });
+    }
+  }
+
   private async startSession(repoPath: string, sinceDays?: number) {
+    // Idempotency: ignore a duplicate start for the same repo while one is
+    // in flight (or freshly active). The client re-syncs from state.
+    const effectiveGuardPath = repoPath || this.config.repoPath;
+    const activePhases = new Set(['ANALYZING', 'PROPOSAL', 'PREVIOUSLY_ON', 'HEATMAP', 'OVERVIEW']);
+    if (this.startGuard
+      && this.startGuard.repoPath === effectiveGuardPath
+      && Date.now() - this.startGuard.startedAt < 120_000
+      && (this.startGuard.inFlight || activePhases.has(this.state.phase))) {
+      getTraceRecorder()?.emit({
+        kind: 'phase.changed',
+        sessionId: this.context.sessionId || null,
+        payload: { note: 'session.start.duplicate_ignored', repoPath: effectiveGuardPath },
+      });
+      this.emit({ type: 'session:state_changed', payload: { state: this.state, context: this.context } });
+      return;
+    }
+    this.startGuard = { repoPath: effectiveGuardPath, startedAt: Date.now(), inFlight: true };
+    try {
+      await this.startSessionInner(repoPath, sinceDays);
+    } finally {
+      if (this.startGuard) this.startGuard.inFlight = false;
+    }
+  }
+
+  private async startSessionInner(repoPath: string, sinceDays?: number) {
     try {
       const effectivePath = repoPath || this.config.repoPath;
       this.activeRepoPath = effectivePath;
+      // Grounding retriever lives for the whole session and reads the live
+      // working tree + cache DB at retrieve() time — construct it FIRST.
+      // It used to be built inside the cache-warming block below, which
+      // zero-commit (quiet-week) sessions return before reaching, leaving
+      // every answer ungrounded exactly when the repo is docs-only.
+      const { Retriever } = await import('../intelligence/retriever.js');
+      this.retriever = new Retriever(this.db.getContextCacheRepo(), effectivePath);
       const repoName = path.basename(effectivePath);
       const sessionId = uuid();
       const now = new Date();
@@ -353,16 +515,28 @@ export class SessionManager {
       // Check for a previous session to determine greeting text
       const previousSessionRecord = this.db.getSessionRepo().getLastSessionForRepo(effectivePath);
 
-      // Emit greeting immediately before analysis begins
+      // Session-open narration: ONE stream from the welcome through the
+      // proposal, emitted as soon as each piece is known. The welcome is
+      // chunk 0 — spoken within ~300ms of Begin.
+      this.openStreamId = null;
+      this.openStreamSeq = 0;
+      // Fresh session — no held floor state may carry over.
+      this.currentTurnStreamId = null;
+      this.pendingFloorNarration = [];
+      if (this.floorReleaseTimer) {
+        clearTimeout(this.floorReleaseTimer);
+        this.floorReleaseTimer = null;
+      }
       const isFirstVisit = !previousSessionRecord;
+      // Statement-only welcome: the session open ends with the narrated
+      // proposal, which asks THE one question. The old triple-prompt
+      // ("Where do you want to start?" + "Where do you want to pick up?"
+      // + "What would you like to explore?") fired three questions in
+      // 300ms — pure noise (live session 2026-06-09).
       const greetingText = isFirstVisit
-        ? `Let me take a look at ${repoName} for the first time...`
-        : `Welcome back to ${repoName}. Let me see what's changed...`;
-
-      this.emit({
-        type: 'narration:greeting',
-        payload: { text: greetingText },
-      });
+        ? `Let me take a look at ${repoName} for the first time.`
+        : `Welcome back to ${repoName}.`;
+      await this.emitOpenChunks(greetingText, false);
 
       // Cross-session recall: surface up to 5 distinct questions the user
       // asked in prior sessions PLUS the comprehension items they got
@@ -385,13 +559,25 @@ export class SessionManager {
         console.warn('Failed to fetch recall context:', err.message);
       }
 
-      // Instant opener: if we have a cached project briefing from a prior
-      // session, deliver it NOW (before the long ANALYZING block). User hears
-      // a coherent 15s pitch within 500ms. Analysis continues in background.
+      // Per-session visual state: stale aliases from the previous repo
+      // must never anchor this session's narration.
+      this.anchorIndex = null;
+      this.clientScope = 'project';
+      // Instant opener: deliver the cached project briefing NOW (before
+      // the long ANALYZING block) — navigator push, comprehension
+      // observation, and the narration:briefing card all still happen —
+      // but speak only the first 1-2 sentences, NOT the 30s pitch that
+      // used to play identically every session and bury the proposal.
+      // (Duplicate-start protection lives in the startSession guard.)
       this.navigator.reset();
       const cachedProjectBriefing = this.db.getBriefingRepo().get(effectivePath, 'project');
       if (cachedProjectBriefing) {
-        this.deliverBriefing(cachedProjectBriefing, 'session_start');
+        this.deliverBriefing(
+          cachedProjectBriefing,
+          'session_start',
+          undefined,
+          firstSentences(cachedProjectBriefing.opener, 2) || undefined,
+        );
       }
 
       // Transition to ANALYZING
@@ -450,6 +636,26 @@ export class SessionManager {
         // Best-effort — don't block analysis if preview fails
       }
 
+      // Updates recap — the REAL "what's changed" line the greeting used
+      // to promise and never deliver. Deterministic, no LLM: commit count
+      // anchored to the previous session's date, plus the hottest folder.
+      if (this.entryMode === 'updates' && commits.length > 0) {
+        try {
+          const sinceLabel = humanDate(previousSessionRecord?.startedAt ?? since.toISOString());
+          const folderCounts = new Map<string, number>();
+          for (const cd of commits) {
+            for (const fc of (cd.commit.filesChanged ?? [])) {
+              const top = fc.path.split('/')[0] || '.';
+              folderCounts.set(top, (folderCounts.get(top) ?? 0) + 1);
+            }
+          }
+          const hot = [...folderCounts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+          const recap = `${commits.length} commit${commits.length === 1 ? '' : 's'} since ${sinceLabel}`
+            + (hot ? ` — most of the activity is in ${hot}.` : '.');
+          await this.emitOpenChunks(recap, false);
+        } catch { /* recap is best-effort */ }
+      }
+
       // Handle zero commits
       if (commits.length === 0) {
         if (this.entryMode === 'updates') {
@@ -476,10 +682,7 @@ export class SessionManager {
             proposalMessage = `No new commits since your last review. You can do a full walkthrough to explore the architecture, or wrap up.`;
           }
 
-          this.emit({
-            type: 'narration:greeting',
-            payload: { text: greetingText },
-          });
+          await this.emitOpenChunks(greetingText, false);
 
           // Still compute heatmap and finish the session record
           const gitZero = simpleGit(effectivePath);
@@ -507,9 +710,14 @@ export class SessionManager {
               message: proposalMessage,
               suggestedOrder: [],
               areas: weakAreas.map((a, i) => ({ id: `weak-${i}`, name: a.name, significance: 'minor' as const })),
+              narrated: true,
             },
           });
           this.setState({ phase: 'PROPOSAL' });
+          // Narrated through the SAME open stream — the proposal is the
+          // defining interaction and must actually be heard. No timer:
+          // the session waits indefinitely (vision: "it waits").
+          await this.emitOpenChunks(proposalMessage, true);
           return;
         }
         // Full walkthrough with zero recent commits: use ALL commits for analysis
@@ -640,6 +848,7 @@ export class SessionManager {
           commitCount: commits.length,
           previousSessionSummary: previousSummary,
           contextComposer: this.contextComposer ?? undefined,
+          retriever: this.retriever ?? undefined,
         });
         this.activeAnalyzer = intelligence;
 
@@ -998,9 +1207,14 @@ export class SessionManager {
           message: proposalMessage,
           suggestedOrder: this.proposalSuggestedOrder,
           areas: proposalAreas,
+          narrated: true,
         },
       });
       this.setState({ phase: 'PROPOSAL' });
+      // Spoken through the open stream (card first so the UI is already in
+      // PROPOSAL when audio starts). isFinal closes the session-open
+      // stream; from here the user steers — indefinitely, no auto-accept.
+      await this.emitOpenChunks(proposalMessage, true);
     } catch (err: any) {
       this.setState({ phase: 'ERROR', error: err.message ?? 'Analysis failed' });
       this.emit({
@@ -1425,50 +1639,137 @@ export class SessionManager {
    *  AI says "FileLoader handles X, then PairGenerator does Y", the
    *  frontend pulses FileLoader for the first chunk's audio duration,
    *  then PairGenerator for the next. The visual follows the words. */
-  private async emitNarrationChunked(text: string): Promise<void> {
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    const { chunkAnswerWithAnchors } = await import('../intelligence/sentence-chunker.js');
+  private async emitNarrationChunked(
+    text: string,
+    opts?: {
+      /** Join an existing turn stream (the spoken ack is its seq 0). When
+       *  set, the greeting fallback is disabled — the stream MUST get an
+       *  isFinal chunk or the frontend transcript never assembles. */
+      streamId?: string;
+      startSeq?: number;
+      /** Hard sentence cap. Over-cap text is dropped at a sentence
+       *  boundary and the steering hook is appended (unless disabled). */
+      capSentences?: number;
+      appendHookOnTruncate?: boolean;
+    },
+  ): Promise<{ truncated: boolean; spokenText: string }> {
+    let trimmed = text.trim();
+    if (!trimmed) return { truncated: false, spokenText: '' };
+    const { chunkAnswerWithAnchors, splitIntoSentences } = await import('../intelligence/sentence-chunker.js');
+    const { STEERING_HOOK, artifactReplacementLine } = await import('./answer-streamer.js');
     const nodeLabels = await this.knownNodeLabels();
-    const tagged = chunkAnswerWithAnchors(trimmed, nodeLabels);
-    if (tagged.length <= 1) {
+
+    // Fenced code is lifted to the screen (visual:artifact), never spoken.
+    // Runs BEFORE sentence splitting — the boundary regex shreds code.
+    const extraction = extractFencedArtifacts(trimmed);
+    if (extraction.artifacts.length > 0) {
+      const baseId = opts?.streamId ?? `nar-${Date.now()}`;
+      extraction.artifacts.forEach((a, i) => this.emitArtifact(`${baseId}-a${i}`, a));
+      trimmed = extraction.clean;
+      if (!/on (the |your )?screen/i.test(trimmed)) {
+        trimmed = trimmed
+          ? `${trimmed} ${artifactReplacementLine(extraction.artifacts)}`
+          : artifactReplacementLine(extraction.artifacts);
+      }
+    }
+
+    // Post-hoc cap for complete-string narrations (skills): truncate at a
+    // sentence boundary, same semantics as the live answer streamer.
+    let speakText = trimmed;
+    let truncated = false;
+    if (opts?.capSentences && opts.capSentences > 0) {
+      const sentences = splitIntoSentences(trimmed);
+      if (sentences.length > opts.capSentences) {
+        speakText = sentences.slice(0, opts.capSentences).join(' ');
+        truncated = true;
+      }
+    }
+
+    const tagged = chunkAnswerWithAnchors(speakText, nodeLabels);
+    if (truncated && (opts?.appendHookOnTruncate ?? true)) {
+      tagged.push({ text: STEERING_HOOK, referencedNodes: [] });
+    }
+    if (tagged.length <= 1 && !opts?.streamId) {
       // Trivial: one chunk → fall back to greeting (preserves legacy
       // tests/UI flows that listen for narration:greeting on short
       // replies). The user-facing concern (robotic 250-word blobs) is
       // about LONG narrations; one-chunk is fine as a greeting.
-      this.emit({ type: 'narration:greeting', payload: { text: trimmed } });
-      return;
+      this.emit({ type: 'narration:greeting', payload: { text: speakText } });
+      return { truncated, spokenText: speakText };
     }
-    const streamId = `nar-${Date.now()}`;
+    const streamId = opts?.streamId ?? `nar-${Date.now()}`;
+    const startSeq = opts?.startSeq ?? 0;
     for (let i = 0; i < tagged.length; i++) {
       this.emit({
         type: 'narration:stream_chunk',
         payload: {
           streamId,
-          seq: i,
+          seq: startSeq + i,
           text: tagged[i].text,
           isFinal: i === tagged.length - 1,
           referencedNodes: tagged[i].referencedNodes,
         },
       });
     }
+    return { truncated, spokenText: speakText };
   }
 
-  /** Pulls the diagram node labels for the active scope so the chunker
-   *  can anchor-tag narration. Cached per-call (the diagram cache is
-   *  cheap to read). Falls back to module names from the context cache
-   *  when no diagram is loaded yet. */
+  /** Ship a fenced-code artifact to the screen as a copyable card. Uses
+   *  rawEmit: artifacts are VISUAL, not speech — the floor gate must not
+   *  drop or delay them (the card appearing while the user talks is fine;
+   *  audio talking over them is not). */
+  private emitArtifact(id: string, artifact: ExtractedArtifact): void {
+    this.rawEmit({
+      type: 'visual:artifact',
+      payload: {
+        id,
+        kind: classifyArtifact(artifact),
+        language: artifact.language || undefined,
+        body: artifact.code,
+      },
+    });
+  }
+
+  /** Lazily build (and cache) the alias→node anchor index. Invalidated
+   *  at session start. Built from the diagram cache + context cache, so
+   *  it works whenever those are warm — no ordering dependency on the
+   *  analysis pipeline. */
+  private async getAnchorIndex(): Promise<import('../intelligence/anchor-index.js').AnchorIndex | null> {
+    if (this.anchorIndex && this.anchorIndex.entries.length > 0) return this.anchorIndex;
+    const repoPath = this.activeRepoPath || this.config.repoPath;
+    if (!repoPath) return null;
+    try {
+      const { buildAnchorIndex } = await import('../intelligence/anchor-index.js');
+      const built = buildAnchorIndex({
+        diagramRows: this.db.getDiagramCacheRepo().listForRepo(repoPath),
+        modules: this.db.getContextCacheRepo().getModulesForRepo(repoPath),
+        fileTree: this.fileTree,
+        areas: this.areas,
+      });
+      // Only cache a NON-empty index. The session-open narration runs
+      // before the caches are warm — caching the empty result there
+      // would blind anchors + visual dispatch for the whole session.
+      if (built.entries.length > 0) this.anchorIndex = built;
+      return built;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Pulls anchor-able tokens so the chunker can anchor-tag narration.
+   *  Backed by the anchor index (diagram labels + leaf/file/case-variant
+   *  aliases); falls back to bare module names when nothing is warm. */
   private async knownNodeLabels(): Promise<string[]> {
     const repoPath = this.activeRepoPath || this.config.repoPath;
     if (!repoPath) return [];
+    const index = await this.getAnchorIndex();
+    if (index && index.entries.length > 0) {
+      return index.allAliases();
+    }
     try {
-      // Pull all diagram views for this repo and union their labels.
-      // Module names + file basenames + concept names all become
-      // anchor-able tokens in the karaoke ball.
       const labels = new Set<string>();
       const modules = this.db.getContextCacheRepo().getModulesForRepo(repoPath);
       for (const m of modules) labels.add(m.modulePath);
-      // Also add a few aliasable variants so "the FileLoader" / "file_loader.py" both anchor.
       for (const m of modules) {
         const base = m.modulePath.split('/').pop();
         if (base) labels.add(base);
@@ -1477,7 +1778,108 @@ export class SessionManager {
     } catch { return []; }
   }
 
-  private async handleQuestion(question: string, classifierParams: Record<string, string> = {}) {
+  /** THE single visual sink: every answered turn drives the diagram.
+   *  Resolves refs (REFS line + lexical anchors) against the anchor
+   *  index, classifies the move via dispatchVisual, and emits a
+   *  visual:dispatch event — ALWAYS, even with zero refs (IN_PLACE /
+   *  'no-refs'), so the diagram is never static after an answer. */
+  private async dispatchAnswerVisual(opts: {
+    /** Skill target / focus node / first REF — the primary subject. */
+    primaryTarget?: string;
+    /** Free-form names the answer discussed (REFS items, anchor hits). */
+    refs?: string[];
+    /** The user's question for this turn — lets answered turns feed the
+     *  comprehension model (nodes the answer discussed advance to 'heard';
+     *  a node the user NAMED in the question advances to 'explained'). */
+    question?: string;
+  }): Promise<void> {
+    try {
+      const index = await this.getAnchorIndex();
+      const refIds: string[] = [];
+      for (const name of opts.refs ?? []) {
+        const id = index?.resolveName(name) ?? null;
+        if (id && !refIds.includes(id)) refIds.push(id);
+      }
+
+      // Every answered turn climbs the knowledge ladder. Before this,
+      // streamed Q&A fed comprehension NOTHING — a whole conversation
+      // about a module left the knowledge strip frozen ("Seen 0%",
+      // count stuck at 1) and the ladder looked dead.
+      this.creditAnswerComprehension(refIds, index?.labels() ?? {}, opts.question);
+
+      const target = opts.primaryTarget ?? opts.refs?.[0] ?? '';
+      const repoPath = this.activeRepoPath || this.config.repoPath;
+      const scopeRow = repoPath
+        ? this.db.getDiagramCacheRepo().listForRepo(repoPath).filter(r => r.scope === this.clientScope)
+        : [];
+      const knownNodeIds = [...new Set(scopeRow.flatMap(r => r.nodes.map(n => n.id)))];
+      const nodeLabels = Object.fromEntries(scopeRow.flatMap(r => r.nodes.map(n => [n.id, n.label] as const)));
+
+      const { dispatchVisual } = await import('../intelligence/visual-dispatcher.js');
+      const result = target
+        ? dispatchVisual({
+            target,
+            currentScope: this.clientScope === 'project' ? null : this.clientScope,
+            knownNodeIds,
+            nodeLabels,
+            navigatorAncestors: this.clientScope.startsWith('module/') ? ['project'] : [],
+            globalNodeIds: index?.allNodeIds() ?? [],
+            globalNodeLabels: index?.labels(),
+          })
+        : null;
+
+      // GENERATE downgrades to IN_PLACE — only the visualize skill
+      // authors new diagrams; everything else acknowledges in place.
+      const transition = !result || result.transition === 'GENERATE' ? 'IN_PLACE' : result.transition;
+      const targetNodeId = result?.targetNodeId
+        ?? (this.clientScope === 'project' ? undefined : this.clientScope);
+      this.emit({
+        type: 'visual:dispatch',
+        payload: {
+          transition,
+          targetNodeId,
+          refs: refIds,
+          reason: result?.reason ?? 'no-refs',
+          suggestion: result?.suggestion,
+        },
+      });
+    } catch { /* visuals are best-effort — never block the spoken answer */ }
+  }
+
+  /** Answered-turn comprehension credit: each node the answer discussed
+   *  observes 'heard' (cooldown applies — chatty turns can't spam);
+   *  a node the user named in their own question observes 'explained'
+   *  (asking about a thing by name is active engagement — same semantics
+   *  as the existing question_asked sites). */
+  private creditAnswerComprehension(
+    refIds: string[],
+    labels: Record<string, string>,
+    question?: string,
+  ): void {
+    if (refIds.length === 0) return;
+    const q = (question ?? '').toLowerCase();
+    for (const id of refIds) {
+      const label = labels[id] ?? id.split('/').pop() ?? id;
+      const namedInQuestion =
+        q.length > 0 &&
+        (q.includes(label.toLowerCase()) || q.includes((id.split('/').pop() ?? '').toLowerCase()));
+      if (namedInQuestion) {
+        this.observeComprehension(id, label, 'explained', 'question_asked', { questionsAsked: 1 });
+      } else {
+        this.observeComprehension(id, label, 'heard', 'qa_answer');
+      }
+    }
+  }
+
+  private async handleQuestion(
+    question: string,
+    classifierParams: Record<string, string> = {},
+    opts?: {
+      /** Join the turn stream handleUtterance opened with its spoken ack. */
+      streamId?: string;
+      startSeq?: number;
+    },
+  ) {
     // Voice-first: answer inline via narration, don't transition to QA modal.
     // The answer is spoken aloud and shown in the narration bar.
 
@@ -1489,59 +1891,6 @@ export class SessionManager {
 
     const repoPath = this.activeRepoPath || this.config.repoPath;
 
-    const answerAndNarrate = async (answer: string) => {
-      this.qaTurns.push({ role: 'user', content: question });
-      this.qaTurns.push({ role: 'assistant', content: answer });
-      if (this.qaTurns.length > this.QA_HISTORY_MAX) {
-        this.qaTurns = this.qaTurns.slice(-this.QA_HISTORY_MAX);
-      }
-      // Persist for cross-session recall. Best-effort — DB hiccups shouldn't
-      // block the spoken reply.
-      try {
-        const qaHistory = this.db.getQAHistoryRepo();
-        qaHistory.record({ repoPath, sessionId: this.context.sessionId, role: 'user', content: question });
-        qaHistory.record({ repoPath, sessionId: this.context.sessionId, role: 'assistant', content: answer });
-      } catch (err: any) {
-        console.warn('Failed to persist QA turn:', err.message);
-      }
-      // Stream the answer in sentence-sized chunks. The frontend queues
-      // each chunk's TTS clip so early sentences play while later ones are
-      // still being TTS-generated — perceived first-word time drops a lot
-      // on long answers. Short answers (1 chunk) behave identically to the
-      // pre-streaming flow.
-      const { chunkAnswerWithAnchors } = await import('../intelligence/sentence-chunker.js');
-      const nodeLabels = await this.knownNodeLabels();
-      const answerChunks = chunkAnswerWithAnchors(answer, nodeLabels);
-      // Prepend the depth-change ack as a leading chunk so it plays
-      // before the answer (greetings coalesce; stream chunks queue).
-      const ackChunk = depthAck ? [{ text: depthAck, referencedNodes: [] as string[] }] : [];
-      const allChunks = [...ackChunk, ...answerChunks];
-      const streamId = `qa-${Date.now()}`;
-      if (allChunks.length <= 1) {
-        // Trivial answer: keep the legacy greeting path so existing
-        // integration tests / UI flows that listen for `narration:greeting`
-        // continue to fire.
-        this.emit({ type: 'narration:greeting', payload: { text: answer } });
-        return;
-      }
-      for (let i = 0; i < allChunks.length; i++) {
-        this.emit({
-          type: 'narration:stream_chunk',
-          payload: {
-            streamId,
-            seq: i,
-            text: allChunks[i].text,
-            isFinal: i === allChunks.length - 1,
-            referencedNodes: allChunks[i].referencedNodes,
-          },
-        });
-      }
-      // Note: NOT emitting narration:greeting here — that would cause the
-      // frontend orchestrator to ALSO speak the full answer, producing a
-      // double-voice. The frontend's stream_chunk handler appends to the
-      // conversation history itself.
-    };
-
     const currentArea = this.state.areaIndex !== undefined ? this.areas[this.state.areaIndex] : undefined;
     const currentLocation = currentArea
       ? `Phase: ${this.state.phase}. Area: ${currentArea.name}. ${currentArea.description}`
@@ -1551,9 +1900,11 @@ export class SessionManager {
     // include both this session's qaTurns AND prior-session highlights so
     // follow-ups like "what about it?" carry over across days.
     const { buildQAContext } = await import('../intelligence/qa-context.js');
-    const { detectDepth } = await import('../intelligence/depth-modifiers.js');
-    // Update the session's depth tier from the current question so the
-    // scaffold's length guidance matches what the user just asked for.
+    const { detectDepth, sentenceCap } = await import('../intelligence/depth-modifiers.js');
+    // Update the session's depth tier from the current question. When the
+    // call came through handleUtterance this is idempotent (the tier was
+    // already updated there); direct callers (session:question event) get
+    // the same behavior.
     const depthSignal = detectDepth(question, this.depthTier);
     this.depthTier = depthSignal.tier;
     // Suppress the depth-ack ("Got it — I'll keep it short.") when the
@@ -1568,6 +1919,98 @@ export class SessionManager {
             ? 'Sure, going deeper.'
             : '')
       : '';
+
+    // Turn stream: every spoken piece of this turn (ack → answer sentences
+    // → steering hook) shares one streamId so the frontend assembles a
+    // single transcript entry and never resets the queue mid-answer.
+    const streamId = opts?.streamId ?? `qa-${Date.now()}`;
+    this.currentTurnStreamId = streamId;
+    let seq = opts?.startSeq ?? 0;
+    if (!opts?.streamId && depthAck) {
+      // Direct-call path (no handleUtterance ack): speak the depth ack as
+      // the stream's opening chunk.
+      this.emit({
+        type: 'narration:stream_chunk',
+        payload: { streamId, seq: seq++, text: depthAck, isFinal: false, referencedNodes: [] },
+      });
+    }
+
+    const persistAnswer = (answer: string) => {
+      this.qaTurns.push({ role: 'user', content: question });
+      this.qaTurns.push({ role: 'assistant', content: answer });
+      if (this.qaTurns.length > this.QA_HISTORY_MAX) {
+        this.qaTurns = this.qaTurns.slice(-this.QA_HISTORY_MAX);
+      }
+      // Persist for cross-session recall. Best-effort — DB hiccups shouldn't
+      // block the spoken reply.
+      try {
+        const qaHistory = this.db.getQAHistoryRepo();
+        qaHistory.record({ repoPath, sessionId: this.context.sessionId, role: 'user', content: question });
+        qaHistory.record({ repoPath, sessionId: this.context.sessionId, role: 'assistant', content: answer });
+      } catch (err: any) {
+        console.warn('Failed to persist QA turn:', err.message);
+      }
+    };
+
+    // Grounding: deterministic retrieval injects REAL file contents into
+    // the prompt in ALL modes — the agentic CLI tools are escalation-only
+    // now, so the normal path stays fast and streamable.
+    let retrieval: import('../intelligence/retriever.js').RetrievalResult | null = null;
+    try {
+      retrieval = this.retriever?.retrieve({ question, params: classifierParams }) ?? null;
+    } catch { retrieval = null; }
+    const groundedSystem = (agenticTools: boolean) =>
+      baseSystem(agenticTools) + (retrieval ? `\n\n${retrieval.promptBlock}` : '');
+    getTraceRecorder()?.emit({
+      kind: 'qa.route',
+      sessionId: this.context.sessionId || null,
+      payload: { route: 'retrieval', confidence: retrieval?.confidence ?? 'none', files: retrieval?.files.length ?? 0 },
+    });
+
+    // Consume a live token stream: sentences speak as they complete (the
+    // first one ~1-2s after the LLM starts), the sentence cap aborts the
+    // stream and appends the steering hook. Returns false when the stream
+    // produced nothing (lets the caller try the next client / apology).
+    const { streamAnswerToChunks } = await import('./answer-streamer.js');
+    const nodeLabels = await this.knownNodeLabels();
+    const runStream = async (handle: LLMStreamHandle): Promise<boolean> => {
+      const anchorHits = new Set<string>();
+      let artifactCount = 0;
+      const result = await streamAnswerToChunks(handle, {
+        streamId,
+        startSeq: seq,
+        nodeLabels,
+        maxSentences: sentenceCap(this.depthTier),
+        emitChunk: c => {
+          for (const r of c.referencedNodes) anchorHits.add(r);
+          this.emit({
+            type: 'narration:stream_chunk',
+            payload: { streamId, seq: c.seq, text: c.text, isFinal: c.isFinal, referencedNodes: c.referencedNodes },
+          });
+        },
+        // Fenced code goes to the screen as a copyable card the moment
+        // the fence closes — never into the spoken audio.
+        onArtifact: a => this.emitArtifact(`${streamId}-a${artifactCount++}`, a),
+      });
+      // An answer that was ONLY an artifact still counts as answered.
+      if (!result.fullText.trim() && result.artifacts.length === 0) return false;
+      persistAnswer(
+        result.artifacts.length > 0
+          ? `${result.fullText}\n${result.artifacts.map(a => `\`\`\`${a.language}\n${a.code}\n\`\`\``).join('\n')}`.trim()
+          : result.fullText,
+      );
+      this.lastTruncated = result.truncated
+        ? { question, params: classifierParams, at: Date.now() }
+        : null;
+      // Visual pairing: the model's REFS line (held back by the splitter)
+      // plus lexical anchor hits drive the diagram for this answer.
+      const { parseRefsLine } = await import('../intelligence/answer-refs.js');
+      void this.dispatchAnswerVisual({
+        refs: [...parseRefsLine(result.refsLine), ...anchorHits],
+        question,
+      });
+      return true;
+    };
 
     // Pull classifier params (if any) into the user message as
     // natural-language constraints. The 'none' route reaches
@@ -1606,31 +2049,130 @@ export class SessionManager {
       if (mode === 'local' || mode === 'auto') {
         const { ClaudeCodeClient } = await import('../intelligence/claude-code-client.js');
         if (await ClaudeCodeClient.isAvailable()) {
-          // Local CLI has built-in read/grep/glob tools — give it permission to use them.
+          // Normal route is retrieval-grounded even on the CLI (fast,
+          // streamable, mode-symmetric). Agentic tools are escalation-only.
           const client = new ClaudeCodeClient('sonnet', repoPath);
-          const answer = await client.streamText({
-            system: baseSystem(true),
+          const handle = client.streamTextLive({
+            system: groundedSystem(false),
             messages: [{ role: 'user' as const, content: userMessage }],
           });
-          await answerAndNarrate(answer);
-          return;
+          if (await runStream(handle)) {
+            await this.maybeOfferEscalation(question, retrieval);
+            return;
+          }
         }
       }
       if ((mode === 'cloud' || mode === 'auto') && this.config.anthropicApiKey) {
         const { ClaudeClient } = await import('../intelligence/claude-client.js');
         const client = new ClaudeClient(this.config.anthropicApiKey);
-        const answer = await client.streamText({
-          system: baseSystem(false),
-          messages: [{ role: 'user' as const, content: question }],
+        const handle = client.streamTextLive({
+          system: groundedSystem(false),
+          messages: [{ role: 'user' as const, content: userMessage }],
         });
-        await answerAndNarrate(answer);
-        return;
+        if (await runStream(handle)) {
+          await this.maybeOfferEscalation(question, retrieval);
+          return;
+        }
       }
     } catch (err: any) {
       console.error('Q&A fallback error:', err.message);
     }
 
-    await answerAndNarrate("Sorry, I couldn't process that. Make sure the Claude CLI is installed or an API key is set.");
+    // Apology goes through the SAME stream so an already-spoken ack still
+    // gets its isFinal chunk and the transcript assembles.
+    await this.emitNarrationChunked(
+      "Sorry, I couldn't process that. Make sure the Claude CLI is installed or an API key is set.",
+      { streamId, startSeq: seq },
+    );
+  }
+
+  /** After an anchors-only answer (retrieval found nothing beyond
+   *  README/manifest), offer the deep scan and arm the affirmative. */
+  private async maybeOfferEscalation(
+    question: string,
+    retrieval: { confidence: string } | null,
+  ): Promise<void> {
+    if (retrieval?.confidence !== 'anchors-only') return;
+    // Only offer the deep scan when the question asked about something
+    // SPECIFIC that retrieval failed to find. Generic questions ("what is
+    // this?") legitimately have no file match — offering a code dig after
+    // every one of those is nagging, not helpfulness.
+    const { extractKeywords } = await import('../cache/context-composer.js');
+    if (extractKeywords(question).length < 2) return;
+    const { ESCALATION_OFFER, PENDING_ESCALATION_TTL_MS } = await import('./qa-router.js');
+    this.pendingEscalation = { question, expiresAt: Date.now() + PENDING_ESCALATION_TTL_MS };
+    // Greeting lane: the orchestrator's serialized speech queue plays it
+    // after the answer stream finishes.
+    this.emit({ type: 'narration:greeting', payload: { text: ESCALATION_OFFER } });
+  }
+
+  /** The slow-but-thorough path: Claude Code CLI reads the repo itself.
+   *  Reached only by explicit escalation — a spoken buffer covers the
+   *  10-30s the agentic pass takes. */
+  private async runAgenticAnswer(question: string): Promise<void> {
+    const repoPath = this.activeRepoPath || this.config.repoPath;
+    const streamId = `qa-${Date.now()}`;
+    this.currentTurnStreamId = streamId;
+    const { AGENTIC_BUFFER_LINE } = await import('./qa-router.js');
+    this.emit({
+      type: 'narration:stream_chunk',
+      payload: { streamId, seq: 0, text: AGENTIC_BUFFER_LINE, isFinal: false, referencedNodes: [] },
+    });
+    getTraceRecorder()?.emit({
+      kind: 'qa.route',
+      sessionId: this.context.sessionId || null,
+      payload: { route: 'agentic', question },
+    });
+
+    const { buildQAContext } = await import('../intelligence/qa-context.js');
+    const { sentenceCap } = await import('../intelligence/depth-modifiers.js');
+    const system = buildQAContext(this.db.getContextCacheRepo(), repoPath, {
+      agenticTools: true,
+      recentTurns: this.qaTurns,
+      depthTier: 'deep',
+    });
+
+    try {
+      const { ClaudeCodeClient } = await import('../intelligence/claude-code-client.js');
+      // Cloud-forced sessions (tests, no-CLI deployments) never spawn the
+      // CLI even when one happens to be installed on the machine.
+      if (this.config.intelligenceMode !== 'cloud' && await ClaudeCodeClient.isAvailable()) {
+        const client = new ClaudeCodeClient('sonnet', repoPath);
+        const answer = await client.streamText({
+          system,
+          messages: [{ role: 'user' as const, content: question }],
+        });
+        if (answer.trim()) {
+          this.qaTurns.push({ role: 'user', content: question });
+          this.qaTurns.push({ role: 'assistant', content: answer });
+          if (this.qaTurns.length > this.QA_HISTORY_MAX) {
+            this.qaTurns = this.qaTurns.slice(-this.QA_HISTORY_MAX);
+          }
+          try {
+            const qaHistory = this.db.getQAHistoryRepo();
+            qaHistory.record({ repoPath, sessionId: this.context.sessionId, role: 'user', content: question });
+            qaHistory.record({ repoPath, sessionId: this.context.sessionId, role: 'assistant', content: answer });
+          } catch (err: any) {
+            console.warn('Failed to persist QA turn:', err.message);
+          }
+          // Deep work earns the deep cap.
+          await this.emitNarrationChunked(answer, {
+            streamId, startSeq: 1, capSentences: sentenceCap('deep'),
+          });
+          return;
+        }
+      }
+    } catch (err: any) {
+      console.error('Agentic answer error:', err.message);
+    }
+
+    // CLI unavailable (cloud-only / CI): spoken caveat, then the best
+    // retrieval-grounded answer we can give — never silence.
+    this.emit({
+      type: 'narration:stream_chunk',
+      payload: { streamId, seq: 1, text: "I can't run a deep scan right now, but here's what I can see.", isFinal: false, referencedNodes: [] },
+    });
+    await this.handleQuestion(question, {}, { streamId, startSeq: 2 });
   }
 
   /** Programmatic "level up" — same effect as the voice phrase "go back".
@@ -2012,6 +2554,10 @@ export class SessionManager {
     briefing: import('@tetherline/shared').Briefing,
     reason: 'user_asked' | 'dive_deeper' | 'tour_next' | 'resume_pop' | 'session_start',
     resumePrefix?: string,
+    /** Shorter spoken text to use instead of the full opener (e.g. the
+     *  2-sentence session-start greeting). Re-entry abbreviations still
+     *  take priority — they're shorter yet. */
+    openerOverride?: string,
   ): void {
     const top = this.navigator.peek();
     if (top?.briefingId !== briefing.id) {
@@ -2049,17 +2595,21 @@ export class SessionManager {
     const minutesSinceLast = repoPath
       ? this.db.getBriefingRepo().minutesSinceLastDelivery(repoPath, briefing.id)
       : null;
-    let openerToEmit = briefing.opener;
+    let openerToEmit = openerOverride ?? briefing.opener;
     if (reason === 'session_start' && minutesSinceLast !== null) {
+      // Session-start openers are STATEMENTS, never questions: the open
+      // stream always ends with the narrated proposal, which asks the
+      // session's one question. Stacking "pick up?"/"continue?" before
+      // it produced three questions in a row.
       if (minutesSinceLast < 30) {
-        // Quick re-entry — skip the briefing, just acknowledge.
-        openerToEmit = `Welcome back to ${briefing.title}. Where do you want to pick up?`;
+        // Quick re-entry — skip the briefing, just acknowledge. (No
+        // "Welcome back" here — the session-open stream already welcomed.)
+        openerToEmit = `Picking up where we left off.`;
       } else if (minutesSinceLast < 24 * 60) {
-        // Same-day re-entry — keep just the first sentence + a re-engage prompt.
-        const firstSentence = briefing.opener.split(/(?<=[.!?])\s+/)[0] ?? briefing.opener;
-        openerToEmit = `${firstSentence} Ready to continue?`;
+        // Same-day re-entry — keep just the first sentence.
+        openerToEmit = briefing.opener.split(/(?<=[.!?])\s+/)[0] ?? briefing.opener;
       }
-      // ≥24 h → full opener (default). User likely wants the refresher.
+      // ≥24 h → the override (short opener) or full opener.
     }
 
     this.emit({
@@ -2138,6 +2688,15 @@ export class SessionManager {
           },
         });
         if (current) this.reemitBriefing(repoPath, current.briefingId, 'As I was saying');
+        this.emit({
+          type: 'visual:dispatch',
+          payload: {
+            transition: 'ASCEND',
+            targetNodeId: current?.briefingId === 'project' || !current ? 'project' : current.briefingId,
+            refs: [],
+            reason: 'navigator pop',
+          },
+        });
         return true;
       }
 
@@ -2166,6 +2725,10 @@ export class SessionManager {
         });
         const current = this.navigator.peek();
         if (current) this.reemitBriefing(repoPath, current.briefingId, 'Back to the top');
+        this.emit({
+          type: 'visual:dispatch',
+          payload: { transition: 'ASCEND', targetNodeId: 'project', refs: [], reason: 'navigator pop to project' },
+        });
         return true;
       }
 
@@ -2178,6 +2741,8 @@ export class SessionManager {
           this.db.getBriefingRepo().get(repoPath, conceptId);
         if (!briefing) return false; // fall through — other handlers may match
         this.deliverBriefing(briefing, 'user_asked');
+        // Voice verb → diagram: drilling by voice descends the canvas too.
+        void this.dispatchAnswerVisual({ primaryTarget: target, refs: [target] });
         return true;
       }
 
@@ -2297,6 +2862,13 @@ export class SessionManager {
   markUserSpeakingStarted(): void {
     this.userSpeaking = true;
     this.userStoppedAt = null;
+    // The user speaking again supersedes anything held for the previous
+    // floor closure — a fresh utterance (with a fresh ack) is coming.
+    if (this.floorReleaseTimer) {
+      clearTimeout(this.floorReleaseTimer);
+      this.floorReleaseTimer = null;
+    }
+    this.discardPendingFloorNarration('superseded');
     // Note: we emit a tts.queue_flush trace event immediately. The real queue
     // flush is frontend-side (audio element clear) — the backend signals via
     // narration:text with empty text, or by simply dropping any pending
@@ -2309,6 +2881,15 @@ export class SessionManager {
   markUserSpeakingStopped(): void {
     this.userSpeaking = false;
     this.userStoppedAt = Date.now();
+    // Arm the release backstop: when the post-silence window expires with no
+    // further emits (the lone held-ack case), drain the held chunks. Any
+    // un-suppressed emit() beforehand drains them sooner, in order.
+    if (this.floorReleaseTimer) clearTimeout(this.floorReleaseTimer);
+    this.floorReleaseTimer = setTimeout(() => {
+      this.floorReleaseTimer = null;
+      this.flushPendingFloorNarration();
+    }, this.POST_USER_SILENCE_MS + 20);
+    this.floorReleaseTimer.unref?.();
   }
 
   /** True if the server should currently SUPPRESS outbound narration. */
@@ -2419,49 +3000,10 @@ export class SessionManager {
     repoPath: string,
     target: string,
   ): Promise<{ filePath: string; symbol?: string } | null> {
-    const fs = await import('fs');
-    const path = await import('path');
-
-    // 1. Direct path? (contains "/" or a known code extension at the end)
-    const looksLikePath = target.includes('/') || /\.(ts|tsx|js|jsx|py|go|rs|java|kt)$/.test(target);
-    if (looksLikePath) {
-      const full = path.join(repoPath, target);
-      if (fs.existsSync(full) && fs.statSync(full).isFile()) {
-        return { filePath: target };
-      }
-    }
-
-    // 2 + 3. Search the cached file list. Cheap because it's already in DB.
-    const cachedFiles = this.db.getContextCacheRepo().getFilesForRepo(repoPath);
-    if (cachedFiles.length === 0) return null;
-
-    // 3. Bare filename match (e.g. "manager.ts" → "packages/backend/src/session/manager.ts").
-    const byBasename = cachedFiles.find(f => path.basename(f.filePath) === target);
-    if (byBasename) return { filePath: byBasename.filePath };
-
-    // 2. Symbol grep. We avoid reading every file — only check candidates
-    // whose role looks code-like (entry, route, component, model, utility).
-    const candidates = cachedFiles
-      .filter(f => /\.(ts|tsx|js|jsx|py|go|rs)$/.test(f.filePath))
-      .sort((a, b) => (b.connectivity ?? 0) - (a.connectivity ?? 0))
-      .slice(0, 80); // bound the IO
-
-    // Case-insensitive — voice utterances normalize casing; the
-    // composer also matches case-insensitively when extracting the
-    // symbol from the source.
-    const symbolRe = new RegExp(
-      `(?:function|class|interface|type|const|def|func|fn)\\s+${escapeForRegex(target)}\\b`,
-      'i',
-    );
-    for (const cand of candidates) {
-      try {
-        const content = fs.readFileSync(path.join(repoPath, cand.filePath), 'utf8');
-        if (symbolRe.test(content)) {
-          return { filePath: cand.filePath, symbol: target };
-        }
-      } catch { /* skip unreadable */ }
-    }
-    return null;
+    // Extracted to intelligence/code-target.ts so the grounding retriever
+    // can reuse it; behavior unchanged.
+    const { resolveCodeTarget } = await import('../intelligence/code-target.js');
+    return resolveCodeTarget(repoPath, target, this.db.getContextCacheRepo());
   }
 
   private layerFromBriefingId(briefingId: string): ComprehensionItemLayer {
@@ -2480,7 +3022,7 @@ export class SessionManager {
   private emitComprehensionUpdate(
     repoPath: string,
     itemId: string,
-    reason: 'briefing_delivered' | 'question_asked' | 'listened_through' | 'confirmed_phrase' | 'stale' | 'seen' | 'quiz' | 'grill',
+    reason: 'briefing_delivered' | 'question_asked' | 'listened_through' | 'confirmed_phrase' | 'stale' | 'seen' | 'quiz' | 'grill' | 'qa_answer',
     previousLevel?: ComprehensionLevel,
   ): void {
     const item = this.db.getComprehensionRepo().get(repoPath, itemId);
@@ -2510,7 +3052,7 @@ export class SessionManager {
     itemId: string,
     label: string,
     proposedLevel: ComprehensionLevel,
-    reason: 'briefing_delivered' | 'question_asked' | 'listened_through' | 'stale',
+    reason: 'briefing_delivered' | 'question_asked' | 'listened_through' | 'stale' | 'qa_answer',
     opts: { secondsHeard?: number; questionsAsked?: number } = {},
   ) {
     const repoPath = this.activeRepoPath;
@@ -2588,6 +3130,10 @@ export class SessionManager {
   }
 
   private async handleUtterance(text: string): Promise<void> {
+    // Defensive: an utterance proves the user finished a speech segment. If a
+    // user:speaking_stopped was lost in transit, userSpeaking would stay true
+    // and hold the floor (suppressing this turn's answer) forever.
+    if (this.userSpeaking) this.markUserSpeakingStopped();
     getTraceRecorder()?.emit({
       kind: 'utterance.received',
       sessionId: this.context.sessionId || null,
@@ -2630,6 +3176,30 @@ export class SessionManager {
       return;
     }
 
+    // Depth unlock: a bare "tell me more" / "go deeper" right after an
+    // answer was truncated at the sentence cap re-asks THAT question at the
+    // deep tier. Must run before the navigator vocab, which would otherwise
+    // swallow the phrase as a dive_deeper nav op. Guarded tightly: fresh
+    // truncation (<2 min), a deep-pattern phrase, and nothing else in it.
+    if (this.lastTruncated && Date.now() - this.lastTruncated.at < 120_000) {
+      const { detectDepth } = await import('../intelligence/depth-modifiers.js');
+      const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
+      const asksDeeper = detectDepth(text, 'normal').tier === 'deep';
+      if (asksDeeper && wordCount <= 5) {
+        const { question, params } = this.lastTruncated;
+        this.lastTruncated = null;
+        this.depthTier = 'deep';
+        const streamId = `qa-${Date.now()}`;
+        this.currentTurnStreamId = streamId;
+        this.emit({
+          type: 'narration:stream_chunk',
+          payload: { streamId, seq: 0, text: 'Sure, going deeper.', isFinal: false, referencedNodes: [] },
+        });
+        await this.handleQuestion(question, params, { streamId, startSeq: 1 });
+        return;
+      }
+    }
+
     // Fast-path #1: Navigator stack operations. "go back", "back to the overview",
     // "tell me about X", "deeper", "where are we" — all resolved without an LLM
     // call. Runs FIRST so nav phrases take precedence over the legacy
@@ -2646,9 +3216,50 @@ export class SessionManager {
     // project/architecture asks and any named target the nav vocab didn't catch.
     if (this.handleBriefingQuery(text)) return;
 
+    // Agentic escalation: explicit "deep dive / dig through the code"
+    // phrases, or an affirmative reply to a pending "want me to dig?"
+    // offer. Runs after the deterministic fast paths (so the exact
+    // quick-command "dive deeper" keeps its navigation meaning) and
+    // before classification (no LLM needed to route it).
+    const { shouldEscalateToAgentic, isEscalationAffirmative } = await import('./qa-router.js');
+    if (this.pendingEscalation && Date.now() < this.pendingEscalation.expiresAt && isEscalationAffirmative(text)) {
+      const pendingQ = this.pendingEscalation.question;
+      this.pendingEscalation = null;
+      await this.runAgenticAnswer(pendingQ);
+      return;
+    }
+    this.pendingEscalation = null; // any non-affirmative utterance drops the offer
+    if (shouldEscalateToAgentic(text)) {
+      await this.runAgenticAnswer(text);
+      return;
+    }
+
+    // From here every route involves an LLM (classify and/or answer) — dead
+    // air territory. Speak an instant ack as seq 0 of this turn's answer
+    // stream BEFORE classification so the user hears a response within
+    // ~300ms instead of ~3s+. Depth detection runs first (pure regex):
+    // its ack replaces the generic one, never two acks, and the tier
+    // update applies to ALL routes (skills included), not just Q&A.
+    const { detectDepth } = await import('../intelligence/depth-modifiers.js');
+    const { pickAck } = await import('./ack-phrases.js');
+    const depthSignal = detectDepth(text, this.depthTier);
+    this.depthTier = depthSignal.tier;
+    const impliesBrevity = /\b\d+\s+(words?|sentences?|lines?|paragraphs?)\b|\b(brief|brevity|short|terse|concise|tldr|tl;dr|one[\s-]?liner|in\s+a?\s*sentence)\b/i.test(text);
+    const ackText = depthSignal.changed && !impliesBrevity
+      ? (depthSignal.tier === 'tldr' ? "Got it — I'll keep it short." : 'Sure, going deeper.')
+      : pickAck(text, this.lastAck);
+    const turnStreamId = `qa-${Date.now()}`;
+    this.currentTurnStreamId = turnStreamId;
+    this.lastAck = ackText;
+    this.emit({
+      type: 'narration:stream_chunk',
+      payload: { streamId: turnStreamId, seq: 0, text: ackText, isFinal: false, referencedNodes: [] },
+    });
+    const turnOpts = { streamId: turnStreamId, startSeq: 1 };
+
     // If no intent classifier available, fall back to treating it as a question
     if (!this.intentClassifier) {
-      this.handleQuestion(text);
+      this.handleQuestion(text, {}, turnOpts);
       return;
     }
 
@@ -2746,7 +3357,7 @@ export class SessionManager {
       // Pass the classifier's extracted params through so the
       // conversational handler can honor "format: poem, lines: two,
       // length: 10 words" the same way summarize does for its skill.
-      this.handleQuestion(text, classification.params);
+      this.handleQuestion(text, classification.params, turnOpts);
       return;
     }
 
@@ -2756,23 +3367,27 @@ export class SessionManager {
     // forced skill rather than asking for clarification (the user just
     // told us what they want; making them rephrase is bad UX).
     if (classification.confidence < 0.7) {
-      this.handleQuestion(text, classification.params);
+      this.handleQuestion(text, classification.params, turnOpts);
       return;
     }
 
     // Execute the skill -- requires an active analyzer
     if (!this.activeAnalyzer) {
-      this.handleQuestion(text);
+      this.handleQuestion(text, {}, turnOpts);
       return;
     }
 
-    await this.executeSkillWithDeviation(classification.skillName as SkillName, classification.params, currentArea);
+    await this.executeSkillWithDeviation(classification.skillName as SkillName, classification.params, currentArea, {
+      ...turnOpts,
+      utterance: text,
+    });
   }
 
   private async executeSkillWithDeviation(
     skillName: SkillName,
     params: Record<string, string>,
     currentArea?: AreaWithContent,
+    streamOpts?: { streamId: string; startSeq: number; utterance?: string },
   ): Promise<void> {
     // If not already in a deviation, push one
     if (this.tourPlan && !this.tourPlan.isInDeviation()) {
@@ -2784,7 +3399,7 @@ export class SessionManager {
     }
 
     try {
-      const result = await this.skillRegistry.execute(
+      const fullResult = await this.skillRegistry.execute(
         skillName,
         {
           currentArea,
@@ -2798,6 +3413,8 @@ export class SessionManager {
         },
         params,
       );
+      // The live stream handle is backend-only — never serialize it.
+      const { narrationStream, ...result } = fullResult;
 
       this.emit({ type: 'skill:result', payload: { result } });
 
@@ -2820,8 +3437,66 @@ export class SessionManager {
       // chunkAnswerForStreaming gives the same paced playback as
       // handleQuestion: sentence-sized clips queued sequentially,
       // each interruptible on PTT, with a single coherent voice.
-      if (result.narration && result.narration.trim().length > 0) {
-        await this.emitNarrationChunked(result.narration);
+      if (narrationStream) {
+        // Live-streamed skill narration (explain): sentences speak as they
+        // generate; the cap aborts the stream + appends the steering hook.
+        const { sentenceCap } = await import('../intelligence/depth-modifiers.js');
+        const { streamAnswerToChunks } = await import('./answer-streamer.js');
+        const { parseRefsLine } = await import('../intelligence/answer-refs.js');
+        const nodeLabels = await this.knownNodeLabels();
+        const streamId = streamOpts?.streamId ?? `nar-${Date.now()}`;
+        const anchorHits = new Set<string>();
+        let artifactCount = 0;
+        const sr = await streamAnswerToChunks(narrationStream, {
+          streamId,
+          startSeq: streamOpts?.startSeq ?? 0,
+          nodeLabels,
+          maxSentences: sentenceCap(this.depthTier),
+          emitChunk: c => {
+            for (const r of c.referencedNodes) anchorHits.add(r);
+            this.emit({
+              type: 'narration:stream_chunk',
+              payload: { streamId, seq: c.seq, text: c.text, isFinal: c.isFinal, referencedNodes: c.referencedNodes },
+            });
+          },
+          onArtifact: a => this.emitArtifact(`${streamId}-a${artifactCount++}`, a),
+        });
+        this.lastTruncated = sr.truncated && streamOpts?.utterance
+          ? { question: streamOpts.utterance, params, at: Date.now() }
+          : sr.truncated ? this.lastTruncated : null;
+        const primaryTarget = result.diagramChanges?.focusNodeId
+          ?? ((result.visualPayload as Record<string, unknown> | undefined)?.target as string | undefined);
+        void this.dispatchAnswerVisual({
+          primaryTarget,
+          refs: [...parseRefsLine(sr.refsLine), ...anchorHits],
+          question: streamOpts?.utterance,
+        });
+      } else if (result.narration && result.narration.trim().length > 0) {
+        // Skill narrations get the same hard cap + steering hook as Q&A
+        // answers (post-hoc truncation — skills still produce complete
+        // strings). Joining the turn stream keeps the spoken ack and the
+        // narration in one transcript entry. REFS lines are stripped
+        // before speech and feed the visual dispatch below.
+        const { sentenceCap } = await import('../intelligence/depth-modifiers.js');
+        const { extractRefs } = await import('../intelligence/answer-refs.js');
+        const { clean, refs } = extractRefs(result.narration);
+        const { truncated } = await this.emitNarrationChunked(clean, {
+          streamId: streamOpts?.streamId,
+          startSeq: streamOpts?.startSeq,
+          capSentences: sentenceCap(this.depthTier),
+        });
+        this.lastTruncated = truncated && streamOpts?.utterance
+          ? { question: streamOpts.utterance, params, at: Date.now() }
+          : truncated ? this.lastTruncated : null;
+        // Visual pairing for skills. The visualize skill with an authored
+        // diagram already swaps the whole payload — don't fight it.
+        const authoredDiagram = result.skillName === 'visualize'
+          && !!(result.visualPayload as Record<string, unknown> | undefined)?.diagram;
+        if (!authoredDiagram) {
+          const primaryTarget = result.diagramChanges?.focusNodeId
+            ?? ((result.visualPayload as Record<string, unknown> | undefined)?.target as string | undefined);
+          void this.dispatchAnswerVisual({ primaryTarget, refs, question: streamOpts?.utterance });
+        }
       }
 
       // Persist understanding updates from skill execution (e.g., explain/teach/critique)
@@ -2854,8 +3529,21 @@ export class SessionManager {
       // a nudge here races them through the orchestrator's 250ms greeting
       // coalesce, and the user hears the nudge instead of the answer.
       // The nudge exists to fill silence, not to talk over the answer.
-      const skillWasSilent = !result.narration || result.narration.trim().length === 0;
-      if (skillWasSilent && this.tourPlan?.isInDeviation() && !this.tourPlan.hasCheckedIn()) {
+      //
+      // Two live-session bug fixes (2026-06-09):
+      //  - STREAMED skills carry narration:'' — they were misread as
+      //    "silent" and got the nudge stacked right onto their answer;
+      //  - explore mode has NO tour to go "back to" — the nudge was
+      //    meaningless noise there, and worse, speaking the literal
+      //    phrase 'say "back to the tour"' got echo-transcribed 12s
+      //    later and SELF-EXECUTED resumeTour (phase flap).
+      const skillWasSilent = !narrationStream && (!result.narration || result.narration.trim().length === 0);
+      if (
+        skillWasSilent &&
+        this.entryMode !== 'explore' &&
+        this.tourPlan?.isInDeviation() &&
+        !this.tourPlan.hasCheckedIn()
+      ) {
         this.tourPlan.markDeviationCheckedIn();
         this.emit({
           type: 'narration:greeting',
@@ -2870,16 +3558,15 @@ export class SessionManager {
     }
   }
 
-  /** Accept the proposal and transition to the first tour phase. */
+  /** Accept the proposal and transition to the first tour phase.
+   *  SILENT by design — the canned "Go ahead." here used to fire whenever
+   *  the user spoke during PROPOSAL, reading as a glitch right at the
+   *  start of every session. */
   private acceptProposal(): void {
     if (this.entryMode === 'explore') {
       // Explore mode: show architecture and wait. User leads.
       this.setVisualLayer(3);
       this.setState({ phase: 'OVERVIEW' });
-      this.emit({
-        type: 'narration:greeting',
-        payload: { text: `Go ahead.` },
-      });
     } else if (this.entryMode === 'full_walkthrough') {
       this.setState({ phase: 'PROJECT_OVERVIEW' });
       this.setVisualLayer(1);
@@ -2887,14 +3574,15 @@ export class SessionManager {
       // Updates mode: go through PREVIOUSLY_ON or straight to HEATMAP
       if (this.previousSession) {
         this.setState({ phase: 'PREVIOUSLY_ON' });
+        const narrative = this.previousSession.summary
+          ?? `Last session reviewed ${this.previousSession.totalAreas} areas with ${this.previousSession.totalCommits} commits.`;
         this.emit({
           type: 'session:recap',
-          payload: {
-            previousSession: this.previousSession,
-            narrative: this.previousSession.summary
-              ?? `Last session reviewed ${this.previousSession.totalAreas} areas with ${this.previousSession.totalCommits} commits.`,
-          },
+          payload: { previousSession: this.previousSession, narrative },
         });
+        // Backend-spoken (the frontend used to speak this via a side
+        // channel that raced the streamed narration).
+        void this.emitNarrationChunked(narrative);
       } else {
         this.setState({ phase: 'HEATMAP' });
       }
@@ -3335,6 +4023,23 @@ export function isLikelyTranscriptionNoise(text: string): boolean {
   return false;
 }
 
-function escapeForRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** First N sentences of a briefing opener — the short session greeting. */
+function firstSentences(text: string | undefined, n: number): string {
+  if (!text) return '';
+  return text.split(/(?<=[.!?])\s+/).slice(0, n).join(' ').trim();
+}
+
+/** Spoken-friendly date: "June 2nd", or "today"/"yesterday" when close. */
+function humanDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'last time';
+  const days = Math.floor((Date.now() - d.getTime()) / 86_400_000);
+  if (days <= 0) return 'earlier today';
+  if (days === 1) return 'yesterday';
+  const month = d.toLocaleString('en-US', { month: 'long' });
+  const day = d.getDate();
+  const suffix = day % 10 === 1 && day !== 11 ? 'st'
+    : day % 10 === 2 && day !== 12 ? 'nd'
+    : day % 10 === 3 && day !== 13 ? 'rd' : 'th';
+  return `${month} ${day}${suffix}`;
 }

@@ -376,6 +376,12 @@ function normalizeWeight(impact: number, all: ModuleCacheRow[]): number {
 function oneLineDescription(purpose: string | undefined, summary: string | undefined): string | undefined {
   const candidate = (purpose || summary || '').trim();
   if (!candidate) return undefined;
+  // Read-side guard for ALREADY-cached fragments (the warmer now gates
+  // writes, but old rows persist): a "summary" that is just a dangling
+  // list header renders as nonsense on the node. Hide it — no
+  // description beats "After generating your notebook in PersonalForge:".
+  if (candidate.length < 30 && /[:;,\-–—]$/.test(candidate)) return undefined;
+  if (/[:;]$/.test(candidate) && !/[.!?]/.test(candidate)) return undefined;
   // Strip markdown noise + take the first sentence. The cap was 80 chars
   // which truncated even single grammatical sentences ("The core module
   // is the data-pipeline and hardware-intelligence backbone of

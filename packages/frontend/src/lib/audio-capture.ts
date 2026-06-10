@@ -15,6 +15,10 @@ export interface AudioCaptureCallbacks {
   onTranscript: (text: string) => void;
   onError: (error: string) => void;
   onStateChange: (state: string) => void;
+  /** A speech episode ended with NO usable transcript (too short, encoder
+   *  floor, HTTP failure, empty text). The consumer uses this to resume
+   *  floor-paused playback — the sound wasn't real user speech. */
+  onSpeechDiscarded?: () => void;
 }
 
 const VAD_POLL_MS = 20;
@@ -36,7 +40,12 @@ export class AudioCapture {
   private processor: ScriptProcessorNode | null = null;
   private isCapturing = false;
   private isSpeaking = false;
-  private isMuted = false;
+  /** Monotonic speech-episode counter. Discard/resume handlers no-op when a
+   *  newer episode has started (guards the resume-vs-new-speech race). */
+  private episodeId = 0;
+  /** True while a Whisper POST is in flight — blocks noise-rollback resume
+   *  so a pending real transcript can't race a wrongful playback resume. */
+  private transcribing = false;
   private silenceTimer: ReturnType<typeof setTimeout> | null = null;
   private confirmTimer: ReturnType<typeof setTimeout> | null = null;
   private speechStartTime = 0;
@@ -146,6 +155,7 @@ export class AudioCapture {
     this.isSpeaking = true;
     this.isRecordingSpeech = true;
     this.pttHeld = true;
+    this.episodeId++;
     // Cancel any in-flight VAD silence timer so a pre-existing
     // segmentation can't fire after we entered PTT mode.
     if (this.silenceTimer) { clearTimeout(this.silenceTimer); this.silenceTimer = null; }
@@ -225,20 +235,25 @@ export class AudioCapture {
     // and could discard pre-buffer audio.
     if (this.pttHeld) return;
 
-    const store = useAudioStore.getState();
-    if (store.isPlaying && !this.isMuted) {
-      store.muteOutput();
-      this.isMuted = true;
-    }
+    // Duck, don't kill: soft-pause AI playback the instant sound crosses
+    // the threshold. The mission is ZERO talk-over — even the 100ms
+    // confirm window is overlap. If the sound turns out to be noise the
+    // pause is resumable (the old muteOutput hard-stop was not, which
+    // made every false trigger destroy the rest of the clip). During
+    // playback the threshold is echo-calibrated to 2.5x measured bleed,
+    // so crossings here are rare and loud.
+    useAudioStore.getState().duckForFloor();
 
     if (!this.confirmTimer) {
       this.confirmTimer = setTimeout(() => {
         this.confirmTimer = null;
         this.isSpeaking = true;
         this.isRecordingSpeech = true;
+        this.episodeId++;
         this.speechStartTime = Date.now();
         // Mark where speech starts in the PCM buffer (include pre-buffer)
         this.speechStartSampleCount = Math.max(0, this.pcmSampleCount - PRE_BUFFER_SAMPLES);
+        useAudioStore.getState().confirmFloor();
         this.callbacks.onSpeechStart();
       }, CONFIRM_SPEECH_MS);
     }
@@ -256,9 +271,15 @@ export class AudioCapture {
     if (this.pttHeld) return;
 
     if (this.confirmTimer) {
+      // Sound died inside the 100ms confirm window — a blip, not speech.
+      // Roll the provisional duck back so playback continues with only a
+      // ~150ms hiccup. Never resume while a transcription is in flight:
+      // the floor still belongs to the previous (real) episode.
       clearTimeout(this.confirmTimer);
       this.confirmTimer = null;
-      this.isMuted = false;
+      if (!this.transcribing) {
+        useAudioStore.getState().resumeFromFloor('noise');
+      }
       return;
     }
 
@@ -276,11 +297,17 @@ export class AudioCapture {
 
   private async processSpeech(): Promise<void> {
     const duration = Date.now() - this.speechStartTime;
-    this.isMuted = false;
+    const episode = this.episodeId;
+    // Fires the no-transcript signal unless a newer speech episode has
+    // already begun (its own resolution owns the floor then).
+    const discard = () => {
+      if (episode === this.episodeId) this.callbacks.onSpeechDiscarded?.();
+    };
 
     if (duration < MIN_RECORDING_MS) {
       this.pcmBuffer = [];
       this.pcmSampleCount = 0;
+      discard();
       return;
     }
 
@@ -297,12 +324,13 @@ export class AudioCapture {
     this.pcmBuffer = [];
     this.pcmSampleCount = 0;
 
-    if (allSamples.length < SAMPLE_RATE * 0.3) return; // less than 300ms
+    if (allSamples.length < SAMPLE_RATE * 0.3) { discard(); return; } // less than 300ms
 
     // Encode to WAV
     const wavBlob = encodeWavBlob(allSamples, SAMPLE_RATE);
 
     try {
+      this.transcribing = true;
       const response = await fetch(`${API_PREFIX}/audio/transcribe`, {
         method: 'POST',
         headers: { 'Content-Type': 'audio/wav' },
@@ -323,15 +351,21 @@ export class AudioCapture {
           try { detail = await response.text(); } catch { /* ignore */ }
         }
         this.callbacks.onError(detail ? `Transcription failed: ${detail}` : 'Transcription failed');
+        discard();
         return;
       }
 
       const result = await response.json() as { text: string };
       if (result.text && result.text.trim()) {
         this.callbacks.onTranscript(result.text.trim());
+      } else {
+        discard();
       }
     } catch (err: any) {
       this.callbacks.onError(`Transcription error: ${err.message}`);
+      discard();
+    } finally {
+      this.transcribing = false;
     }
   }
 }

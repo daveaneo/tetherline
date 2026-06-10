@@ -13,6 +13,7 @@ import { useHistoryStore } from '../../state/history-store.js';
 import { ReviewShelf } from './ReviewShelf.js';
 import { useShelfStore } from '../../state/shelf-store.js';
 import { CodePanel } from './CodePanel.js';
+import { ArtifactCard } from './ArtifactCard.js';
 import { HermesText } from './HermesText.js';
 import { useGapsStore } from '../../state/gaps-store.js';
 import { SessionEntrance } from './SessionEntrance.js';
@@ -187,6 +188,7 @@ export function Room({ skipEntrance = false }: { skipEntrance?: boolean } = {}) 
 
         <GapsPanel />
         <CodePanel />
+        <ArtifactCard />
         <HistoryRail />
         <ReviewShelf />
         <ListeningPill />

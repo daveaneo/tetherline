@@ -24,6 +24,26 @@ export function useSessionOrchestrator() {
   const abortRef = useRef<AbortController | null>(null);
   const postAnswerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // FLOOR GATE: resolves when the user no longer holds the conversational
+  // floor (or the signal aborts — abort always wins so teardown can't hang
+  // on a stuck floor). This is the single chokepoint that guarantees no new
+  // TTS clip ever STARTS while the user is speaking.
+  const awaitFloorOpen = useCallback((signal?: AbortSignal): Promise<void> => {
+    if (!useAudioStore.getState().userHasFloor) return Promise.resolve();
+    if (signal?.aborted) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const finish = () => {
+        unsub();
+        signal?.removeEventListener('abort', finish);
+        resolve();
+      };
+      const unsub = useAudioStore.subscribe((s) => {
+        if (!s.userHasFloor) finish();
+      });
+      signal?.addEventListener('abort', finish, { once: true });
+    });
+  }, []);
+
   // Speak text via TTS (returns a promise that resolves when done speaking)
   const speak = useCallback(async (text: string, signal?: AbortSignal): Promise<void> => {
     return new Promise<void>(async (resolve) => {
@@ -40,6 +60,17 @@ export function useSessionOrchestrator() {
           if (signal?.aborted) { resolve(); return; }
         }
       }
+
+      // Never start a clip while the user holds the floor. All three
+      // speech lanes (phase boilerplate, stream drain, greetings) funnel
+      // through here, so this one gate covers them all.
+      await awaitFloorOpen(signal);
+      if (signal?.aborted) { resolve(); return; }
+
+      // Self-echo defense: remember what we're about to say so the mic
+      // hearing it back gets content-matched and dropped, regardless of
+      // timing windows.
+      useAudioStore.getState().recordSpokenText(text);
 
       setPlaying(true);
       // Create a temporary NarrationSegment for display
@@ -117,15 +148,63 @@ export function useSessionOrchestrator() {
         setTimeout(() => { cleanup(); }, Math.max(3000, text.length * 50));
       }
     });
-  }, [ttsProvider, setCurrentSegment, setPlaying]);
+  }, [ttsProvider, setCurrentSegment, setPlaying, awaitFloorOpen]);
 
-  // Auto-advance: send next command after a short pause
+  // SINGLE SERIALIZED SPEECH QUEUE: every lane (phase boilerplate, streamed
+  // chunks, greetings) speaks through this tail, so two lanes can never
+  // drive the audio element at the same time. Before this, the three
+  // independent speak() entry points raced — e.g. the proposal talking over
+  // the still-playing opener. An aborted entry resolves as a no-op without
+  // blocking the entries behind it.
+  const speechTailRef = useRef<Promise<void>>(Promise.resolve());
+  const speakSerialized = useCallback((text: string, signal?: AbortSignal): Promise<void> => {
+    const run = () => (signal?.aborted ? Promise.resolve() : speak(text, signal));
+    const next = speechTailRef.current.then(run, run);
+    // The tail must never stay rejected or the queue would stall forever.
+    speechTailRef.current = next.catch(() => {});
+    return next;
+  }, [speak]);
+
+  // Auto-advance: send next command after a short pause. Never fires while
+  // the user holds the floor — advancing mid-speech starts new narration
+  // right into the user's sentence; it re-arms instead.
   const scheduleAdvance = useCallback((delayMs: number = 800) => {
     if (autoAdvanceTimerRef.current) clearTimeout(autoAdvanceTimerRef.current);
-    autoAdvanceTimerRef.current = setTimeout(() => {
+    const fire = () => {
+      if (useAudioStore.getState().userHasFloor) {
+        autoAdvanceTimerRef.current = setTimeout(fire, 500);
+        return;
+      }
       sendEvent({ type: 'command:next' });
-    }, delayMs);
+    };
+    autoAdvanceTimerRef.current = setTimeout(fire, delayMs);
   }, []);
+
+  // A hard flush (PTT / confirmed barge-in) must deterministically resolve
+  // the in-flight speak() promise: pause()+seek on a hard-stopped element
+  // doesn't reliably fire `ended`, which used to leave the serialized
+  // speech tail (and the drain loop's await) pending forever. The flush
+  // also kills the stale unspoken backlog — the user talked over it.
+  const flushEpoch = useAudioStore(s => s.flushEpoch);
+  useEffect(() => {
+    if (flushEpoch === 0) return;
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    activeRunRef.current = '';
+    useSessionStore.setState({ streamChunks: [] });
+  }, [flushEpoch]);
+
+  // Floor release on response start: the turn's reply reaching us is the
+  // signal that the barge-in exchange completed — narration may flow again.
+  const streamChunksForFloor = useSessionStore(s => s.streamChunks);
+  useEffect(() => {
+    const a = useAudioStore.getState();
+    if (streamChunksForFloor.length > 0 && a.floorPhase === 'awaiting-response') {
+      a.releaseFloor();
+    }
+  }, [streamChunksForFloor]);
 
   // When paused, immediately stop everything
   useEffect(() => {
@@ -174,8 +253,14 @@ export function useSessionOrchestrator() {
     // in-flight narration (e.g. a greeting) alone. Aborting abortRef here
     // cut the greeting off mid-word whenever analysis completed and the
     // phase flipped to OVERVIEW-explore. That was the self-interrupt.
+    // PROPOSAL is silent too: the backend narrates the proposal through
+    // the open narration stream (session:proposal.narrated) — the old
+    // client-side speak() here talked over the still-playing opener, and
+    // its 10s auto-accept closed the window before the user could answer.
+    // The session now waits indefinitely; the user steers.
     const isSilentPhase =
       phase === 'ANALYZING' ||
+      phase === 'PROPOSAL' ||
       (phase === 'OVERVIEW' && entryMode === 'explore');
     if (isSilentPhase) {
       activeRunRef.current = stateKey;
@@ -202,26 +287,12 @@ export function useSessionOrchestrator() {
       const signal = controller.signal;
 
       switch (phase) {
-        case 'PROPOSAL': {
-          // Speak the proposal message, then WAIT — user drives from here
-          const proposal = useSessionStore.getState().proposal;
-          if (proposal && modes.narration) {
-            await speak(proposal.message, signal);
-          }
-          if (signal.aborted) return;
-          // 10-second auto-accept timer: if user doesn't respond, proceed
-          scheduleAdvance(10000);
-          break;
-        }
-
         case 'PREVIOUSLY_ON': {
-          const recap = useSessionStore.getState().recap;
-          if (recap && modes.narration) {
-            await speak(recap, signal);
-          }
-          if (signal.aborted) return;
-          // Auto-advance to heatmap
-          scheduleAdvance(500);
+          // The recap is backend-narrated (session:recap card + stream
+          // chunks) — speaking it here double-voiced it. Advance once the
+          // stream drains (see the drain-complete effect below); this
+          // schedule is only the no-narration fallback.
+          if (!modes.narration) scheduleAdvance(500);
           break;
         }
 
@@ -232,7 +303,7 @@ export function useSessionOrchestrator() {
             const green = heatmap?.entries.filter(e => e.status === 'green').length ?? 0;
             const red = heatmap?.entries.filter(e => e.status === 'red').length ?? 0;
             if (total > 0) {
-              await speak(
+              await speakSerialized(
                 `Here's your understanding map. You're familiar with ${green} out of ${total} files. ${red} file${red !== 1 ? 's' : ''} haven't been reviewed yet. Let me show you what changed.`,
                 signal,
               );
@@ -251,14 +322,14 @@ export function useSessionOrchestrator() {
             const intro = areaCount > 0
               ? `Let me introduce you to this project. I've identified ${areaCount} key areas to explore.`
               : `Let me introduce you to this project.`;
-            await speak(intro, signal);
+            await speakSerialized(intro, signal);
             if (signal.aborted) return;
 
             // Show conceptual flow (layer 2) briefly before advancing
             const conceptualSteps = useSessionStore.getState().conceptualSteps;
             if (conceptualSteps.length > 0) {
               useSessionStore.setState({ visualLayer: 2 });
-              await speak("Here's how it works at a high level.", signal);
+              await speakSerialized("Here's how it works at a high level.", signal);
               if (signal.aborted) return;
               // Give time for the animation
               await new Promise(r => setTimeout(r, 2000));
@@ -276,7 +347,7 @@ export function useSessionOrchestrator() {
             const archText = storeAreas.length > 0
               ? `Now let's look at the architecture. The main areas are ${areaNames}. I'll walk you through each one.`
               : `Now let's look at how the codebase is organized.`;
-            await speak(archText, signal);
+            await speakSerialized(archText, signal);
           }
           if (signal.aborted) return;
           scheduleAdvance(500);
@@ -291,14 +362,14 @@ export function useSessionOrchestrator() {
 
           if (si === 0 && modes.narration) {
             const areaIntro = `Now exploring: ${area.name}. ${area.description}`;
-            await speak(areaIntro, signal);
+            await speakSerialized(areaIntro, signal);
             if (signal.aborted) return;
           }
 
           const segment = area.narrationSegments?.[si];
           if (segment && modes.narration) {
             setCurrentSegment(segment);
-            await speak(segment.text, signal);
+            await speakSerialized(segment.text, signal);
             if (signal.aborted) return;
             scheduleAdvance(600);
           } else if (!segment) {
@@ -317,7 +388,7 @@ export function useSessionOrchestrator() {
             const greeting = areas.length === 1
               ? `I found one area of change: ${areaNames}. Let me walk you through it.`
               : `I found ${areas.length} areas of change. The main ones are ${areaNames}. Let's dive in.`;
-            await speak(greeting, signal);
+            await speakSerialized(greeting, signal);
           }
           if (signal.aborted) return;
           // Auto-advance to first area
@@ -334,7 +405,7 @@ export function useSessionOrchestrator() {
           // If entering a new area (segment 0), announce it
           if (si === 0 && modes.narration) {
             const areaIntro = `Now looking at: ${area.name}. ${area.description}`;
-            await speak(areaIntro, signal);
+            await speakSerialized(areaIntro, signal);
             if (signal.aborted) return;
           }
 
@@ -342,7 +413,7 @@ export function useSessionOrchestrator() {
           const segment = area.narrationSegments?.[si];
           if (segment && modes.narration) {
             setCurrentSegment(segment);
-            await speak(segment.text, signal);
+            await speakSerialized(segment.text, signal);
             if (signal.aborted) return;
             // After segment finishes, auto-advance to next
             scheduleAdvance(600);
@@ -366,7 +437,7 @@ export function useSessionOrchestrator() {
             const summary = critical > 0
               ? `I flagged ${concerns.length} observations, including ${critical} critical issue${critical > 1 ? 's' : ''}. Let me highlight them.`
               : `I have ${concerns.length} observation${concerns.length > 1 ? 's' : ''} to share.`;
-            await speak(summary, signal);
+            await speakSerialized(summary, signal);
           }
           // Let user review concerns — don't auto-advance from here
           break;
@@ -374,7 +445,7 @@ export function useSessionOrchestrator() {
 
         case 'WRAP_UP': {
           if (modes.narration) {
-            await speak(
+            await speakSerialized(
               `That's everything for this session. You can export a summary for your team, or head back to the lobby.`,
               signal,
             );
@@ -417,17 +488,29 @@ export function useSessionOrchestrator() {
         activeRunRef.current = '';
 
         while (true) {
+          // Freeze BEFORE consuming: chunks must not be popped (and
+          // orphaned) while the user holds the floor. speak() gates too,
+          // but consuming here first would lose the chunk on abort.
+          if (useAudioStore.getState().userHasFloor) {
+            await awaitFloorOpen(controller.signal);
+          }
+          if (controller.signal.aborted) return;
           const next = useSessionStore.getState().consumeStreamChunk();
           if (!next) break;
+          await speakSerialized(next.text, controller.signal);
           if (controller.signal.aborted) return;
-          await speak(next.text, controller.signal);
-          if (controller.signal.aborted) return;
+        }
+        // Drain-complete: in PREVIOUSLY_ON the recap is backend-streamed;
+        // advance only after the user actually heard it all.
+        const st = useSessionStore.getState();
+        if (st.streamingFinal && st.streamChunks.length === 0 && st.state.phase === 'PREVIOUSLY_ON') {
+          scheduleAdvance(500);
         }
       } finally {
         streamPlayingRef.current = false;
       }
     })();
-  }, [streamChunks, state.paused, modes.narration, speak]);
+  }, [streamChunks, state.paused, modes.narration, speakSerialized, scheduleAdvance, awaitFloorOpen]);
 
   // Speak greeting/answer whenever it changes — but COALESCE rapid-fire
   // greetings so we don't cut ourselves off mid-word. Pattern: two greetings
@@ -448,6 +531,14 @@ export function useSessionOrchestrator() {
     if (state.paused) return;
     if (!modes.narration) return;
 
+    // Some turn replies arrive as a greeting (one-chunk narrations fall
+    // back to narration:greeting) — that's still "the response started",
+    // so a floor held for the turn opens here too.
+    {
+      const a = useAudioStore.getState();
+      if (a.floorPhase === 'awaiting-response') a.releaseFloor();
+    }
+
     // Coalescing window: stash the latest greeting, only speak after 250ms
     // of stability. Rapid-fire sequence → last one wins, no audible stutter.
     greetingPendingRef.current = greeting;
@@ -467,8 +558,24 @@ export function useSessionOrchestrator() {
       abortRef.current = controller;
       activeRunRef.current = '';
 
-      speak(latest, controller.signal).then(() => {
+      speakSerialized(latest, controller.signal).then(() => {
         if (controller.signal.aborted) return;
+        // Seen% fix: briefings are spoken through THIS greeting path, but
+        // nothing ever reported playback completion — markSeen() on the
+        // backend was dead code in production and "Seen" sat at 0% for
+        // whole sessions. When the text we just finished IS the current
+        // briefing, report the dwell. Guarded to non-walkthrough phases:
+        // handleSegmentFinished also auto-advances tours.
+        const sb = useSessionStore.getState();
+        const phaseNow = sb.state.phase;
+        if (
+          sb.currentBriefing &&
+          sb.currentBriefing.text === latest &&
+          phaseNow !== 'AREA_WALKTHROUGH' &&
+          phaseNow !== 'COMPONENT_TOUR'
+        ) {
+          sendEvent({ type: 'audio:segment_finished', payload: { segmentId: sb.currentBriefing.briefingId } });
+        }
         if (isQaAnswer) {
           if (postAnswerTimerRef.current) clearTimeout(postAnswerTimerRef.current);
           postAnswerTimerRef.current = setTimeout(() => {

@@ -2,7 +2,9 @@
   "name": "tetherline-monorepo",
   "private": true,
   "scripts": {
-    "dev": "pnpm run --filter @tetherline/backend dev & pnpm run --filter @tetherline/frontend dev",
+    "dev": "node scripts/dev-audio.mjs & pnpm run --filter @tetherline/backend dev & pnpm run --filter @tetherline/frontend dev",
+    "dev:no-audio": "pnpm run --filter @tetherline/backend dev & pnpm run --filter @tetherline/frontend dev",
+    "dev:audio": "node scripts/dev-audio.mjs",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "vitest run",

@@ -31,7 +31,7 @@ export const whatsChangedSkill: Skill = {
       'This is spoken aloud — natural prose, no markdown, no bullet lists.',
     ].join(' ');
 
-    const narration = await context.analyzer.answerQuestion(prompt, contextSummary);
+    const narration = await context.analyzer.answerQuestion(prompt, contextSummary, { params, currentFile: context.currentFile });
 
     return {
       skillName: 'whats_changed',

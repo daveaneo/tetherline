@@ -13,6 +13,19 @@ import {
   buildProjectSynthesisPrompt,
 } from '../intelligence/prompts/context-cache.js';
 
+/** Shape gate for cached module summaries. The summary renders verbatim
+ *  on diagram nodes and feeds answer prompts — a truncated fragment
+ *  poisons both. Valid = long enough to mean something AND ends like a
+ *  complete sentence (live bug: colab cached as "After generating your
+ *  notebook in PersonalForge:"). */
+export function isValidModuleSummary(summary: string): boolean {
+  const t = summary.trim();
+  if (t.length < 30) return false;
+  if (/[:;,\-–—(]$/.test(t)) return false;     // list header / dangling clause
+  if (!/[.!?)"'`%\]]$/.test(t)) return false;  // must terminate like prose
+  return true;
+}
+
 export class ContextCacheWarmer {
   constructor(
     private repo: ContextCacheRepository,
@@ -220,11 +233,31 @@ export class ContextCacheWarmer {
             const readmeContent = readme.moduleMentions.get(mod.name);
 
             const prompt = buildModuleSummaryPrompt(mod.name, fileSummaries, readmeContent);
-            const summary = await this.client.streamText({
+            let summary = await this.client.streamText({
               system: `You are analyzing the codebase "${repoName}". Summarize this module concisely.`,
               messages: [{ role: 'user', content: prompt }],
               maxTokens: 200,
             });
+
+            // Shape gate: a malformed summary (truncated mid-sentence,
+            // a list header ending with ':', a fragment) gets cached,
+            // rendered VERBATIM on the diagram node, and leaks into
+            // answers. Live bug: colab cached as "After generating your
+            // notebook in PersonalForge:". One stricter retry, then keep
+            // the heuristic summary instead of poisoning the cache.
+            if (!isValidModuleSummary(summary)) {
+              summary = await this.client.streamText({
+                system:
+                  `You are analyzing the codebase "${repoName}". Reply with EXACTLY one or two complete ` +
+                  `sentences of plain prose describing the module — no lists, no headers, no trailing colon, ` +
+                  `no markdown. The reply must end with a period.`,
+                messages: [{ role: 'user', content: prompt }],
+                maxTokens: 200,
+              });
+            }
+            if (!isValidModuleSummary(summary)) {
+              continue; // keep the heuristic summary — never cache a fragment
+            }
 
             // Preserve the impact score AND the imports edges we
             // computed earlier — the LLM pass enriches the summary,

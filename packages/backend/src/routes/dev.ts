@@ -109,6 +109,26 @@ export function createDevRoutes(db: Database, config: AppConfig): Router {
   // Interaction
   // ──────────────────────────────────────────────
 
+  /** POST /api/dev/session/event { devSessionId, event } — inject a raw
+   *  ClientEvent through the SAME manager.handleEvent path as the real WS
+   *  channel. Lets tests exercise duplicate/replayed events (e.g. a second
+   *  session:start) against an EXISTING manager instance. */
+  router.post('/session/event', (req, res) => {
+    try {
+      const { devSessionId, event } = req.body ?? {};
+      if (!devSessionId || !event?.type) {
+        res.status(400).json({ error: 'devSessionId + event required' });
+        return;
+      }
+      const session = registry.resolve(devSessionId);
+      if (!session) { res.status(404).json({ error: 'session not found' }); return; }
+      session.manager.handleEvent(event);
+      res.json({ ok: true });
+    } catch (err) {
+      sendErr(res, err);
+    }
+  });
+
   /** POST /api/dev/utter { devSessionId, text } — inject a text utterance */
   router.post('/utter', (req, res) => {
     try {

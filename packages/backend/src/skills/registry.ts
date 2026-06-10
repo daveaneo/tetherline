@@ -14,10 +14,18 @@ export interface SkillContext {
   contextComposer?: ContextComposer;
 }
 
+/** Backend-side extension of the shared SkillResult: a skill may hand the
+ *  manager a LIVE token stream instead of a complete narration string, so
+ *  sentences speak as they generate. NEVER serialized — the manager strips
+ *  it before emitting skill:result over the wire. */
+export interface BackendSkillResult extends SkillResult {
+  narrationStream?: import('../intelligence/llm/types.js').LLMStreamHandle;
+}
+
 export interface Skill {
   name: SkillName;
   description: string;
-  execute: (context: SkillContext, params: Record<string, string>) => Promise<SkillResult>;
+  execute: (context: SkillContext, params: Record<string, string>) => Promise<BackendSkillResult>;
 }
 
 export class SkillRegistry {
@@ -31,7 +39,7 @@ export class SkillRegistry {
     return this.skills.get(name);
   }
 
-  async execute(name: SkillName, context: SkillContext, params: Record<string, string>): Promise<SkillResult> {
+  async execute(name: SkillName, context: SkillContext, params: Record<string, string>): Promise<BackendSkillResult> {
     const skill = this.skills.get(name);
     if (!skill) throw new Error(`Unknown skill: ${name}`);
     return skill.execute(context, params);

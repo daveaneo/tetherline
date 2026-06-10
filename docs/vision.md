@@ -8,6 +8,10 @@ We read code in flat lists of diffs. But codebases are spatial, layered, interco
 
 Tetherline is that someone.
 
+## Why now
+
+AI is writing code faster than any developer can read it, and the gap between you and your own codebase widens by the week. Tetherline is built to bridge that gap. Ask any question and get a quick voice answer — ideally paired with a visual aid that makes the answer obvious, not just heard. The experience should feel **fun, interactive, and intuitive** — not a documentation crawl, not a search box. Talking to the codebase should be the most enjoyable way to learn it.
+
 ## What It Is
 
 Tetherline is an AI-powered guided tour of your codebase. You select a repository, choose "Full Walkthrough" or "Updates since last time," and the AI leads you through the code -- narrating what it finds, highlighting architecture diagrams, zooming into relevant files, and responding to your voice in real time.
@@ -56,13 +60,11 @@ The tour is a conversation, not a presentation. You shape it.
 
 ## The Room
 
-After selecting a repo, you enter "the room" -- a single persistent space where everything happens. No page navigation. No routing. Three zones:
+After selecting a repo, you enter "the room" -- a single persistent space where everything happens. No page navigation. No routing. One canvas, two supporting strips:
 
-**Left: The Architecture Diagram.** The spatial anchor. Always visible. As the AI narrates, it pans, highlights, and expands nodes. At the highest level you see five to eight boxes. Go deeper and they expand to reveal internals. The diagram breathes with the narration -- it is never static.
+**Center: The Architecture Diagram.** The spatial anchor and the primary surface -- it owns the canvas, never shares it side-by-side. As the AI narrates, it highlights, drills, and pulses the nodes being discussed. At the highest level you see five to eight boxes. Say "go deeper on auth" and the view descends into that module; "zoom out" climbs back. Every answer drives the diagram -- it is never static. Code, diffs, and detail views appear as focused overlays on the same canvas and recede when the moment passes.
 
-**Right: The Content Panel.** Code, diffs, comparisons, and details appear here. It adapts to whatever the current moment requires: a syntax-highlighted snippet, a side-by-side diff, a dependency list, or an explanation with inline code references. The content panel never replaces the diagram -- they work in parallel.
-
-**Bottom: The Narration Bar.** Subtitles of what the AI is saying, always visible. Above it, the voice input indicator pulses gently when listening.
+**Bottom: The Caption + Voice Bar.** A single live line of what the AI is saying (expandable into the full conversation log), with the voice orb and transport controls beneath it. The transcript supports the diagram; it never competes with it.
 
 Everything transitions smoothly. Code morphs between versions with animated token transitions. Diagram nodes expand and contract with spring physics. The room never jump-cuts.
 

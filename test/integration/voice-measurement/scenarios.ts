@@ -218,6 +218,37 @@ export const SCENARIOS: Scenario[] = [
       { kind: 'speaking_stopped', delayMs: 100 },
     ],
   },
+  {
+    id: '13-ack-survives-floor',
+    description: 'User asks a question; the spoken ack lands inside the post-silence window.',
+    whatItTests: 'Is the ack HELD and delivered once the floor opens — not dropped? (Live bug 2026-06-09: tts.drop post_user_silence ate every ack.)',
+    steps: [
+      { kind: 'speaking_started', delayMs: 0 },
+      { kind: 'speaking_stopped', delayMs: 600 },
+      // The utterance lands right after speech stops — the ack it triggers
+      // is emitted well inside POST_USER_SILENCE_MS.
+      { kind: 'utterance',        delayMs: 50,   payload: { text: 'what is the ledger module for' } },
+      // Give the release timer room to fire and the emit to land.
+      { kind: 'wait',             delayMs: 1500 },
+    ],
+  },
+  {
+    id: '14-superseded-turn-stays-silent',
+    description: 'User pauses mid-thought (segmented utterance) then keeps talking — the held first turn is discarded.',
+    whatItTests: 'Held narration from a superseded turn never plays into the user\'s continued sentence.',
+    steps: [
+      { kind: 'speaking_started', delayMs: 0 },
+      { kind: 'speaking_stopped', delayMs: 400 },
+      { kind: 'utterance',        delayMs: 50,   payload: { text: 'so about the payments area of the codebase' } },
+      // User keeps talking before the 600ms window opens — supersedes the
+      // held ack; nothing from that turn may ever play.
+      { kind: 'speaking_started', delayMs: 200 },
+      { kind: 'server_narration', delayMs: 100,  payload: { text: 'Interjection during continued thought.' } },
+      { kind: 'speaking_stopped', delayMs: 600 },
+      { kind: 'utterance',        delayMs: 50,   payload: { text: 'actually how does the payments retry logic work' } },
+      { kind: 'wait',             delayMs: 1200 },
+    ],
+  },
 ];
 
 export async function runScenario(

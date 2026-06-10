@@ -71,6 +71,12 @@ export class DevClient {
     return this.req('POST', '/utter', { devSessionId, text });
   }
 
+  /** Inject a raw ClientEvent through the manager's handleEvent — same path
+   *  as the real WS channel. For duplicate/replay scenarios. */
+  async sendClientEvent(devSessionId: string, event: Record<string, unknown>): Promise<void> {
+    await this.req('POST', '/session/event', { devSessionId, event });
+  }
+
   async command(
     devSessionId: string,
     type:

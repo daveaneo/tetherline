@@ -1,6 +1,6 @@
 # Tetherline — Vision Masterplan
 
-**Goal.** Close the gap between a developer and a codebase that AI is writing faster than they can absorb. Tetherline should feel like talking to a human who always has the right presentation ready — starts high, follows you down, remembers where you've been, and knows what you already understand.
+**Goal.** Close the gap between a developer and a codebase that AI is writing faster than they can absorb. Tetherline should feel like talking to a human who always has the right presentation ready — starts high, follows you down, remembers where you've been, and knows what you already understand. Every question gets a quick voice answer, ideally paired with a visual aid; the whole experience should feel **fun, interactive, and intuitive** — not a documentation crawl, not a search box.
 
 This is the *product* masterplan. [`TESTING-MASTERPLAN.md`](./TESTING-MASTERPLAN.md) covers the dev-API + test infrastructure that underpins it.
 

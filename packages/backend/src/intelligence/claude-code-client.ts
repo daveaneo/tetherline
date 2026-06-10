@@ -6,6 +6,7 @@
  */
 import { spawn, execFile } from 'child_process';
 import { promisify } from 'util';
+import type { LLMResponse, LLMStreamHandle } from './llm/types.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -67,11 +68,21 @@ export class ClaudeCodeClient {
     }
   }
 
+  /** Map a full API model id to the CLI's short alias when recognizable. */
+  private cliModel(override?: string): string {
+    if (!override) return this.model;
+    if (/haiku/i.test(override)) return 'haiku';
+    if (/sonnet/i.test(override)) return 'sonnet';
+    if (/opus/i.test(override)) return 'opus';
+    return override;
+  }
+
   /** Get a text response via `claude -p` */
   async streamText(params: {
     system: string;
     messages: Array<{ role: 'user' | 'assistant'; content: string }>;
     maxTokens?: number;
+    model?: string;
   }): Promise<string> {
     const userMessage = params.messages
       .filter(m => m.role === 'user')
@@ -80,10 +91,130 @@ export class ClaudeCodeClient {
     const fullPrompt = `${params.system}\n\n${userMessage}`;
 
     const { stdout } = await runClaudeCLI(
-      ['-p', fullPrompt, '--model', this.model, '--output-format', 'text'],
+      ['-p', fullPrompt, '--model', this.cliModel(params.model), '--output-format', 'text'],
       { cwd: this.cwd, timeoutMs: 120_000 },
     );
     return stdout.trim();
+  }
+
+  /**
+   * True token streaming via `--output-format stream-json` with partial
+   * messages. CLI version variance is handled by an automatic one-shot
+   * fallback: if the flag is unsupported or NDJSON parsing yields nothing,
+   * the whole completion arrives as a single delta via streamText().
+   */
+  streamTextLive(params: {
+    system: string;
+    messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+    maxTokens?: number;
+    model?: string;
+  }): LLMStreamHandle {
+    const userMessage = params.messages
+      .filter(m => m.role === 'user')
+      .map(m => m.content)
+      .join('\n\n');
+    const fullPrompt = `${params.system}\n\n${userMessage}`;
+    const model = params.model ?? this.model;
+    const t0 = Date.now();
+
+    const child = spawn('claude', [
+      '-p', fullPrompt,
+      '--model', model,
+      '--output-format', 'stream-json',
+      '--verbose',
+      '--include-partial-messages',
+    ], {
+      cwd: this.cwd,
+      env: { ...process.env },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    try { child.stdin.end(); } catch { /* already closed */ }
+
+    let aborted = false;
+    let received = '';
+    let stderr = '';
+    child.stderr?.on('data', d => { stderr += d.toString(); });
+
+    const self = this;
+    let settle!: () => void;
+    const settled = new Promise<void>(r => { settle = r; });
+
+    const deltas = (async function* () {
+      let lineBuf = '';
+      let sawAnyDelta = false;
+      let exitCode: number | null = null;
+      const exited = new Promise<void>(res => child.on('close', code => { exitCode = code; res(); }));
+
+      // Async iterate stdout line-by-line as NDJSON.
+      try {
+       try {
+        for await (const data of child.stdout) {
+          lineBuf += data.toString();
+          let nl: number;
+          while ((nl = lineBuf.indexOf('\n')) >= 0) {
+            const line = lineBuf.slice(0, nl).trim();
+            lineBuf = lineBuf.slice(nl + 1);
+            if (!line) continue;
+            let obj: any;
+            try { obj = JSON.parse(line); } catch { continue; }
+            // --include-partial-messages wraps raw API events as stream_event.
+            const ev = obj.type === 'stream_event' ? obj.event : obj;
+            if (ev?.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
+              sawAnyDelta = true;
+              received += ev.delta.text;
+              yield ev.delta.text as string;
+            } else if (!sawAnyDelta && obj.type === 'assistant' && obj.message?.content) {
+              // Degraded mode (no partial messages): whole assistant message
+              // objects still stream one per turn — yield each as one delta.
+              const text = (obj.message.content as any[])
+                .filter(b => b.type === 'text')
+                .map(b => b.text)
+                .join('');
+              if (text) {
+                received += text;
+                yield text;
+              }
+            }
+          }
+        }
+       } catch {
+        // stdout iteration error (e.g. SIGTERM on abort) — fall through.
+       }
+       await exited;
+       if (aborted || received) return;
+       // Nothing usable arrived (unknown flag, parse failure, non-zero exit):
+       // automatic one-shot fallback through the plain text path.
+       if (exitCode !== 0 || !received) {
+        const text = await self.streamText(params);
+        received = text;
+        if (text) yield text;
+       }
+      } finally {
+        // Settles `final` whether iteration completed, aborted, errored, or
+        // was abandoned via return(). sawAnyDelta intentionally unused after
+        // degraded-mode detection.
+        void sawAnyDelta;
+        settle();
+      }
+    })();
+
+    const final: Promise<LLMResponse> = settled.then(() => ({
+      id: `llm_cli_${t0.toString(36)}`,
+      text: received.trim(),
+      cacheHit: false,
+      elapsedMs: Date.now() - t0,
+      ...(aborted ? { aborted: true } : {}),
+    }));
+
+    return {
+      deltas,
+      final,
+      abort() {
+        if (aborted) return;
+        aborted = true;
+        try { child.kill('SIGTERM'); } catch { /* already dead */ }
+      },
+    };
   }
 
   /** Get structured JSON output — asks Claude to respond with JSON, then parses */
@@ -94,6 +225,7 @@ export class ClaudeCodeClient {
     toolDescription: string;
     inputSchema: Record<string, unknown>;
     maxTokens?: number;
+    model?: string;
   }): Promise<T> {
     const schemaStr = JSON.stringify(params.inputSchema, null, 2);
     const userMessage = params.messages
@@ -111,7 +243,7 @@ Schema:
 ${schemaStr}`;
 
     const { stdout } = await runClaudeCLI(
-      ['-p', fullPrompt, '--model', this.model, '--output-format', 'text'],
+      ['-p', fullPrompt, '--model', this.cliModel(params.model), '--output-format', 'text'],
       { cwd: this.cwd, timeoutMs: 120_000 },
     );
 

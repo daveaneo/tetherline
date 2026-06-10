@@ -37,6 +37,9 @@ export class IntelligenceAnalyzer {
       commitCount: number;
       previousSessionSummary?: string;
       contextComposer?: ContextComposer;
+      /** Grounding retriever — injects real file contents into Q&A
+       *  prompts so answers stop hallucinating from summaries alone. */
+      retriever?: import('./retriever.js').Retriever;
     },
   ) {
     this.claude = client;
@@ -221,13 +224,62 @@ export class IntelligenceAnalyzer {
     });
   }
 
-  async answerQuestion(question: string, context: string): Promise<string> {
+  async answerQuestion(
+    question: string,
+    context: string,
+    opts?: { params?: Record<string, string>; currentFile?: string },
+  ): Promise<string> {
     let enrichedContext = context;
     if (this.context.contextComposer) {
       const cached = this.context.contextComposer.compose({ type: 'question', question, tokenBudget: 1000 });
       enrichedContext = cached + '\n\n' + context;
     }
+    // Ground truth: real file contents (README/manifest always; matched
+    // sources by target/keyword) so the answer can't drift into invention.
+    if (this.context.retriever) {
+      try {
+        const retrieval = this.context.retriever.retrieve({
+          question,
+          params: opts?.params,
+          currentFile: opts?.currentFile,
+        });
+        enrichedContext = `${enrichedContext}\n\n${retrieval.promptBlock}`;
+      } catch { /* retrieval is best-effort — summaries still apply */ }
+    }
     return this.claude.streamText({
+      system: this.systemPrompt,
+      messages: [{ role: 'user', content: `${enrichedContext}\n\nQuestion: ${question}` }],
+    });
+  }
+
+  /**
+   * Token-streaming variant of answerQuestion — same prompt assembly, but
+   * returns a live stream handle so the caller can speak sentences as
+   * they complete. Returns null when the underlying client can't stream
+   * (caller falls back to answerQuestion).
+   */
+  answerQuestionStream(
+    question: string,
+    context: string,
+    opts?: { params?: Record<string, string>; currentFile?: string },
+  ): import('./llm/types.js').LLMStreamHandle | null {
+    if (!this.claude.streamTextLive) return null;
+    let enrichedContext = context;
+    if (this.context.contextComposer) {
+      const cached = this.context.contextComposer.compose({ type: 'question', question, tokenBudget: 1000 });
+      enrichedContext = cached + '\n\n' + context;
+    }
+    if (this.context.retriever) {
+      try {
+        const retrieval = this.context.retriever.retrieve({
+          question,
+          params: opts?.params,
+          currentFile: opts?.currentFile,
+        });
+        enrichedContext = `${enrichedContext}\n\n${retrieval.promptBlock}`;
+      } catch { /* retrieval is best-effort — summaries still apply */ }
+    }
+    return this.claude.streamTextLive({
       system: this.systemPrompt,
       messages: [{ role: 'user', content: `${enrichedContext}\n\nQuestion: ${question}` }],
     });

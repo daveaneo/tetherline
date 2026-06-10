@@ -6,6 +6,7 @@ import type { Session, SessionSummary } from './session.js';
 import type { UnderstandingState } from './understanding.js';
 import type { SkillResult } from './skills.js';
 import type { VisualLayer } from './visual-layer.js';
+import type { VisualTransition } from './visual-dispatch.js';
 import type { OnboardingDay } from './onboarding.js';
 
 // Client → Server
@@ -30,7 +31,10 @@ export type ClientEvent =
   | { type: 'user:speaking_started' }
   | { type: 'user:speaking_stopped' }
   | { type: 'action:confirm_issue'; payload: { title: string; body: string; labels: string[] } }
-  | { type: 'session:start_onboarding'; payload: { repoPath: string; programId?: string; dayNumber?: number } };
+  | { type: 'session:start_onboarding'; payload: { repoPath: string; programId?: string; dayNumber?: number } }
+  // Frontend mirrors its local diagram scope so the visual dispatcher can
+  // classify DESCEND vs ASCEND vs LATERAL correctly server-side.
+  | { type: 'diagram:scope'; payload: { scope: string } };
 
 // Server → Client
 export type ServerEvent =
@@ -84,7 +88,7 @@ export type ServerEvent =
       layer: string;
       level: 'unknown'|'mentioned'|'heard'|'engaged'|'explained'|'confirmed';
       previousLevel: 'unknown'|'mentioned'|'heard'|'engaged'|'explained'|'confirmed';
-      reason: 'briefing_delivered'|'question_asked'|'listened_through'|'confirmed_phrase'|'stale'|'seen'|'quiz'|'grill';
+      reason: 'briefing_delivered'|'question_asked'|'listened_through'|'confirmed_phrase'|'stale'|'seen'|'quiz'|'grill'|'qa_answer';
       // v3 knowledge signal — carried so the Overlay / Gaps panels show
       // the SAME Seen + Quiz/Grill model as the diagram (not the old
       // single `level`). Optional ⇒ backward-compatible.
@@ -183,8 +187,18 @@ export type ServerEvent =
   | { type: 'narration:greeting'; payload: { text: string } }
   | { type: 'session:understanding'; payload: { understanding: UnderstandingState } }
   | { type: 'skill:result'; payload: { result: SkillResult } }
+  // Single visual sink: every answered turn drives the diagram through one
+  // of these (focus pulse, drill, ascend, lateral cut). refs are resolved
+  // node ids for halo/pulse; emitted even with zero refs (IN_PLACE,
+  // reason 'no-refs') so the diagram is never static after an answer.
+  | { type: 'visual:dispatch'; payload: { transition: VisualTransition; targetNodeId?: string; refs: string[]; reason: string; suggestion?: string } }
+  // Fenced code lifted OUT of a spoken answer: rendered as a copyable card
+  // on the canvas, never read aloud. Distinct from visual:show_code, which
+  // is file-centric (filePath + highlight lines for the code-layer briefing
+  // flow) — an artifact is generated content with no backing file.
+  | { type: 'visual:artifact'; payload: { id: string; kind: 'commands' | 'code'; title?: string; language?: string; body: string } }
   | { type: 'skill:clarify'; payload: { message: string; options: string[] } }
-  | { type: 'session:proposal'; payload: { message: string; suggestedOrder: string[]; areas: Array<{ id: string; name: string; significance: string }> } }
+  | { type: 'session:proposal'; payload: { message: string; suggestedOrder: string[]; areas: Array<{ id: string; name: string; significance: string }>; /** true ⇒ backend narrates via the open stream; the client must NOT speak `message` */ narrated?: boolean } }
   | { type: 'session:tour_progress'; payload: { total: number; covered: number; percentage: number } }
   | { type: 'action:issue_created'; payload: { url: string; number: number } }
   | { type: 'action:issue_failed'; payload: { error: string } }
