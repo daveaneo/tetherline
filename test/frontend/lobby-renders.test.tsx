@@ -16,7 +16,7 @@ const apiMock = vi.hoisted(() => ({
   addRepo: vi.fn(),
 }));
 vi.mock('../../packages/frontend/src/lib/api-client.js', () => ({ api: apiMock }));
-vi.mock('../../packages/frontend/src/lib/ws-client.js', () => ({ sendEvent: vi.fn() }));
+vi.mock('../../packages/frontend/src/lib/ws-client.js', () => ({ sendEvent: vi.fn(() => true) }));
 
 Object.defineProperty(window, 'matchMedia', {
   writable: true,

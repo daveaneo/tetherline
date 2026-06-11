@@ -29,13 +29,19 @@ export function SessionEntrance({ onComplete }: { onComplete: () => void }) {
 
   // Auto-dismiss after 3s — but the splash is latency theater for a
   // returning user, so any click or keypress skips it immediately.
+  // Capture phase + stopPropagation: the skip keystroke must be
+  // CONSUMED, not also delivered to the session hotkeys (pressing "s"
+  // to skip the splash would otherwise fire command:skip too).
   useEffect(() => {
     const timer = setTimeout(dismiss, 3000);
-    const onKey = () => dismiss();
-    window.addEventListener('keydown', onKey);
+    const onKey = (e: KeyboardEvent) => {
+      e.stopPropagation();
+      dismiss();
+    };
+    window.addEventListener('keydown', onKey, true);
     return () => {
       clearTimeout(timer);
-      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keydown', onKey, true);
     };
   }, [dismiss]);
 

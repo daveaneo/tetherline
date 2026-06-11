@@ -1,8 +1,9 @@
-// 'shiki/bundle/web' (web langs only) instead of the full 'shiki'
-// entry — this component is also lazy-loaded, so the highlighter
-// never touches the app's entry chunk.
+// Full shiki bundle ON PURPOSE: the repo being reviewed can be any
+// language (backend detectLanguage emits rust/go/ruby/…), and the web
+// bundle silently drops those. This component is lazy-loaded, so the
+// size lives in an on-demand chunk, not the entry bundle.
 import { useEffect, useState } from 'react';
-import { codeToHtml } from 'shiki/bundle/web';
+import { codeToHtml } from 'shiki';
 import { motion } from 'framer-motion';
 import { emberTheme } from './ember-theme.js';
 

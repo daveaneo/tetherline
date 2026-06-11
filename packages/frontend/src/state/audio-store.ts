@@ -141,6 +141,8 @@ function normalizeSpeech(s: string): string {
   return s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
 }
 
+let toastSeq = 0;
+
 const SPOKEN_TEXT_WINDOW_MS = 20_000;
 const SPOKEN_TEXT_MAX_ENTRIES = 10;
 /** Below this many normalized chars a substring match is meaningless
@@ -283,7 +285,9 @@ export const useAudioStore = create<AudioStore>((set, get) => ({
   setVoiceState: (voiceState) => set({ voiceState }),
 
   addSpeechToast: (text, kind = 'transcript') => {
-    const toast: SpeechToast = { id: `toast-${Date.now()}`, text, timestamp: Date.now(), kind };
+    // Counter suffix: same-ms toasts (the stacked unavailable-fix trio)
+    // produced identical ids → duplicate React keys in SpeechToasts.
+    const toast: SpeechToast = { id: `toast-${Date.now()}-${toastSeq++}`, text, timestamp: Date.now(), kind };
     set(s => ({ speechToasts: [...s.speechToasts.slice(-4), toast] })); // keep last 5
     // Auto-remove after 4 seconds
     setTimeout(() => {

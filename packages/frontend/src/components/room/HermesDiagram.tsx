@@ -342,10 +342,14 @@ export function HermesDiagram() {
   // state rather than an eternal "Composing…". Cleared as soon as a
   // payload or error lands.
   useEffect(() => {
-    if (phase === 'IDLE' || payload || error) { setStalled(false); return; }
+    // Two stall cases: never had a payload (cold session), or a
+    // REVALIDATION hangs (SWR keeps the old canvas up while loading —
+    // without this arm, a hung drill-down dimmed the canvas forever).
+    const settled = payload ? !loading : false;
+    if (phase === 'IDLE' || error || settled) { setStalled(false); return; }
     const t = setTimeout(() => setStalled(true), 12000);
     return () => clearTimeout(t);
-  }, [phase, payload, error, repoPath, retryNonce]);
+  }, [phase, payload, loading, error, repoPath, retryNonce]);
 
   // Fetch the diagram payload whenever scope/view/repoPath changes.
   useEffect(() => {
@@ -861,12 +865,37 @@ export function HermesDiagram() {
         className="flex-1 relative flex items-start justify-center"
         style={{
           minHeight: 0, padding: '8px 24px 24px',
-          // Revalidating: previous diagram stays visible, dimmed.
-          opacity: loading ? 0.55 : 1,
+          // Revalidating: previous diagram stays visible, dimmed. A failed
+          // or stalled refetch un-dims (the old canvas is what you HAVE).
+          opacity: loading && !error && !stalled ? 0.55 : 1,
           transition: 'opacity 0.2s ease',
         }}
       >
-        {loading && (
+        {/* Refetch failed / hung with a stale canvas up: say so — a
+            silent failure here leaves the breadcrumb claiming module/X
+            while the canvas still shows the project. */}
+        {(error || stalled) ? (
+          <div
+            className="absolute top-2 right-6 z-10 font-mono flex items-center gap-3"
+            style={{
+              fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase',
+              color: 'var(--sig-concern)', padding: '4px 10px', borderRadius: 999,
+              background: 'color-mix(in oklch, var(--ink-100) 90%, transparent)',
+              border: '1px solid color-mix(in oklch, var(--sig-concern) 40%, transparent)',
+            }}
+            data-testid="diagram-update-failed"
+          >
+            <span>{error ? `couldn't update: ${error}` : "update stalled"}</span>
+            <button
+              type="button"
+              onClick={retryDiagram}
+              className="font-mono"
+              style={{ color: 'var(--amber-400)', letterSpacing: 'inherit', textTransform: 'inherit', cursor: 'pointer', background: 'none', border: 'none', padding: 0, font: 'inherit' }}
+            >
+              retry
+            </button>
+          </div>
+        ) : loading && (
           <div
             className="absolute top-2 right-6 z-10 font-mono"
             style={{
@@ -987,7 +1016,12 @@ export function HermesDiagram() {
            *  invisible center coordinate so spacing/positioning is
            *  unchanged. */}
           <motion.g
-            key={scope}
+            // Keyed by the PAYLOAD's scope, not the navigation state: under
+            // stale-while-revalidate the scope flips at click time while the
+            // old diagram is still on screen — keying on `scope` played the
+            // enter motion on the OLD nodes and snapped the new ones in.
+            // The payload scope changes exactly when the new content lands.
+            key={payload.scope ?? scope}
             initial={scopeMotion.initial}
             animate={scopeMotion.animate}
             transition={{ duration: scopeMotion.duration, ease: 'easeOut' }}
@@ -1489,7 +1523,9 @@ const DiagramNodeView = memo(function DiagramNodeView({ node, compact, active, a
         const overflowExtra = overflow > 0 ? 22 : 0; // room for "+N"
         const rowWidth = childrenInfo.visible.length * (pipR * 2) + (childrenInfo.visible.length - 1) * pipGap + overflowExtra;
         const startX = -rowWidth / 2 + pipR;
-        const rowY = rectHeight / 2 + 30; // below the comprehension ladder
+        // Below the S/Q row — which compact mode drops, so the pips
+        // tuck in close instead of floating over a 16px dead band.
+        const rowY = rectHeight / 2 + (compact ? 14 : 30);
         return (
           <g data-testid={`hd-pips-${node.id}`}>
             {childrenInfo.visible.map((lvl, i) => {
@@ -1851,8 +1887,12 @@ function KnowledgeStrip({
   const mine = weakSpots.filter(w => w.itemId === cur.id);
 
   const ask = (text: string) => {
+    // Only log the 'you' line for sends that actually went out.
+    if (!sendEvent({ type: 'user:utterance', payload: { text, timestamp: Date.now() } })) {
+      useAudioStore.getState().addSpeechToast('Not connected — try again in a moment.', 'error');
+      return;
+    }
     useSessionStore.getState().addConversation('you', text);
-    sendEvent({ type: 'user:utterance', payload: { text, timestamp: Date.now() } });
   };
   // ▶ replay: re-speak the authored flow's narration INSTANTLY (no QA
   // round-trip) by feeding the greeting lane; fall back to a fresh explain.

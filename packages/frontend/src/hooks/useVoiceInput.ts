@@ -356,7 +356,9 @@ export function useVoiceInput() {
       });
       captureRef.current = capture;
       setListening(true);
-      useAudioStore.getState().addSpeechToast('Mic started (Whisper + echo cancellation)', 'status');
+      // "Starting" — permission may still be pending. Success posts its
+      // own 'capture_started' state toast; failure posts the error above.
+      useAudioStore.getState().addSpeechToast('Starting mic (Whisper + echo cancellation)…', 'status');
 
     } else if (effectiveMode === 'browser') {
       // Fall back to Web Speech API

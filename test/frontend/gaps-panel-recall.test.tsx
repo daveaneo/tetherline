@@ -12,7 +12,7 @@ import { useSessionStore } from '../../packages/frontend/src/state/session-store
 
 const sentEvents: any[] = [];
 vi.mock('../../packages/frontend/src/lib/ws-client.js', () => ({
-  sendEvent: vi.fn((e: any) => { sentEvents.push(e); }),
+  sendEvent: vi.fn((e: any) => { sentEvents.push(e); return true; }),
 }));
 
 beforeEach(() => {

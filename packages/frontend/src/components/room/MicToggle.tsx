@@ -37,9 +37,9 @@ export function MicToggle() {
     if (unavailable) {
       // Re-emit the actionable toasts so the user sees the fix
       // even if the toast row already cleared.
-      store.addSpeechToast('Voice input unavailable — no STT backend');
-      store.addSpeechToast('Run: python3 packages/backend/src/tts/audio-server.py');
-      store.addSpeechToast('Or open the app in Chrome/Edge');
+      store.addSpeechToast('Voice input unavailable — no STT backend', 'error');
+      store.addSpeechToast('Run: python3 packages/backend/src/tts/audio-server.py', 'status');
+      store.addSpeechToast('Or open the app in Chrome/Edge', 'status');
       return;
     }
     if (isMicOn) store.requestMicStop();

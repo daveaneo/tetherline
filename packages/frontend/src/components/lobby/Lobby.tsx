@@ -136,6 +136,9 @@ export function Lobby() {
       if (e.key !== 'Enter') return;
       if (showAddDialog || entryModeRepo) return;
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      // A focused button already activates on Enter (Resume, + Add…) —
+      // don't ALSO open the mode dialog on top of that action.
+      if (e.target instanceof HTMLButtonElement) return;
       const repo = repos.find(r => r.id === selectedRepoId);
       if (repo) setEntryModeRepo(repo);
     };

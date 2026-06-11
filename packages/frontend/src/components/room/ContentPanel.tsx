@@ -256,7 +256,9 @@ function ErrorRetryButton() {
   const retry = () => {
     const mode = (entryMode || 'updates') as 'full_walkthrough' | 'updates' | 'onboarding' | 'explore';
     const sinceDays = mode === 'updates' ? 7 : 3650;
-    sendEvent({ type: 'session:start', payload: { repoPath, sinceDays, entryMode: mode } });
+    if (!sendEvent({ type: 'session:start', payload: { repoPath, sinceDays, entryMode: mode } })) {
+      useAudioStore.getState().addSpeechToast('Not connected — try again in a moment.', 'error');
+    }
   };
   return (
     <button type="button" onClick={retry} className="btn btn-primary">

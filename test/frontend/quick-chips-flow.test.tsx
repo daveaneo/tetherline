@@ -10,7 +10,7 @@ import '@testing-library/jest-dom/vitest';
 import { useSessionStore } from '../../packages/frontend/src/state/session-store.js';
 import { QuickChips } from '../../packages/frontend/src/components/room/QuickChips.js';
 
-vi.mock('../../packages/frontend/src/lib/ws-client.js', () => ({ sendEvent: vi.fn() }));
+vi.mock('../../packages/frontend/src/lib/ws-client.js', () => ({ sendEvent: vi.fn(() => true) }));
 
 beforeEach(() => { cleanup(); });
 afterEach(() => { cleanup(); });

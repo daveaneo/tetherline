@@ -13,7 +13,7 @@ import { useSessionStore } from '../../packages/frontend/src/state/session-store
 import { useAudioStore } from '../../packages/frontend/src/state/audio-store.js';
 import { NarrationBar } from '../../packages/frontend/src/components/room/NarrationBar.js';
 
-vi.mock('../../packages/frontend/src/lib/ws-client.js', () => ({ sendEvent: vi.fn() }));
+vi.mock('../../packages/frontend/src/lib/ws-client.js', () => ({ sendEvent: vi.fn(() => true) }));
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
   value: vi.fn().mockImplementation(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),

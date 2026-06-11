@@ -12,7 +12,7 @@ import { useAudioStore } from '../../packages/frontend/src/state/audio-store.js'
 import { useSettingsStore } from '../../packages/frontend/src/state/settings-store.js';
 import { DEFAULT_MODES, DEFAULT_SETTINGS } from '@tetherline/shared';
 
-vi.mock('../../packages/frontend/src/lib/ws-client.js', () => ({ sendEvent: vi.fn() }));
+vi.mock('../../packages/frontend/src/lib/ws-client.js', () => ({ sendEvent: vi.fn(() => true) }));
 
 const speakCalls: Array<{ text: string }> = [];
 

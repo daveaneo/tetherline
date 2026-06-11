@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { ShikiMagicMove } from 'shiki-magic-move/react';
-// Web-langs bundle (smaller) — and this component is lazy-loaded, so
-// the highlighter stays out of the entry chunk entirely.
-import { createHighlighter } from 'shiki/bundle/web';
+// Full bundle on purpose (any-language repos); lazy-loaded chunk, so
+// none of it touches the entry bundle.
+import { createHighlighter } from 'shiki';
 import type { HighlighterCore } from 'shiki/core';
 import 'shiki-magic-move/style.css';
 import { emberTheme } from './ember-theme.js';
@@ -16,13 +16,24 @@ interface Props {
 
 export function CodeMorphing({ oldCode, newCode, language, filePath }: Props) {
   const [highlighter, setHighlighter] = useState<HighlighterCore | null>(null);
+  const [effectiveLang, setEffectiveLang] = useState(language || 'text');
   const [showNew, setShowNew] = useState(false);
 
   useEffect(() => {
-    createHighlighter({
-      themes: [emberTheme],
-      langs: [language || 'text'],
-    }).then(h => setHighlighter(h as unknown as HighlighterCore));
+    let cancelled = false;
+    const make = (lang: string) =>
+      createHighlighter({ themes: [emberTheme], langs: [lang] });
+    // Unknown language must NEVER strand the panel on an infinite
+    // shimmer (createHighlighter rejects for langs the bundle lacks) —
+    // degrade to un-highlighted 'text' and keep the morph animation.
+    make(language || 'text')
+      .then(h => { if (!cancelled) { setEffectiveLang(language || 'text'); setHighlighter(h as unknown as HighlighterCore); } })
+      .catch(() =>
+        make('text')
+          .then(h => { if (!cancelled) { setEffectiveLang('text'); setHighlighter(h as unknown as HighlighterCore); } })
+          .catch(() => { /* shiki itself failed to load — keep skeleton */ }),
+      );
+    return () => { cancelled = true; };
   }, [language]);
 
   // After a brief delay, switch to new code (triggering the magic move animation)
@@ -54,7 +65,7 @@ export function CodeMorphing({ oldCode, newCode, language, filePath }: Props) {
         <ShikiMagicMove
           highlighter={highlighter}
           code={showNew ? newCode : oldCode}
-          lang={language || 'text'}
+          lang={effectiveLang}
           theme="ember"
           options={{ duration: 600, stagger: 3, lineNumbers: true }}
         />
