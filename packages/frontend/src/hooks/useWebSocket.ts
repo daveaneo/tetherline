@@ -54,6 +54,10 @@ export function useWebSocket() {
     };
 
     ws.onclose = () => {
+      // A STALE socket (StrictMode's first-mount socket, or one replaced
+      // by a newer connect) must not drive state: its late close used to
+      // flip connected=false and schedule a duplicate reconnect loop.
+      if (wsRef.current !== ws) return;
       setConnected(false);
       setStoreConnected(false);
 
@@ -66,6 +70,9 @@ export function useWebSocket() {
     };
 
     ws.onerror = (err) => {
+      // Same staleness guard: the torn-down first-mount socket fired a
+      // scary "WebSocket error" on every dev page load.
+      if (unmountedRef.current || wsRef.current !== ws) return;
       console.error('WebSocket error:', err);
     };
   }, [handleServerEvent, setStoreConnected]);
