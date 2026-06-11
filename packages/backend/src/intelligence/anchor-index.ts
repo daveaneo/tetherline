@@ -83,18 +83,22 @@ export function buildAnchorIndex(opts: {
 
   for (const row of opts.diagramRows) {
     for (const node of row.nodes) {
-      addAlias(node.id, node.label, node.label);
-      for (const v of caseVariants(node.label)) addAlias(node.id, node.label, v);
+      // Resolve to the node's CANONICAL comprehension id: a grounded flow stage
+      // carries briefingId = file/<path>, so "data cleaner" resolves to the file
+      // item, not a throwaway kebab node id (which spawned duplicate items).
+      const target = node.briefingId ?? node.id;
+      addAlias(target, node.label, node.label);
+      for (const v of caseVariants(node.label)) addAlias(target, node.label, v);
       const leaf = leafOf(node.id);
-      addAlias(node.id, node.label, leaf);
+      addAlias(target, node.label, leaf);
       // file-ish leaves also anchor without their extension
       const stem = leaf.replace(/\.[^.]+$/, '');
-      if (stem !== leaf) addAlias(node.id, node.label, stem);
+      if (stem !== leaf) addAlias(target, node.label, stem);
       for (const f of node.implementsFiles ?? []) {
         const base = f.split('/').pop() ?? '';
-        addAlias(node.id, node.label, base);
+        addAlias(target, node.label, base);
         const fstem = base.replace(/\.[^.]+$/, '');
-        if (fstem !== base) addAlias(node.id, node.label, fstem);
+        if (fstem !== base) addAlias(target, node.label, fstem);
       }
     }
   }

@@ -466,6 +466,28 @@ export class Database {
     if (!diagCols.has('narration')) {
       this.db.exec(`ALTER TABLE diagram_cache ADD COLUMN narration TEXT`);
     }
+    // One-time cleanup: authored-flow node ids (bare kebab like 'data-cleaner')
+    // used to spawn their OWN comprehension rows, duplicating the canonical
+    // file/<path> item and inflating the knowledge count (live 2026-06-10).
+    // Remove rows whose item_id has no canonical layer prefix — but NEVER touch
+    // a row carrying quiz/grill effort (active-recall proof is irreplaceable).
+    try {
+      const res = this.db.prepare(
+        `DELETE FROM comprehension
+          WHERE item_id <> 'project'
+            AND item_id NOT LIKE 'module/%'
+            AND item_id NOT LIKE 'file/%'
+            AND item_id NOT LIKE 'arch/%'
+            AND item_id NOT LIKE 'concept/%'
+            AND COALESCE(quiz_total,0) = 0
+            AND COALESCE(grilled,0) = 0
+            AND COALESCE(grill_asked,0) = 0`,
+      ).run();
+      if (res.changes > 0) {
+        // eslint-disable-next-line no-console
+        console.log(`[migration] removed ${res.changes} non-canonical comprehension rows (kebab flow-node dupes)`);
+      }
+    } catch { /* best-effort cleanup */ }
     // v2 weak_spots table (CREATE IF NOT EXISTS above covers fresh DBs;
     // this guards an older DB created before the table existed).
     this.db.exec(`

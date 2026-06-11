@@ -157,6 +157,44 @@ describe('validateFlow', () => {
     expect(r.narrationOk).toBe(true);
   });
 
+  it('assigns module files to their best-match stage; unmatched files go unassigned', () => {
+    const ev: FlowEvidence = {
+      moduleName: 'core',
+      files: ['core/web_collector.py', 'core/data_cleaner.py', 'core/data_validator.py', 'core/hardware_scanner.py'],
+      importEdges: [{ from: 'core/web_collector.py', to: 'core/data_cleaner.py' }],
+    };
+    const r = validateFlow({
+      nodes: [
+        { id: 'wc', label: 'WebCollector' },
+        { id: 'dc', label: 'DataCleaner' },
+        { id: 'pg', label: 'PairGenerator' },
+      ],
+      edges: [{ from: 'wc', to: 'dc' }, { from: 'dc', to: 'pg' }],
+      narration: 'WebCollector, DataCleaner, PairGenerator.',
+    }, ev);
+    const dc = r.nodes.find(n => n.id === 'dc')!;
+    // data_cleaner.py AND data_validator.py share the "data" token → both land on DataCleaner.
+    expect(dc.implementsFiles).toContain('core/data_cleaner.py');
+    expect(dc.implementsFiles).toContain('core/data_validator.py');
+    // hardware_scanner.py matches no stage → surfaced as "not shown".
+    expect(r.unassignedFiles).toContain('core/hardware_scanner.py');
+  });
+
+  it('drops a self-referential module node ("Core Module") when real stages remain', () => {
+    const r = validateFlow({
+      nodes: [
+        { id: 'wc', label: 'WebCollector' },
+        { id: 'dc', label: 'DataCleaner' },
+        { id: 'pg', label: 'PairGenerator' },
+        { id: 'self', label: 'Core Module' },
+      ],
+      edges: [{ from: 'wc', to: 'dc' }, { from: 'dc', to: 'pg' }, { from: 'self', to: 'wc' }],
+      narration: 'WebCollector, DataCleaner, PairGenerator.',
+    }, evidence);
+    expect(r.nodes.some(n => n.id === 'self'), 'the module-as-its-own-node is dropped').toBe(false);
+    expect(r.nodes.length).toBeGreaterThanOrEqual(3);
+  });
+
   it('passes narration that only names real nodes', () => {
     const r = validateFlow({
       nodes: [

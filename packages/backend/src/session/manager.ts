@@ -41,6 +41,9 @@ import { scoreQuizAnswer } from '../intelligence/quiz.js';
 import type { LLMStreamHandle } from '../intelligence/llm/types.js';
 import { getDefaultLLMAdapter } from '../intelligence/llm/index.js';
 import { classifyArtifact, extractFencedArtifacts, type ExtractedArtifact } from '../intelligence/fence-extract.js';
+import { narrationMentionsOnly } from '../intelligence/flow-validate.js';
+import { applyComprehension } from '@tetherline/shared';
+import type { DiagramRow } from '../db/repositories/diagram-cache-repo.js';
 import type { ComprehensionItemLayer, ComprehensionLevel } from '@tetherline/shared';
 
 export class SessionManager {
@@ -92,6 +95,11 @@ export class SessionManager {
    *  resume position when the user interrupts mid-speech. */
   private lastBriefingEmittedAt: number | null = null;
   private lastBriefingId: string | null = null;
+  /** The flow most recently surfaced alongside a module briefing + the
+   *  canonical item ids of its stages. When that briefing is marked seen (its
+   *  narration — which now describes every stage — finished playing), the
+   *  stages are marked seen too, so the flow view shows real Seen%. */
+  private lastSurfacedFlow: { briefingId: string; stages: Array<{ itemId: string; label: string }> } | null = null;
   /** Whether the user currently holds the conversational floor. When true, the
    *  server suppresses outbound narration — prevents AI-on-user overlap. */
   private userSpeaking = false;
@@ -1894,6 +1902,11 @@ export class SessionManager {
     if (refIds.length === 0) return;
     const q = (question ?? '').toLowerCase();
     for (const id of refIds) {
+      // Canonical-identity guard: only project/module/file/arch/concept ids
+      // are real comprehension items. A bare kebab id (an authored flow node
+      // that didn't ground to a file) must NOT create a throwaway row — that's
+      // what fragmented the count (data-cleaner AND file/core/data_cleaner.py).
+      if (!isCanonicalItemId(id)) continue;
       const label = labels[id] ?? id.split('/').pop() ?? id;
       const namedInQuestion =
         q.length > 0 &&
@@ -2535,6 +2548,17 @@ export class SessionManager {
       if (seenId) {
         this.db.getComprehensionRepo().markSeen(repoPath, seenId);
         this.emitComprehensionUpdate(repoPath, seenId, 'seen');
+        // If this briefing surfaced a flow, its narration (P1) described every
+        // stage — so the stages are seen too. Credits the canonical file items
+        // the flow stages share, so the flow view shows real Seen% (not 0%).
+        if (this.lastSurfacedFlow?.briefingId === seenId) {
+          for (const stage of this.lastSurfacedFlow.stages) {
+            this.db.getComprehensionRepo().markSeen(repoPath, stage.itemId);
+            this.emitComprehensionUpdate(repoPath, stage.itemId, 'seen');
+          }
+          // Consumed — clear so a later unrelated segment can't re-credit it.
+          this.lastSurfacedFlow = null;
+        }
       }
     }
     // Close the whats_changed loop: being walked through a changed
@@ -2657,6 +2681,20 @@ export class SessionManager {
       // ≥24 h → the override (short opener) or full opener.
     }
 
+    // Cross-lane coherence: when this module briefing will surface a
+    // precompiled flow, SPEAK that flow's narration (validated to name only its
+    // own stages) instead of the file-listing opener — otherwise the user hears
+    // more components than the diagram shows (live "I see five but you named a
+    // lot more", 2026-06-10). Computed once; the row is reused by the surface.
+    let surfacedFlow: DiagramRow | null = null;
+    if ((reason === 'user_asked' || reason === 'dive_deeper') && briefing.layer === 'module' && repoPath) {
+      const coherent = this.coherentFlowOpener(repoPath, briefing);
+      if (coherent) {
+        openerToEmit = coherent.text;
+        surfacedFlow = coherent.row;
+      }
+    }
+
     // This briefing is a DIRECT response to the user's utterance — hold it
     // through the post-silence window instead of dropping it. Proactive
     // briefings (session_start / tour_next / resume_pop) stay droppable.
@@ -2698,19 +2736,53 @@ export class SessionManager {
     // Jump-to-flow: when the user ASKS about a module ("tell me about core"),
     // surface its pre-authored workflow right after the spoken briefing —
     // they shouldn't have to ask twice to see the flow (live note 2026-06-10).
-    // Only on user-driven module briefings (never session_start/tour_next, so
-    // the tour keeps its files-first order); only when a flow was precompiled.
-    if ((reason === 'user_asked' || reason === 'dive_deeper') && briefing.layer === 'module' && repoPath) {
-      this.maybeSurfaceFlow(repoPath, briefing.id);
+    // The row was already resolved above (coherentFlowOpener) so we don't
+    // re-read it; surfacing only fires when that found a flow.
+    if (surfacedFlow && repoPath) {
+      // The spoken briefing (P1) names every stage, so each grounded stage is
+      // now 'heard' under its CANONICAL file item — observe them (creating the
+      // items if needed) and remember them so segment_finished marks them seen.
+      const stages = surfacedFlow.nodes
+        .filter(n => typeof n.briefingId === 'string')
+        .map(n => ({ itemId: n.briefingId as string, label: n.label }));
+      for (const s of stages) {
+        this.observeComprehension(s.itemId, s.label, 'heard', 'qa_answer');
+      }
+      this.lastSurfacedFlow = { briefingId: briefing.id, stages };
+      this.maybeSurfaceFlow(repoPath, surfacedFlow);
     }
   }
 
+  /** A coherent spoken opener for a module that has a precompiled flow: a short
+   *  lead from the briefing (dropped if it names a stage not in the flow) + the
+   *  flow's own validated narration + a bridge line when the module holds more
+   *  files than the flow shows. Returns null when there's no usable flow. */
+  private coherentFlowOpener(repoPath: string, briefing: import('@tetherline/shared').Briefing): { text: string; row: DiagramRow } | null {
+    const row = this.db.getDiagramCacheRepo().get(repoPath, `flow/${briefing.id}`, 'logic');
+    if (!row || !row.nodes || row.nodes.length < 3 || !row.narration?.trim()) return null;
+    const labels = row.nodes.map(n => n.label);
+    let lead = firstSentences(briefing.opener, 2);
+    // Drop the lead if it names a component the flow doesn't show.
+    if (lead && !narrationMentionsOnly(lead, labels)) lead = '';
+    const modulePath = briefing.id.replace(/^module\//, '');
+    const keyFiles = this.db.getContextCacheRepo().getModule(repoPath, modulePath)?.keyFiles ?? [];
+    const bridge = keyFiles.length > row.nodes.length
+      ? 'The map shows the main stages — the other files live inside them.'
+      : '';
+    const text = [lead, row.narration.trim(), bridge].filter(Boolean).join(' ');
+    return { text, row };
+  }
+
   /** Emit a visualize-shaped skill:result for a precompiled module flow, so
-   *  the frontend's existing authored-swap + auto-logic-view path shows it. */
-  private maybeSurfaceFlow(repoPath: string, briefingId: string): void {
+   *  the frontend's existing authored-swap + auto-logic-view path shows it.
+   *  Overlays LIVE comprehension onto the stages (by their canonical file
+   *  briefingId) so the surfaced flow shows real Seen%/levels — authored
+   *  flows bypass the diagram route, so we apply the overlay here. */
+  private maybeSurfaceFlow(repoPath: string, row: DiagramRow): void {
     try {
-      const row = this.db.getDiagramCacheRepo().get(repoPath, `flow/${briefingId}`, 'logic');
       if (!row || !row.nodes || row.nodes.length < 3) return;
+      const items = this.db.getComprehensionRepo().getAll(repoPath);
+      const nodes = applyComprehension(row.nodes, items);
       this.emit({
         type: 'skill:result',
         payload: {
@@ -2721,10 +2793,14 @@ export class SessionManager {
             visualPayload: {
               target: row.title,
               kind: 'pipeline',
+              // The flow's own narration travels here (not the spoken
+              // `narration` field, which stays '' so it doesn't auto-play over
+              // the briefing) so the ▶ replay button can re-speak it instantly.
+              narration: row.narration ?? '',
               diagram: {
                 scope: row.scope, view: 'logic',
                 title: row.title, subtitle: row.subtitle,
-                nodes: row.nodes, edges: row.edges,
+                nodes, edges: row.edges,
               },
             },
           },
@@ -4141,6 +4217,12 @@ export function isLikelyTranscriptionNoise(text: string): boolean {
 }
 
 /** First N sentences of a briefing opener — the short session greeting. */
+/** A real comprehension item carries a canonical layer prefix. Bare authored
+ *  flow-node ids ('data-cleaner') are not items and must never spawn rows. */
+function isCanonicalItemId(id: string): boolean {
+  return id === 'project' || /^(module|file|arch|concept)\//.test(id);
+}
+
 function firstSentences(text: string | undefined, n: number): string {
   if (!text) return '';
   return text.split(/(?<=[.!?])\s+/).slice(0, n).join(' ').trim();

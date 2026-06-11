@@ -26,6 +26,9 @@ export interface AuthoredNode {
   evidenceFile?: string;
   /** No real file backs this node — render dotted, mark "concept". */
   conceptual?: boolean;
+  /** Module files this stage owns (its evidence file + any that token-match
+   *  it best) — drives the "contains N" pip + containment answers. */
+  implementsFiles?: string[];
 }
 export interface AuthoredEdge {
   from: string;
@@ -47,6 +50,9 @@ export interface ValidatedFlow {
   narrationOk: boolean;
   /** Node ids removed as ungrounded orphans (logged, not silent). */
   dropped: string[];
+  /** Module files that map to no stage — surfaced so "+N more files" is honest
+   *  rather than the diagram silently implying it shows everything. */
+  unassignedFiles: string[];
 }
 
 const STOP = new Set([
@@ -78,6 +84,48 @@ function overlaps(a: Set<string>, b: Set<string>): boolean {
   return false;
 }
 
+function countOverlap(a: Set<string>, b: Set<string>): number {
+  let n = 0;
+  for (const t of a) if (t.length > 2 && b.has(t)) n++;
+  return n;
+}
+
+/** A node that represents the module itself rather than a stage within it
+ *  ("Core Module" inside the core flow). Compared on stripped identifiers so
+ *  the `core`/`module` stop-words (which normalizeTokens drops) still match. */
+function isSelfNode(label: string, moduleName: string): boolean {
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const ln = norm(label);
+  const mn = norm(moduleName);
+  if (!ln || !mn) return false;
+  return ln === mn || ln === `${mn}module` || ln === `module${mn}`;
+}
+
+/** Assign each module file to the stage whose label+evidence best token-match
+ *  it; stamp node.implementsFiles. Returns the files that matched no stage. */
+function assignMembership(nodes: AuthoredNode[], files: string[]): string[] {
+  const grounded = nodes.filter(n => n.evidenceFile);
+  const nodeTokens = new Map(grounded.map(n => [n.id, normalizeTokens(`${n.label} ${n.evidenceFile ?? ''}`)]));
+  const assigned = new Map<string, string[]>(grounded.map(n => [n.id, []]));
+  const unassigned: string[] = [];
+  for (const f of files) {
+    const ft = normalizeTokens(f);
+    let bestId: string | null = null;
+    let bestScore = 0;
+    for (const n of grounded) {
+      const score = countOverlap(ft, nodeTokens.get(n.id)!);
+      if (score > bestScore) { bestScore = score; bestId = n.id; }
+    }
+    if (bestId && bestScore > 0) assigned.get(bestId)!.push(f);
+    else unassigned.push(f);
+  }
+  for (const n of nodes) {
+    const own = assigned.get(n.id);
+    if (own && own.length > 0) n.implementsFiles = own;
+  }
+  return unassigned;
+}
+
 /** Best evidence file for a node label — the file whose token set overlaps. */
 function matchFile(label: string, files: string[]): string | null {
   const lt = normalizeTokens(label);
@@ -89,13 +137,19 @@ function matchFile(label: string, files: string[]): string | null {
 
 export function validateFlow(authored: AuthoredFlow, evidence: FlowEvidence): ValidatedFlow {
   // 1. Ground each node to a real file, else mark conceptual.
-  const nodes: AuthoredNode[] = authored.nodes.map(n => {
+  const grounded: AuthoredNode[] = authored.nodes.map(n => {
     const file =
       (n.evidenceFile && evidence.files.includes(n.evidenceFile) ? n.evidenceFile : null) ??
       matchFile(n.label, evidence.files);
     if (file) return { ...n, evidenceFile: file, conceptual: false };
     return { ...n, evidenceFile: undefined, conceptual: true };
   });
+  // 1b. Drop a self-referential node (the module-as-its-own-stage, e.g.
+  //     "Core Module" inside the core flow) — but only while ≥3 real stages
+  //     would remain without it.
+  const selfIds = new Set(grounded.filter(n => isSelfNode(n.label, evidence.moduleName)).map(n => n.id));
+  const nonSelfCount = grounded.length - selfIds.size;
+  const nodes: AuthoredNode[] = grounded.filter(n => !(selfIds.has(n.id) && nonSelfCount >= 3));
   const byId = new Map(nodes.map(n => [n.id, n]));
 
   // 2. Support index: a file-pair (either direction) backed by an import.
@@ -135,10 +189,16 @@ export function validateFlow(authored: AuthoredFlow, evidence: FlowEvidence): Va
   const keptIds = new Set(kept.map(n => n.id));
   const keptEdges = edges.filter(e => keptIds.has(e.from) && keptIds.has(e.to));
 
-  // 4. Narration contract: any CamelCase component name spoken must be a node.
+  // 4. Stage membership: assign every module file to the stage it best
+  //    token-matches, so a stage can show "contains N" and containment
+  //    questions ("is X inside these five?") have a structural answer. Files
+  //    matching no stage are surfaced as unassigned ("+N more files").
+  const unassignedFiles = assignMembership(kept, evidence.files);
+
+  // 5. Narration contract: any CamelCase component name spoken must be a node.
   const narrationOk = narrationReferencesOnlyNodes(authored.narration, kept);
 
-  return { nodes: kept, edges: keptEdges, narrationOk, dropped };
+  return { nodes: kept, edges: keptEdges, narrationOk, dropped, unassignedFiles };
 }
 
 /** Tech proper nouns that look like component names but are brands/languages —
@@ -149,14 +209,19 @@ const BRAND_WORDS = new Set([
   'dynamodb', 'redis', 'sqlite', 'webgl', 'webrtc',
 ]);
 
-/** A PascalCase identifier in the narration (FileLoader, GGUFWriter, HFStreamer)
- *  that doesn't match any node label means the words and the picture disagree.
+function narrationReferencesOnlyNodes(narration: string, nodes: AuthoredNode[]): boolean {
+  return narrationMentionsOnly(narration, nodes.map(n => n.label));
+}
+
+/** A PascalCase identifier in `text` (FileLoader, GGUFWriter, HFStreamer) that
+ *  doesn't match any of `nodeLabels` means the words and the picture disagree.
  *  The pattern matches both camel humps (FileLoader) and acronym-prefixed
  *  compounds (GGUFWriter, HFStreamer, HWScanner). Plain prose ("converge",
- *  "sources") and single Capitalized words never trip it. */
-function narrationReferencesOnlyNodes(narration: string, nodes: AuthoredNode[]): boolean {
-  const labelTokens = nodes.map(n => normalizeTokens(n.label));
-  const mentions = narration.match(/\b[A-Z][A-Za-z0-9]*[A-Z][a-z][A-Za-z0-9]*\b/g) ?? [];
+ *  "sources") and single Capitalized words never trip it. Reused to keep a
+ *  spoken briefing coherent with the flow diagram it surfaces alongside. */
+export function narrationMentionsOnly(text: string, nodeLabels: string[]): boolean {
+  const labelTokens = nodeLabels.map(l => normalizeTokens(l));
+  const mentions = text.match(/\b[A-Z][A-Za-z0-9]*[A-Z][a-z][A-Za-z0-9]*\b/g) ?? [];
   for (const m of mentions) {
     if (BRAND_WORDS.has(m.toLowerCase())) continue;
     const mt = normalizeTokens(m);

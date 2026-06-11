@@ -71,18 +71,34 @@ function chipsForPhase(phase: string, areaName: string | undefined): Chip[] {
   }
 }
 
+/** When an authored flow is on screen, offer containment probes for its first
+ *  and last stage so the user can ask "what's inside / what feeds" by tap. */
+function flowChips(skillResult: { skillName?: string; visualPayload?: unknown } | null): Chip[] {
+  if (skillResult?.skillName !== 'visualize') return [];
+  const nodes = (skillResult.visualPayload as { diagram?: { nodes?: Array<{ label?: string }> } } | undefined)?.diagram?.nodes;
+  if (!Array.isArray(nodes) || nodes.length < 2) return [];
+  const first = nodes[0]?.label;
+  const last = nodes[nodes.length - 1]?.label;
+  const out: Chip[] = [];
+  if (first) out.push({ label: `What's inside ${first}?`, utterance: `What files are inside ${first}?` });
+  if (last && last !== first) out.push({ label: `What feeds ${last}?`, utterance: `What feeds into ${last}?` });
+  return out;
+}
+
 export function QuickChips() {
   const phase = useSessionStore(s => s.state.phase);
   const areaIndex = useSessionStore(s => s.state.areaIndex);
   const areas = useSessionStore(s => s.areas);
   const paused = useSessionStore(s => s.state.paused);
+  const skillResult = useSessionStore(s => s.skillResult);
 
   // Hide chips while paused — pause means "stop interacting" right now.
   // Hide on IDLE (lobby) and ANALYZING (no targets exist yet).
   if (paused || phase === 'IDLE' || phase === 'ANALYZING' || phase === 'ERROR') return null;
 
   const currentArea = areaIndex !== undefined ? areas[areaIndex]?.name : undefined;
-  const chips = chipsForPhase(phase, currentArea);
+  // Flow chips lead (the flow is what's on screen), then the phase chips.
+  const chips = [...flowChips(skillResult as never), ...chipsForPhase(phase, currentArea)];
   if (chips.length === 0) return null;
 
   const onChip = (chip: Chip) => {

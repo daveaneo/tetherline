@@ -47,6 +47,7 @@ const SCENES = [
   'artifact-card',
   'dispatch-glow',
   'voice-thinking',
+  'flow-with-pips',
 ];
 
 const VIEWPORTS = [

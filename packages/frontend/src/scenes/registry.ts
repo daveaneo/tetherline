@@ -439,6 +439,39 @@ export const SCENES: Scene[] = [
     },
   },
   {
+    name: 'flow-with-pips',
+    description:
+      'Containment made visible — flow stages carry "contains N" pips from implementsFiles, and the subtitle notes files not shown as stages ("are those inside these five?", live 2026-06-10).',
+    seed: () => {
+      seedBase();
+      useSessionStore.setState({
+        skillResult: {
+          skillName: 'visualize', type: 'diagram',
+          narration: 'WebCollector pulls content, DataCleaner normalizes it, and PairGenerator builds instruction-response pairs.',
+          visualPayload: {
+            target: 'core',
+            kind: 'pipeline',
+            diagram: {
+              scope: 'flow/module/core',
+              view: 'logic',
+              title: 'Core Data Pipeline',
+              subtitle: 'web → clean → pairs · +2 more files inside',
+              nodes: [
+                { id: 'wc', label: 'WebCollector', description: 'Pulls content', role: 'source', implementsFiles: ['core/web_collector.py'] },
+                { id: 'dc', label: 'DataCleaner', description: 'Normalizes + dedupes', role: 'transform', implementsFiles: ['core/data_cleaner.py', 'core/data_validator.py'] },
+                { id: 'pg', label: 'PairGenerator', description: 'Instruction-response pairs', role: 'sink', implementsFiles: ['core/pair_generator.py'] },
+              ],
+              edges: [
+                { from: 'wc', to: 'dc', kind: 'produces' },
+                { from: 'dc', to: 'pg', kind: 'produces' },
+              ],
+            },
+          },
+        } as never,
+      });
+    },
+  },
+  {
     name: 'visualize-flow-graph',
     description:
       'Robustness variant — you asked: "How do auth and the cache wire together?" Visualize chose a graph (not a pipeline) and authored 4 nodes with the right edges.',

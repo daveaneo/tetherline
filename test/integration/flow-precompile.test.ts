@@ -70,7 +70,11 @@ function seedBriefings() {
   const base = { sourceHash: 'h', cachedAt: new Date().toISOString() };
   const repo = h.server.db.getBriefingRepo();
   repo.upsert({ ...base, repoPath: FIXTURE, id: 'project', layer: 'project', title: 'fixture', opener: 'A fixture with core.', talkingPoints: [], children: ['module/core'], parent: null, visualCue: { kind: 'none' }, estimatedSeconds: 10 });
-  repo.upsert({ ...base, repoPath: FIXTURE, id: 'module/core', layer: 'module', title: 'core', opener: 'Core ingests and cleans data.', talkingPoints: [], children: [], parent: 'project', visualCue: { kind: 'diagram_focus', ref: 'core' }, estimatedSeconds: 10 });
+  // Opener names components the flow DROPS (FileLoader, URLFetcher) in later
+  // sentences — the live "I see five but you named more" mismatch.
+  repo.upsert({ ...base, repoPath: FIXTURE, id: 'module/core', layer: 'module', title: 'core',
+    opener: 'Core is the ingestion backbone of the project. FileLoader reads local files; URLFetcher pulls remote URLs; the pipeline then cleans and pairs everything.',
+    talkingPoints: [], children: [], parent: 'project', visualCue: { kind: 'diagram_focus', ref: 'core' }, estimatedSeconds: 10 });
 }
 
 type AnyEvent = { type: string; payload?: any };
@@ -105,6 +109,10 @@ describe('flow precompile + jump-to-flow', () => {
     expect(row, 'flow row written').toBeTruthy();
     expect(row!.nodes.length).toBeGreaterThanOrEqual(3);
     expect(row!.narration).toMatch(/WebCollector|DataCleaner|PairGenerator/);
+    // Canonical identity: a grounded node carries the file briefingId, so its
+    // comprehension is the SAME item as the file-view node (no kebab dupes).
+    const dc = row!.nodes.find(n => (n as any).evidenceFile === 'core/data_cleaner.py')!;
+    expect((dc as any).briefingId).toBe('file/core/data_cleaner.py');
     const callsAfterFirst = fa.calls();
     expect(callsAfterFirst).toBeGreaterThan(0);
 
@@ -140,5 +148,76 @@ describe('flow precompile + jump-to-flow', () => {
     }
     expect(surfaced, 'the precompiled core flow must auto-surface after the briefing').toBeTruthy();
     expect(surfaced!.payload.result.visualPayload.kind).toBe('pipeline');
+  }, 60_000);
+
+  it('the SPOKEN briefing matches the surfaced flow — names its stages, not the dropped pieces', async () => {
+    seedModule();
+    seedBriefings();
+    const db = h.server.db;
+    if (!db.getDiagramCacheRepo().get(FIXTURE, 'flow/module/core', 'logic')) {
+      const fa = makeFlowAnalyzer();
+      await warmDiagrams(FIXTURE, db.getContextCacheRepo(), db.getDiagramCacheRepo(), db.getComprehensionRepo(), null, undefined, fa.analyzer as any);
+    }
+    const { devSessionId } = await h.client.startSession({ repoPath: FIXTURE, entryMode: 'updates', sinceDays: 30 });
+    await settle(devSessionId);
+    const startIdx = (await h.client.events(devSessionId)).events.length;
+
+    await h.client.utter(devSessionId, 'tell me about core');
+
+    const t0 = Date.now();
+    let spoken = '';
+    while (Date.now() - t0 < 6000) {
+      const ev = ((await h.client.events(devSessionId, startIdx)).events as AnyEvent[])
+        .find(e => e.type === 'narration:briefing' && e.payload?.briefingId === 'module/core');
+      if (ev) { spoken = String(ev.payload.text); break; }
+      await new Promise(r => setTimeout(r, 50));
+    }
+    expect(spoken, 'a module briefing must be spoken').toBeTruthy();
+    // The spoken words describe the surfaced flow's stages…
+    expect(spoken, 'briefing should carry the flow narration').toMatch(/WebCollector|DataCleaner|PairGenerator/);
+    // …and must NOT name pieces the flow dropped (the "naming more than I see" bug).
+    expect(spoken, 'must not speak stages the diagram does not show').not.toMatch(/FileLoader|URLFetcher/);
+  }, 60_000);
+
+  it('canonical identity: stages credit the FILE item (no kebab dupes); seen on completion', async () => {
+    seedModule();
+    seedBriefings();
+    const db = h.server.db;
+    if (!db.getDiagramCacheRepo().get(FIXTURE, 'flow/module/core', 'logic')) {
+      const fa = makeFlowAnalyzer();
+      await warmDiagrams(FIXTURE, db.getContextCacheRepo(), db.getDiagramCacheRepo(), db.getComprehensionRepo(), null, undefined, fa.analyzer as any);
+    }
+    const { devSessionId } = await h.client.startSession({ repoPath: FIXTURE, entryMode: 'updates', sinceDays: 30 });
+    await settle(devSessionId);
+    const startIdx = (await h.client.events(devSessionId)).events.length;
+
+    await h.client.utter(devSessionId, 'tell me about core');
+    // Wait for the flow to surface.
+    const t0 = Date.now();
+    while (Date.now() - t0 < 6000) {
+      if (((await h.client.events(devSessionId, startIdx)).events as AnyEvent[])
+        .some(e => e.type === 'skill:result' && e.payload?.result?.visualPayload?.diagram?.scope === 'flow/module/core')) break;
+      await new Promise(r => setTimeout(r, 50));
+    }
+    // The narration named every stage → each grounded stage is the FILE item.
+    const items = db.getComprehensionRepo().getAll(FIXTURE);
+    const byId = new Map(items.map(i => [i.itemId, i]));
+    expect(byId.has('file/core/data_cleaner.py'), 'stage credited under its canonical file item').toBe(true);
+    // No throwaway kebab rows for the authored node ids.
+    for (const kebab of ['wc', 'dc', 'pg', 'data-cleaner', 'web-collector']) {
+      expect(byId.has(kebab), `no duplicate kebab comprehension row "${kebab}"`).toBe(false);
+    }
+
+    // Finishing the briefing marks the stages seen (flow view shows real Seen%).
+    await h.client.voiceSimulate(devSessionId, 'segment_finished', { segmentId: 'module/core' });
+    const t1 = Date.now();
+    let seen = false;
+    while (Date.now() - t1 < 4000) {
+      seen = db.getComprehensionRepo().getAll(FIXTURE)
+        .some(i => i.itemId === 'file/core/data_cleaner.py' && i.seen === true);
+      if (seen) break;
+      await new Promise(r => setTimeout(r, 50));
+    }
+    expect(seen, 'flow stage marked seen after its narration completes').toBe(true);
   }, 60_000);
 });

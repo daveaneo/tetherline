@@ -31,6 +31,9 @@ export interface DiagramNode {
   /** Authored-diagram grounding: this node maps to no real file/module —
    *  rendered with a dotted "concept" outline so the demotion is visible. */
   conceptual?: boolean;
+  /** Module files this authored stage owns — drives the "contains N" pip so
+   *  the user can see what lives inside a flow stage. */
+  implementsFiles?: string[];
 }
 
 export interface DiagramEdge {

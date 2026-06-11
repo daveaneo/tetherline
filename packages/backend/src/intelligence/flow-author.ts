@@ -17,7 +17,7 @@ export interface AuthoredDiagramRaw {
   kind: FlowKind;
   title: string;
   subtitle: string;
-  nodes: Array<{ id: string; label: string; description?: string; role?: string; evidenceFile?: string; conceptual?: boolean }>;
+  nodes: Array<{ id: string; label: string; description?: string; role?: string; evidenceFile?: string; conceptual?: boolean; briefingId?: string; implementsFiles?: string[] }>;
   edges: Array<{ from: string; to: string; kind?: string; label?: string; inferred?: boolean }>;
 }
 
@@ -141,6 +141,7 @@ export async function authorFlow(input: AuthorFlowInput): Promise<FlowAuthorResu
       role: typeof n.role === 'string' && (NODE_ROLES as readonly string[]).includes(n.role) ? n.role : undefined,
       evidenceFile: typeof n.evidenceFile === 'string' ? n.evidenceFile.trim() : undefined,
       conceptual: n.conceptual === true,
+      briefingId: undefined as string | undefined,
     }));
   const validIds = new Set(nodes.map(n => n.id));
   const edges = (out.edges ?? [])
@@ -155,6 +156,7 @@ export async function authorFlow(input: AuthorFlowInput): Promise<FlowAuthorResu
   if (nodes.length < 3) return null;
 
   let narration = (out.narration ?? '').trim();
+  let subtitle = (out.subtitle ?? '').trim();
   let finalNodes = nodes;
   let finalEdges = edges;
 
@@ -167,13 +169,28 @@ export async function authorFlow(input: AuthorFlowInput): Promise<FlowAuthorResu
       if (!validated.narrationOk) {
         narration = templateNarration(out.title ?? target, finalNodes);
       }
+      // Honest containment note: don't let the diagram imply it shows every
+      // file when some live inside the stages and some aren't shown at all.
+      const n = validated.unassignedFiles.length;
+      if (n > 0) {
+        subtitle = subtitle ? `${subtitle} · +${n} more file${n === 1 ? '' : 's'} inside` : `+${n} more file${n === 1 ? '' : 's'} inside the stages`;
+      }
     }
   }
+
+  // Canonical knowledge identity: a grounded stage IS the file it implements,
+  // so stamp its briefingId = file/<evidenceFile>. The file-view node and this
+  // flow stage then share ONE comprehension item (no kebab dupes; Seen% agrees
+  // across views). Derived from the FINAL evidenceFile (post-validation).
+  finalNodes = finalNodes.map(n => ({
+    ...n,
+    briefingId: n.evidenceFile ? `file/${n.evidenceFile}` : undefined,
+  }));
 
   return {
     kind,
     title: (out.title ?? target).trim(),
-    subtitle: (out.subtitle ?? '').trim(),
+    subtitle,
     narration,
     nodes: finalNodes,
     edges: finalEdges,

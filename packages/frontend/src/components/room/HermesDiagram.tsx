@@ -210,6 +210,13 @@ export function HermesDiagram() {
     if (lastVisualizedRef.current === skillResult) return;
     lastVisualizedRef.current = skillResult;
     setView('logic');
+    // Keep the breadcrumb honest: a surfaced module flow (scope
+    // flow/module/<X>) must read as that module, not whatever scope the user
+    // last navigated to (live desync: "[crumb] colab" while viewing core's
+    // flow, 2026-06-10). Derive the module crumb from the authored scope.
+    const flowScope = (skillResult.visualPayload as { diagram?: { scope?: string } } | undefined)?.diagram?.scope;
+    const m = /^flow\/(module\/[\w./-]+)$/.exec(flowScope ?? '');
+    if (m) setScope(m[1]);
   }, [skillResult]);
 
   // Persistent pins (B10): nodes whose leaf/label matches a Notebook
@@ -378,6 +385,14 @@ export function HermesDiagram() {
     }
     const byId = new Map(payload.nodes.map(n => [n.id, n]));
     for (const n of payload.nodes) {
+      // Authored flow stages contain FILES (no 'contains' edges) — show a
+      // "contains N" pip from implementsFiles so the user sees what lives
+      // inside a stage ("are those inside these five?", live 2026-06-10).
+      if (layered && n.implementsFiles && n.implementsFiles.length > 0) {
+        const files = n.implementsFiles;
+        out.set(n.id, { visible: files.slice(0, PIP_MAX).map(() => undefined), total: files.length });
+        continue;
+      }
       const childIds = childrenOf.get(n.id) ?? [];
       const children = childIds
         .map(id => byId.get(id))
@@ -388,7 +403,7 @@ export function HermesDiagram() {
       out.set(n.id, { visible, total });
     }
     return out;
-  }, [payload]);
+  }, [payload, layered]);
 
   const positioned = useMemo<PositionedNode[]>(() => {
     if (!payload) return [];
@@ -1748,6 +1763,12 @@ function KnowledgeStrip({
 }) {
   const weakSpots = useSessionStore(s => s.weakSpots);
   const forceOpen = useSessionStore(s => s.sceneForceWeakSpotsOpen);
+  // An authored flow ships its own narration so ▶ replay can re-speak it
+  // instantly (no QA round-trip). Read here (before any early return).
+  const flowNarration = useSessionStore(s =>
+    (s.skillResult?.skillName === 'visualize'
+      ? (s.skillResult.visualPayload as { narration?: string } | undefined)?.narration
+      : '') ?? '');
   const [open, setOpen] = useState(false);
   const showPanel = open || forceOpen;
 
@@ -1763,13 +1784,22 @@ function KnowledgeStrip({
     useSessionStore.getState().addConversation('you', text);
     sendEvent({ type: 'user:utterance', payload: { text, timestamp: Date.now() } });
   };
+  // ▶ replay: re-speak the authored flow's narration INSTANTLY (no QA
+  // round-trip) by feeding the greeting lane; fall back to a fresh explain.
+  const replay = () => {
+    if (flowNarration.trim()) {
+      useSessionStore.setState({ greeting: { text: flowNarration.trim(), briefingId: null } });
+    } else {
+      ask(`explain ${cur.label}`);
+    }
+  };
   const resolveSpot = (q: string) =>
     useSessionStore.setState(s => ({ weakSpots: s.weakSpots.filter(w => !(w.itemId === cur.id && w.question === q)) }));
 
   return (
     <div className="font-mono" style={{ marginTop: 8 }} data-testid="knowledge-strip">
       <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 14, fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--cream-500)' }}>
-        <button type="button" onClick={() => ask(`explain ${cur.label}`)} data-testid="ks-replay"
+        <button type="button" onClick={replay} data-testid="ks-replay"
           className="font-mono" style={{ cursor: 'pointer', background: 'transparent', border: 'none', color: 'var(--amber-400)', padding: 0, font: 'inherit', letterSpacing: 'inherit', textTransform: 'inherit' }}>
           ▶ replay
         </button>
