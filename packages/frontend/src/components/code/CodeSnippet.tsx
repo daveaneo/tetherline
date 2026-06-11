@@ -1,6 +1,10 @@
+// 'shiki/bundle/web' (web langs only) instead of the full 'shiki'
+// entry — this component is also lazy-loaded, so the highlighter
+// never touches the app's entry chunk.
 import { useEffect, useState } from 'react';
-import { codeToHtml } from 'shiki';
+import { codeToHtml } from 'shiki/bundle/web';
 import { motion } from 'framer-motion';
+import { emberTheme } from './ember-theme.js';
 
 interface Props {
   code: string;
@@ -19,7 +23,7 @@ export function CodeSnippet({ code, language, filePath, highlightLines = [] }: P
 
     codeToHtml(code, {
       lang: language || 'text',
-      theme: 'github-dark-default',
+      theme: emberTheme,
       decorations: highlightLines.map(line => ({
         start: { line: line - 1, character: 0 },
         end: { line: line - 1, character: Infinity },

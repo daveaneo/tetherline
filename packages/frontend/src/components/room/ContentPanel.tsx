@@ -1,10 +1,24 @@
-import { useEffect, useRef } from 'react';
+import { lazy, Suspense, useEffect, useRef } from 'react';
 import { useSession } from '../../hooks/useSession.js';
 import { useSessionStore, type ConversationEntry } from '../../state/session-store.js';
 import { useAudioStore } from '../../state/audio-store.js';
-import { CodeSnippet } from '../code/CodeSnippet.js';
-import { CodeMorphing } from '../code/CodeMorphing.js';
-import { DiffView } from '../code/DiffView.js';
+// The code-rendering stack (shiki, shiki-magic-move, react-diff-viewer)
+// is the heaviest thing the frontend ships and renders only when a
+// code visual cue actually appears — lazy chunks keep it out of the
+// entry bundle / first paint entirely.
+const CodeSnippet = lazy(() => import('../code/CodeSnippet.js').then(m => ({ default: m.CodeSnippet })));
+const CodeMorphing = lazy(() => import('../code/CodeMorphing.js').then(m => ({ default: m.CodeMorphing })));
+const DiffView = lazy(() => import('../code/DiffView.js').then(m => ({ default: m.DiffView })));
+
+/** Suspense fallback while a lazy code chunk loads — same shimmer the
+ *  components themselves show while highlighting. */
+function CodeLoading() {
+  return (
+    <div className="rounded-xl border border-[var(--color-border)] bg-[var(--ink-050)] p-4">
+      <div className="skeleton" style={{ height: 64 }} />
+    </div>
+  );
+}
 import { UnderstandingMap } from '../heatmap/UnderstandingMap.js';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { AreaWithContent, Concern, UnderstandingState, SkillResult } from '@tetherline/shared';
@@ -197,6 +211,18 @@ export function ContentPanel() {
                 <p className="mt-4" style={{ color: 'var(--cream-500)' }}>
                   {state.error ?? 'An unexpected error occurred'}
                 </p>
+                {/* Never a dead end: the only exits used to be the faint
+                    top-left Exit text. Offer the two obvious moves. */}
+                <div className="mt-8 flex items-center justify-center gap-3">
+                  <ErrorRetryButton />
+                  <button
+                    type="button"
+                    onClick={() => useSessionStore.getState().resetSession()}
+                    className="btn btn-ghost"
+                  >
+                    Back to lobby
+                  </button>
+                </div>
               </div>
             )}
           </motion.div>
@@ -217,6 +243,25 @@ export function ContentPanel() {
         </div>
       )}
     </div>
+  );
+}
+
+/** Restarts the session with the same repo + entry mode. Renders only
+ *  when we still know the repo (a resume that never populated it can't
+ *  be retried this way — "Back to lobby" remains). */
+function ErrorRetryButton() {
+  const repoPath = useSessionStore(s => s.activeRepoPath);
+  const entryMode = useSessionStore(s => s.entryMode);
+  if (!repoPath) return null;
+  const retry = () => {
+    const mode = (entryMode || 'updates') as 'full_walkthrough' | 'updates' | 'onboarding' | 'explore';
+    const sinceDays = mode === 'updates' ? 7 : 3650;
+    sendEvent({ type: 'session:start', payload: { repoPath, sinceDays, entryMode: mode } });
+  };
+  return (
+    <button type="button" onClick={retry} className="btn btn-primary">
+      Try again
+    </button>
   );
 }
 
@@ -461,19 +506,23 @@ function AreaContent({ area, segment }: { area: AreaWithContent; segment?: AreaW
 
       {/* Visual cue content */}
       {visualCue?.type === 'show_code' && visualCue.code && (
-        <CodeSnippet
-          code={visualCue.code}
-          language={visualCue.language ?? 'text'}
-          filePath={visualCue.filePath}
-          highlightLines={visualCue.lines ? [visualCue.lines[0], visualCue.lines[1]] : undefined}
-        />
+        <Suspense fallback={<CodeLoading />}>
+          <CodeSnippet
+            code={visualCue.code}
+            language={visualCue.language ?? 'text'}
+            filePath={visualCue.filePath}
+            highlightLines={visualCue.lines ? [visualCue.lines[0], visualCue.lines[1]] : undefined}
+          />
+        </Suspense>
       )}
 
       {visualCue?.type === 'show_diff' && visualCue.filePath && (
-        <DiffView
-          filePath={visualCue.filePath}
-          hunks={[{ content: visualCue.code ?? '' }]}
-        />
+        <Suspense fallback={<CodeLoading />}>
+          <DiffView
+            filePath={visualCue.filePath}
+            hunks={[{ content: visualCue.code ?? '' }]}
+          />
+        </Suspense>
       )}
 
       {visualCue?.type === 'highlight_file' && visualCue.filePath && (
@@ -770,12 +819,14 @@ function SkillResultPanel({ result, onDismiss }: { result: SkillResult; onDismis
       <p className="text-[var(--color-text)] leading-relaxed whitespace-pre-wrap">{result.narration}</p>
       {result.type === 'comparison' && typeof result.visualPayload.oldCode === 'string' && typeof result.visualPayload.newCode === 'string' && (
         <div className="mt-3">
-          <CodeMorphing
-            oldCode={result.visualPayload.oldCode}
-            newCode={result.visualPayload.newCode}
-            language={(result.visualPayload.language as string) ?? 'text'}
-            filePath={result.visualPayload.filePath as string}
-          />
+          <Suspense fallback={<CodeLoading />}>
+            <CodeMorphing
+              oldCode={result.visualPayload.oldCode}
+              newCode={result.visualPayload.newCode}
+              language={(result.visualPayload.language as string) ?? 'text'}
+              filePath={result.visualPayload.filePath as string}
+            />
+          </Suspense>
         </div>
       )}
       {result.diagramChanges?.focusNodeId && (

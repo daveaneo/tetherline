@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSettingsStore } from '../../state/settings-store.js';
 import { api } from '../../lib/api-client.js';
@@ -16,6 +16,20 @@ const fieldStyle: React.CSSProperties = {
   outline: 'none',
 };
 
+// Native <select> chrome was the one cool-grey system control inside the
+// ember skin. appearance:none + our own caret keeps it on-theme.
+const selectStyle: React.CSSProperties = {
+  ...fieldStyle,
+  appearance: 'none',
+  WebkitAppearance: 'none',
+  paddingRight: 34,
+  backgroundImage:
+    "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23b8a99a' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E\")",
+  backgroundRepeat: 'no-repeat',
+  backgroundPosition: 'right 12px center',
+  cursor: 'pointer',
+};
+
 export function SettingsPanel() {
   const { settingsOpen, setSettingsOpen, settings, setSettings } = useSettingsStore();
   const [digestSending, setDigestSending] = useState(false);
@@ -30,6 +44,17 @@ export function SettingsPanel() {
   const updateDigest = (updates: Partial<DigestConfig>) => {
     setSettings({ digest: { ...digestConfig, ...updates } });
   };
+
+  // Escape closes the panel — standard modal vocabulary; clicking the
+  // tiny ✕ was the only way out before.
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSettingsOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [settingsOpen, setSettingsOpen]);
 
   const sendTestDigest = async () => {
     setDigestSending(true);
@@ -113,7 +138,7 @@ export function SettingsPanel() {
                 <select
                   value={settings.ttsProvider}
                   onChange={(e) => setSettings({ ttsProvider: e.target.value as any })}
-                  style={fieldStyle}
+                  style={selectStyle}
                 >
                   <option value="openai">OpenAI (Premium)</option>
                   <option value="browser">Browser (Free)</option>
@@ -161,7 +186,7 @@ export function SettingsPanel() {
                       <select
                         value={digestConfig.delivery}
                         onChange={(e) => updateDigest({ delivery: e.target.value as DigestConfig['delivery'] })}
-                        style={fieldStyle}
+                        style={selectStyle}
                       >
                         <option value="app">In-app only</option>
                         <option value="slack">Slack</option>

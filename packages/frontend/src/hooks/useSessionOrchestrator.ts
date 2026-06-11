@@ -21,6 +21,8 @@ export function useSessionOrchestrator() {
   const ttsProvider = useSettingsStore(s => s.settings.ttsProvider);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // One-time "voice downgraded to browser TTS" notice (per mount).
+  const ttsDowngradeNotifiedRef = useRef(false);
   const lastPhaseRef = useRef<string>('IDLE');
   const lastAreaIndexRef = useRef<number>(-1);
   const lastSegmentIndexRef = useRef<number>(-1);
@@ -164,6 +166,12 @@ export function useSessionOrchestrator() {
           return;
         }
         // blob === null → synthesis unavailable; fall through to browser TTS.
+        // Tell the user ONCE — the voice quality just dropped audibly and
+        // a silent downgrade reads as "the product got worse for no reason".
+        if (!ttsDowngradeNotifiedRef.current) {
+          ttsDowngradeNotifiedRef.current = true;
+          useAudioStore.getState().addSpeechToast('High-quality voice unavailable — using the browser voice for now.', 'status');
+        }
       }
 
       // Browser TTS fallback

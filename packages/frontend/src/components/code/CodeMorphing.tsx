@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
 import { ShikiMagicMove } from 'shiki-magic-move/react';
-import { createHighlighter } from 'shiki';
+// Web-langs bundle (smaller) — and this component is lazy-loaded, so
+// the highlighter stays out of the entry chunk entirely.
+import { createHighlighter } from 'shiki/bundle/web';
 import type { HighlighterCore } from 'shiki/core';
 import 'shiki-magic-move/style.css';
+import { emberTheme } from './ember-theme.js';
 
 interface Props {
   oldCode: string;
@@ -17,7 +20,7 @@ export function CodeMorphing({ oldCode, newCode, language, filePath }: Props) {
 
   useEffect(() => {
     createHighlighter({
-      themes: ['github-dark-default'],
+      themes: [emberTheme],
       langs: [language || 'text'],
     }).then(h => setHighlighter(h as unknown as HighlighterCore));
   }, [language]);
@@ -52,7 +55,7 @@ export function CodeMorphing({ oldCode, newCode, language, filePath }: Props) {
           highlighter={highlighter}
           code={showNew ? newCode : oldCode}
           lang={language || 'text'}
-          theme="github-dark-default"
+          theme="ember"
           options={{ duration: 600, stagger: 3, lineNumbers: true }}
         />
       </div>

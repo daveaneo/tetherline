@@ -103,6 +103,13 @@ export function QuickChips() {
 
   const onChip = (chip: Chip) => {
     const text = chip.utterance ?? chip.label;
+    // Send FIRST, optimistic UI second — during a disconnect the tap used
+    // to log the question and show "thinking" forever for a reply that
+    // was never sent (sendEvent silently dropped it).
+    if (!sendEvent({ type: 'user:utterance', payload: { text, timestamp: Date.now() } })) {
+      useAudioStore.getState().addSpeechToast('Not connected — tap again in a moment.', 'error');
+      return;
+    }
     // Special handling: "What don't I know?" opens the structured panel AND
     // sends the utterance so the AI gives a verbal interpretation alongside.
     if (chip.label === "What don't I know?") {
@@ -110,7 +117,6 @@ export function QuickChips() {
     }
     useSessionStore.getState().addConversation('you', text);
     useAudioStore.getState().setVoiceState('processing');
-    sendEvent({ type: 'user:utterance', payload: { text, timestamp: Date.now() } });
   };
 
   return (

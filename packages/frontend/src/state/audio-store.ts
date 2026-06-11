@@ -5,10 +5,18 @@ import type { NarrationSegment } from '@tetherline/shared';
  *  a clear "not listening" indicator (and we actually stop the capture). */
 export type VoiceState = 'speaking' | 'listening' | 'hearing' | 'processing' | 'idle';
 
+/** What a toast IS decides how it renders: 'transcript' = something the
+ *  user said (green "You" quote); 'status' = system state change (mic
+ *  started, paused…); 'error' = something failed. Status/errors used to
+ *  masquerade as user quotes — "[Mic access failed]" styled as a thing
+ *  You said undermines trust in the transcript. */
+export type SpeechToastKind = 'transcript' | 'status' | 'error';
+
 export interface SpeechToast {
   id: string;
   text: string;
   timestamp: number;
+  kind: SpeechToastKind;
 }
 
 /** Lifecycle of the user's conversational floor.
@@ -121,7 +129,7 @@ interface AudioStore {
   setCurrentSegment: (segment: NarrationSegment | null) => void;
   setPlaying: (playing: boolean) => void;
   setVoiceState: (state: VoiceState) => void;
-  addSpeechToast: (text: string) => void;
+  addSpeechToast: (text: string, kind?: SpeechToastKind) => void;
   enqueueSegment: (segment: NarrationSegment) => void;
   dequeueSegment: () => NarrationSegment | undefined;
   clearQueue: () => void;
@@ -274,8 +282,8 @@ export const useAudioStore = create<AudioStore>((set, get) => ({
   })),
   setVoiceState: (voiceState) => set({ voiceState }),
 
-  addSpeechToast: (text) => {
-    const toast: SpeechToast = { id: `toast-${Date.now()}`, text, timestamp: Date.now() };
+  addSpeechToast: (text, kind = 'transcript') => {
+    const toast: SpeechToast = { id: `toast-${Date.now()}`, text, timestamp: Date.now(), kind };
     set(s => ({ speechToasts: [...s.speechToasts.slice(-4), toast] })); // keep last 5
     // Auto-remove after 4 seconds
     setTimeout(() => {

@@ -129,11 +129,44 @@ export function Lobby() {
     sendEvent({ type: 'session:resume', payload: { sessionId } });
   };
 
+  // Enter = Begin session (the button advertises ⏎ — it has to be true).
+  // Inert while a dialog is open or focus is in a text field.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Enter') return;
+      if (showAddDialog || entryModeRepo) return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      const repo = repos.find(r => r.id === selectedRepoId);
+      if (repo) setEntryModeRepo(repo);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showAddDialog, entryModeRepo, repos, selectedRepoId]);
+
   if (loading) {
     return (
-      <div className="lobby">
-        <div className="kicker">Loading</div>
-        <p className="mt-4 font-serif text-3xl text-[var(--cream-500)]">Reading your repositories…</p>
+      <div className="lobby" aria-busy="true">
+        <div className="lobby-kicker">
+          <span className="dot" />
+          <span>Tetherline · Weekly briefing</span>
+        </div>
+        <h1 className="lobby-hero">
+          Let&apos;s see what <em>changed</em> this week.
+        </h1>
+        <div className="lobby-grid">
+          <div className="lobby-card">
+            <div className="kicker mb-5">Repositories</div>
+            {[0, 1, 2].map(i => (
+              <div key={i} className="skeleton mb-2" style={{ height: 64, opacity: 1 - i * 0.25 }} />
+            ))}
+          </div>
+          <div className="prev-card">
+            <div className="skeleton" style={{ height: 18, width: 110 }} />
+            <div className="skeleton mt-4" style={{ height: 34, width: '85%' }} />
+            <div className="skeleton mt-2" style={{ height: 34, width: '60%' }} />
+            <div className="skeleton mt-6" style={{ height: 14, width: '70%' }} />
+          </div>
+        </div>
       </div>
     );
   }
@@ -258,34 +291,43 @@ export function Lobby() {
               </div>
             </div>
 
-            {lastSessionForSelected ? (
-              <div className="prev-card">
-                <div className="prev-eyebrow">Previously on</div>
-                <div className="prev-title">
-                  {lastSessionForSelected.summary?.split('.')[0] || lastSessionForSelected.repoName}
-                </div>
-                <div className="prev-meta-row">
-                  {lastSessionForSelected.totalAreas != null && (
-                    <span><b>{lastSessionForSelected.totalAreas}</b>areas</span>
+            {lastSessionForSelected ? (() => {
+              // Headline = first sentence; body = the REST of the summary.
+              // It used to render the identical text twice (32px serif,
+              // then verbatim again at 14.5px) — a full screen of card
+              // height saying one thing.
+              const summary = lastSessionForSelected.summary?.trim() ?? '';
+              const headline = summary.split('.')[0] || lastSessionForSelected.repoName;
+              const rest = summary.length > headline.length + 1
+                ? summary.slice(headline.length + 1).trim()
+                : '';
+              return (
+                <div className="prev-card">
+                  <div className="prev-eyebrow">Previously on</div>
+                  <div className="prev-title">{headline}</div>
+                  <div className="prev-meta-row">
+                    {lastSessionForSelected.totalAreas != null && (
+                      <span><b>{lastSessionForSelected.totalAreas}</b>areas</span>
+                    )}
+                    {lastSessionForSelected.totalCommits != null && (
+                      <span><b>{lastSessionForSelected.totalCommits}</b>commits</span>
+                    )}
+                    <span><b>{formatTimeAgo(lastSessionForSelected.startedAt)}</b></span>
+                  </div>
+                  {rest && (
+                    <p className="prev-body">{rest}</p>
                   )}
-                  {lastSessionForSelected.totalCommits != null && (
-                    <span><b>{lastSessionForSelected.totalCommits}</b>commits</span>
-                  )}
-                  <span><b>{formatTimeAgo(lastSessionForSelected.startedAt)}</b></span>
+                  <button
+                    type="button"
+                    onClick={() => handleResumeSession(lastSessionForSelected.id)}
+                    className="btn btn-ghost mt-5"
+                    style={{ padding: '8px 14px', fontSize: 12.5 }}
+                  >
+                    Resume this session
+                  </button>
                 </div>
-                {lastSessionForSelected.summary && (
-                  <p className="prev-body">{lastSessionForSelected.summary}</p>
-                )}
-                <button
-                  type="button"
-                  onClick={() => handleResumeSession(lastSessionForSelected.id)}
-                  className="btn btn-ghost mt-5"
-                  style={{ padding: '8px 14px', fontSize: 12.5 }}
-                >
-                  Resume this session
-                </button>
-              </div>
-            ) : (
+              );
+            })() : (
               <div className="prev-card">
                 <div className="prev-eyebrow">First visit</div>
                 <div className="prev-title">
@@ -303,12 +345,20 @@ export function Lobby() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: 0.5 }}
-              className="mt-10 flex items-center justify-between gap-6"
+              className="mt-8 flex items-center justify-between gap-6"
               style={{
-                padding: '22px 28px',
-                background: 'oklch(1 0 0 / 0.02)',
-                border: '1px solid oklch(1 0 0 / 0.05)',
+                // Sticky: the primary CTA used to live below the fold at
+                // 1440×900 — now it rides the bottom edge until its
+                // natural position scrolls into view.
+                position: 'sticky',
+                bottom: 16,
+                zIndex: 10,
+                padding: '18px 28px',
+                background: 'color-mix(in oklch, var(--ink-100) 92%, transparent)',
+                backdropFilter: 'blur(16px)',
+                border: '1px solid oklch(1 0 0 / 0.08)',
                 borderRadius: 'var(--r-xl)',
+                boxShadow: 'var(--shadow-2)',
               }}
             >
               <div>
@@ -438,7 +488,9 @@ function EntryModeDialog({ repo, onSelect, onClose }: { repo: Repo; onSelect: (m
   useEffect(() => {
     if (!lastToast || consumedToastRef.current === lastToast) return;
     const text = lastToast.text.toLowerCase();
-    if (text.startsWith('[')) return;
+    // Only react to things the user actually SAID — system/error toasts
+    // ("Mic paused", fix instructions…) must never select a mode.
+    if (lastToast.kind !== 'transcript' || text.startsWith('[')) return;
     let mode: EntryMode | null = null;
     if (text.includes('full') || text.includes('walkthrough') || text.includes('everything')) mode = 'full_walkthrough';
     else if (text.includes('update') || text.includes('what changed') || text.includes("what's new") || text.includes('recent')) mode = 'updates';

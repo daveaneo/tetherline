@@ -2,6 +2,9 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const HELP_GROUPS = [
+  // Keyboard first: hold-space PTT is the PRIMARY input (mic starts
+  // off), and none of these were documented anywhere in the UI.
+  { label: 'Keyboard',   commands: ['hold space — talk', 'tap space — pause/resume', '← / → — back / skip', 'S — skip', 'D — go deeper', 'Esc — up a level'] },
   { label: 'Navigation', commands: ['"next"', '"skip"', '"go back"', '"dive deeper"'] },
   { label: 'Control',    commands: ['"pause"', '"resume"', '"mute"', '"exit"'] },
   { label: 'Questions',  commands: ['Just ask anything naturally'] },

@@ -39,7 +39,7 @@ export function NarrationBar() {
 
   return (
     <div
-      className="flex items-center gap-6"
+      className="narration-bar flex items-center gap-6"
       style={{
         padding: '14px 24px',
         borderTop: '1px solid oklch(1 0 0 / 0.05)',
@@ -87,6 +87,18 @@ export function NarrationBar() {
               {label}
             </motion.div>
           </AnimatePresence>
+          {/* PTT discoverability: the core interaction of the product had
+              zero on-screen affordance (only a hover tooltip on MicToggle). */}
+          {voiceState === 'idle' && !state.paused && (
+            <div
+              className="font-mono flex items-center"
+              style={{ fontSize: 9, letterSpacing: '0.06em', color: 'var(--cream-500)', marginTop: 4, gap: 2, opacity: 0.85 }}
+              data-testid="ptt-hint"
+            >
+              <span className="kc" style={{ minWidth: 34, height: 15, fontSize: 8.5, padding: '0 4px' }}>space</span>
+              hold to talk
+            </div>
+          )}
         </div>
       </div>
 
@@ -117,7 +129,7 @@ export function NarrationBar() {
       <div className="flex-1" />
 
 
-      <div className="flex items-center gap-2 flex-none">
+      <div className="nb-controls flex items-center gap-2 flex-none">
         <MicToggle />
         <button
           type="button"
