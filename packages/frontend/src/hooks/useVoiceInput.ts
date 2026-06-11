@@ -219,7 +219,7 @@ function handleTranscript(text: string) {
   setTimeout(() => {
     const s = useAudioStore.getState();
     if (s.voiceState === 'processing') {
-      s.addSpeechToast('[no response — releasing mic]');
+      s.addSpeechToast('No response — releasing mic', 'status');
       s.setVoiceState('listening');
     }
     if (s.userHasFloor && s.floorPhase === 'awaiting-response') {
@@ -281,7 +281,7 @@ export function useVoiceInput() {
   // Register startListening with the audio store
   const startListening = useCallback(async () => {
     if (listening) {
-      useAudioStore.getState().addSpeechToast('[Mic: already listening]');
+      useAudioStore.getState().addSpeechToast('Mic: already listening', 'status');
       return;
     }
 
@@ -334,10 +334,10 @@ export function useVoiceInput() {
           if (a.voiceState === 'processing') a.setVoiceState('listening');
         },
         onError: (error) => {
-          useAudioStore.getState().addSpeechToast(`[${error}]`);
+          useAudioStore.getState().addSpeechToast(`${error}`, 'error');
         },
         onStateChange: (state) => {
-          useAudioStore.getState().addSpeechToast(`[${state}]`);
+          useAudioStore.getState().addSpeechToast(`${state}`, 'status');
         },
       });
       // Capture mic permission + AudioContext setup is async (~100ms). Stash
@@ -345,20 +345,29 @@ export function useVoiceInput() {
       // (down + up within 50ms) tears down the capture before it ever ran,
       // producing the "no transcript ever arrived" failure mode.
       captureStartPromiseRef.current = capture.start().catch(err => {
-        useAudioStore.getState().addSpeechToast(`[Mic start failed: ${err.message ?? err}]`);
+        // Permission denied / no device: tear the failed capture down and
+        // flip listening back OFF. setListening(true) below runs first
+        // (synchronously), so without this the toggle showed a green
+        // "Mic on" while nothing was being captured.
+        useAudioStore.getState().addSpeechToast(`Mic start failed: ${err.message ?? err}`, 'error');
+        capture.stop();
+        if (captureRef.current === capture) captureRef.current = null;
+        setListening(false);
       });
       captureRef.current = capture;
       setListening(true);
-      useAudioStore.getState().addSpeechToast('[Mic: started (Whisper + echo cancellation)]');
+      // "Starting" — permission may still be pending. Success posts its
+      // own 'capture_started' state toast; failure posts the error above.
+      useAudioStore.getState().addSpeechToast('Starting mic (Whisper + echo cancellation)…', 'status');
 
     } else if (effectiveMode === 'browser') {
       // Fall back to Web Speech API
       try {
         recognizerRef.current?.start();
         setListening(true);
-        useAudioStore.getState().addSpeechToast('[Mic: started (Web Speech)]');
+        useAudioStore.getState().addSpeechToast('Mic started (Web Speech)', 'status');
       } catch (err: any) {
-        useAudioStore.getState().addSpeechToast(`[Mic error: ${err.message}]`);
+        useAudioStore.getState().addSpeechToast(`Mic error: ${err.message}`, 'error');
       }
     } else {
       // Actionable failure message — bare "[Mic: not available]"
@@ -367,9 +376,9 @@ export function useVoiceInput() {
       // Web Speech API (Firefox/Safari). Toast surfaces both fix paths
       // so the user can self-serve without grepping the codebase.
       const store = useAudioStore.getState();
-      store.addSpeechToast('Voice input unavailable — see top banner for fix');
-      store.addSpeechToast('Run: python3 packages/backend/src/tts/audio-server.py');
-      store.addSpeechToast('Or open the app in Chrome/Edge (Web Speech API)');
+      store.addSpeechToast('Voice input unavailable — see top banner for fix', 'error');
+      store.addSpeechToast('Run: python3 packages/backend/src/tts/audio-server.py', 'status');
+      store.addSpeechToast('Or open the app in Chrome/Edge (Web Speech API)', 'status');
     }
   }, [listening, mode, probeAudioStatus]);
 
@@ -550,7 +559,7 @@ export function useVoiceInput() {
         captureRef.current = null;
         recognizerRef.current?.stop();
         setListening(false);
-        useAudioStore.getState().addSpeechToast('[Mic: paused]');
+        useAudioStore.getState().addSpeechToast('Mic paused', 'status');
       }
     } else if (wasListeningBeforePauseRef.current) {
       wasListeningBeforePauseRef.current = false;
@@ -584,7 +593,7 @@ function wireWebSpeechCallbacks(recognizer: VoiceCommandRecognizer) {
     audioStore.confirmFloor();
     sendEvent({ type: 'user:speaking_started' });
     audioStore.setVoiceState('hearing');
-    audioStore.addSpeechToast('[hearing...]');
+    audioStore.addSpeechToast('hearing…', 'status');
   };
 
   recognizer.onSpeechEnd = () => {
@@ -618,10 +627,10 @@ function wireWebSpeechCallbacks(recognizer: VoiceCommandRecognizer) {
       a.resumeFromFloor('noise');
       sendEvent({ type: 'user:speaking_stopped' });
     }
-    useAudioStore.getState().addSpeechToast(`[Mic error: ${error}]`);
+    useAudioStore.getState().addSpeechToast(`Mic error: ${error}`, 'error');
   };
 
   recognizer.onStateChange = (state) => {
-    useAudioStore.getState().addSpeechToast(`[${state}]`);
+    useAudioStore.getState().addSpeechToast(`${state}`, 'status');
   };
 }

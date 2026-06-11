@@ -1,6 +1,11 @@
+// Full shiki bundle ON PURPOSE: the repo being reviewed can be any
+// language (backend detectLanguage emits rust/go/ruby/…), and the web
+// bundle silently drops those. This component is lazy-loaded, so the
+// size lives in an on-demand chunk, not the entry bundle.
 import { useEffect, useState } from 'react';
 import { codeToHtml } from 'shiki';
 import { motion } from 'framer-motion';
+import { emberTheme } from './ember-theme.js';
 
 interface Props {
   code: string;
@@ -19,7 +24,7 @@ export function CodeSnippet({ code, language, filePath, highlightLines = [] }: P
 
     codeToHtml(code, {
       lang: language || 'text',
-      theme: 'github-dark-default',
+      theme: emberTheme,
       decorations: highlightLines.map(line => ({
         start: { line: line - 1, character: 0 },
         end: { line: line - 1, character: Infinity },

@@ -15,7 +15,7 @@ import '@testing-library/jest-dom/vitest';
 import { HermesText } from '../../packages/frontend/src/components/room/HermesText.js';
 import { useSessionStore } from '../../packages/frontend/src/state/session-store.js';
 
-vi.mock('../../packages/frontend/src/lib/ws-client.js', () => ({ sendEvent: vi.fn() }));
+vi.mock('../../packages/frontend/src/lib/ws-client.js', () => ({ sendEvent: vi.fn(() => true) }));
 
 beforeEach(() => {
   useSessionStore.setState({

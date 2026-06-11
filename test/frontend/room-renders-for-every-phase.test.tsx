@@ -26,7 +26,7 @@ vi.mock('../../packages/frontend/src/lib/api-client.js', () => ({
   },
 }));
 vi.mock('../../packages/frontend/src/lib/ws-client.js', () => ({
-  sendEvent: vi.fn(),
+  sendEvent: vi.fn(() => true),
 }));
 
 // framer-motion stubs — bypass animations in jsdom

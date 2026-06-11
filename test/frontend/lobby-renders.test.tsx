@@ -16,7 +16,7 @@ const apiMock = vi.hoisted(() => ({
   addRepo: vi.fn(),
 }));
 vi.mock('../../packages/frontend/src/lib/api-client.js', () => ({ api: apiMock }));
-vi.mock('../../packages/frontend/src/lib/ws-client.js', () => ({ sendEvent: vi.fn() }));
+vi.mock('../../packages/frontend/src/lib/ws-client.js', () => ({ sendEvent: vi.fn(() => true) }));
 
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
@@ -46,7 +46,10 @@ describe('Lobby rendering states', () => {
     apiMock.listRepos.mockResolvedValue({ repos: [] });
 
     const { container } = render(<Lobby />);
-    expect(container.textContent).toMatch(/Reading your repositories/i);
+    // Loading is now a skeleton (R6): hero renders immediately, repo
+    // rows shimmer — no bare "Reading your repositories…" text line.
+    expect(container.querySelector('[aria-busy="true"]')).toBeInTheDocument();
+    expect(container.querySelectorAll('.skeleton').length).toBeGreaterThan(0);
 
     await waitFor(() => {
       expect(container.querySelector('.lobby-hero')).toBeInTheDocument();

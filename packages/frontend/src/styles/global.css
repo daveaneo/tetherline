@@ -14,7 +14,13 @@
   --ink-300: oklch(0.38 0.012 58);
   --ink-400: oklch(0.50 0.010 60);
 
-  /* Foreground — cream, slightly warm */
+  /* Foreground — cream, slightly warm.
+     100–300 are the BRIGHT end (emphasis text above 900) — components
+     referenced them for years while they were undefined, silently
+     rendering at inherited color. Keep all eight rungs defined. */
+  --cream-100: oklch(0.975 0.010 84);
+  --cream-200: oklch(0.945 0.013 83);
+  --cream-300: oklch(0.85 0.015 82);
   --cream-900: oklch(0.96 0.012 82);
   --cream-800: oklch(0.92 0.015 82);
   --cream-600: oklch(0.78 0.016 82);

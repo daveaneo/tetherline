@@ -7,7 +7,7 @@ import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 import { ArtifactCard } from '../../packages/frontend/src/components/room/ArtifactCard.js';
 import { useSessionStore } from '../../packages/frontend/src/state/session-store.js';
 
-vi.mock('../../packages/frontend/src/lib/ws-client.js', () => ({ sendEvent: vi.fn() }));
+vi.mock('../../packages/frontend/src/lib/ws-client.js', () => ({ sendEvent: vi.fn(() => true) }));
 
 const BODY = 'git clone repo\ncd repo\nnpm install';
 

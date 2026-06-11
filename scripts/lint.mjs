@@ -31,6 +31,12 @@ function walk(dir) {
 
 // Bare hex / rgb() / hsl(). NOT an HTML numeric entity (&#1234;).
 const RAW_COLOR = /((?<!&)#[0-9a-fA-F]{3,8}\b|rgba?\(|hsl\()/;
+
+// Structural exceptions to the raw-color rule — files whose CONSUMER
+// cannot resolve CSS variables, so concrete colors are the only option:
+//   ember-theme.ts — shiki TextMate theme; shiki renders inline styles
+//   and never sees the cascade. The hexes there ARE the token values.
+const RAW_COLOR_EXEMPT = [/components\/code\/ember-theme\.ts$/];
 for (const root of ROOTS) {
   let files = [];
   try { files = walk(root); } catch { continue; }
@@ -40,7 +46,7 @@ for (const root of ROOTS) {
     const lines = readFileSync(f, 'utf8').split('\n');
     lines.forEach((line, i) => {
       const ln = i + 1;
-      if (isFrontend && RAW_COLOR.test(line)) {
+      if (isFrontend && RAW_COLOR.test(line) && !RAW_COLOR_EXEMPT.some(rx => rx.test(f))) {
         // Allowed: a token with a fallback — var(--x, #fallback) / oklch tokens.
         const stripped = line.replace(/var\(--[^)]*\)/g, '');
         if (RAW_COLOR.test(stripped) && !/oklch\(/.test(line.slice(0, line.search(RAW_COLOR)))) {

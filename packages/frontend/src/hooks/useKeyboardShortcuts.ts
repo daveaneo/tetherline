@@ -7,8 +7,15 @@ export function useKeyboardShortcuts() {
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      // Don't capture when typing in input fields
+      // Don't capture when typing in input fields / editable surfaces
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.target instanceof HTMLElement && e.target.isContentEditable) return;
+      // Bare-letter hotkeys drive the SESSION — outside one (lobby) or
+      // before there's anything to navigate (analyzing), a stray
+      // keypress must not fire commands into the void.
+      if (state.phase === 'IDLE' || state.phase === 'ANALYZING') return;
+      // Modified keypresses are someone else's shortcut (Cmd+S, Ctrl+D…).
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
 
       switch (e.key) {
         case 'ArrowRight':

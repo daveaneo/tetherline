@@ -74,9 +74,14 @@ export function GapsPanel() {
   if (!open) return null;
 
   const onPick = (gap: Gap) => {
+    // Send first — a dropped send must not log the question and sit on
+    // "thinking" for a reply that was never dispatched.
+    if (!sendEvent({ type: 'user:utterance', payload: { text: gap.utterance, timestamp: Date.now() } })) {
+      useAudioStore.getState().addSpeechToast('Not connected — try again in a moment.', 'error');
+      return;
+    }
     useSessionStore.getState().addConversation('you', gap.utterance);
     useAudioStore.getState().setVoiceState('processing');
-    sendEvent({ type: 'user:utterance', payload: { text: gap.utterance, timestamp: Date.now() } });
     setOpen(false);
   };
 

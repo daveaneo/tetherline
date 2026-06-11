@@ -130,6 +130,11 @@ export class AudioCapture {
       this.callbacks.onStateChange('capture_started');
     } catch (err: any) {
       this.callbacks.onError(`Mic access failed: ${err.message}`);
+      // Rethrow so the CALLER's promise rejects too — useVoiceInput's
+      // start path tears down (`setListening(false)`) in its .catch.
+      // Swallowing here left that teardown dead code: a denied mic
+      // showed a green "Mic on" while nothing was being captured.
+      throw err;
     }
   }
 

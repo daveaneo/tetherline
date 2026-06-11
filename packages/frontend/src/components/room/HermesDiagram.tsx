@@ -17,7 +17,7 @@
  * so first paint is immediate. Cache miss → loading state while the
  * backend composes on the fly.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSessionStore } from '../../state/session-store.js';
 import { useAudioStore } from '../../state/audio-store.js';
 import { TimeSlider } from './TimeSlider.js';
@@ -118,11 +118,35 @@ export function HermesDiagram() {
   // accumulates: touched nodes get a brighter base color forever after.
   const touchedNodes = useSessionStore(s => s.touchedNodes);
 
+  // Normalize the chunk anchors ONCE per chunk, not once per node per
+  // render — with the memoized DiagramNodeView this is the only
+  // per-chunk work the node layer pays.
+  const anchorSet = useMemo(() => {
+    const s = new Set<string>();
+    for (const a of currentChunkNodes) s.add(a.toLowerCase());
+    return s;
+  }, [currentChunkNodes]);
+
   // Active scope walks the navigator stack — drilling into a module
   // refetches that module's diagram. For now wire to project until the
   // navigator integration lands; the structure is here for it.
   const [scope, setScope] = useState<string>('project');
   const [view, setView] = useState<'logic' | 'file'>('file');
+
+  // Compact (phone-width) rendering: node subtitles and the S/Q meta
+  // bars rasterize at ~6px when the 1200-unit viewBox squeezes into a
+  // 390px viewport — illegible noise. Compact mode drops them so the
+  // node titles get the pixels instead.
+  const [compact, setCompact] = useState<boolean>(
+    () => typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(max-width: 640px)').matches,
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(max-width: 640px)');
+    const onChange = () => setCompact(mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
 
   // Transition-grammar motion (B2): the relationship between the
   // previous and current scope decides the motion the node layer
@@ -318,10 +342,14 @@ export function HermesDiagram() {
   // state rather than an eternal "Composing…". Cleared as soon as a
   // payload or error lands.
   useEffect(() => {
-    if (phase === 'IDLE' || payload || error) { setStalled(false); return; }
+    // Two stall cases: never had a payload (cold session), or a
+    // REVALIDATION hangs (SWR keeps the old canvas up while loading —
+    // without this arm, a hung drill-down dimmed the canvas forever).
+    const settled = payload ? !loading : false;
+    if (phase === 'IDLE' || error || settled) { setStalled(false); return; }
     const t = setTimeout(() => setStalled(true), 12000);
     return () => clearTimeout(t);
-  }, [phase, payload, error, repoPath, retryNonce]);
+  }, [phase, payload, loading, error, repoPath, retryNonce]);
 
   // Fetch the diagram payload whenever scope/view/repoPath changes.
   useEffect(() => {
@@ -553,6 +581,24 @@ export function HermesDiagram() {
     sendEvent({ type: 'command:level_up' });
   }, [scope]);
 
+  // Node click — stable identity (useCallback) so the memoized
+  // DiagramNodeView doesn't re-render every node on every stream chunk.
+  // Lives ABOVE the early returns (Rules of Hooks).
+  const onNodeClick = useCallback((n: PositionedNode) => {
+    if (n.isCenter) return; // don't drill on the center
+    const utterance = `tell me about ${prettyLabel(n)}`;
+    // Send first — a dropped send must not show "thinking" for a reply
+    // that will never come (disconnected socket drops events).
+    if (!sendEvent({ type: 'user:utterance', payload: { text: utterance, timestamp: Date.now() } })) {
+      useAudioStore.getState().addSpeechToast('Not connected — try again in a moment.', 'error');
+      return;
+    }
+    useSessionStore.getState().addConversation('you', utterance);
+    useAudioStore.getState().setVoiceState('processing');
+    // Drill — switch the cached scope to that node.
+    if (n.id.startsWith('module/')) setScope(n.id);
+  }, []);
+
   // Esc anywhere (outside typing targets) acts as "back". Mirrors voice
   // "go back" and the chevron button so all three paths converge.
   useEffect(() => {
@@ -593,7 +639,12 @@ export function HermesDiagram() {
       </div>
     );
   }
-  if (!payload || loading) {
+  // Stale-while-revalidate: the placeholder only shows when there is
+  // truly NOTHING to draw. Every drill-down / Back / Logic⇄File toggle
+  // used to blank the whole canvas to this text line for the fetch
+  // round-trip — the previous payload stays up (dimmed, with an
+  // "updating…" chip) instead.
+  if (!payload) {
     return (
       <div className="flex items-center justify-center h-full">
         <div
@@ -637,16 +688,6 @@ export function HermesDiagram() {
       </div>
     );
   }
-
-  const onNodeClick = (n: PositionedNode) => {
-    if (n.isCenter) return; // don't drill on the center
-    const utterance = `tell me about ${prettyLabel(n)}`;
-    useSessionStore.getState().addConversation('you', utterance);
-    useAudioStore.getState().setVoiceState('processing');
-    sendEvent({ type: 'user:utterance', payload: { text: utterance, timestamp: Date.now() } });
-    // Drill — switch the cached scope to that node.
-    if (n.id.startsWith('module/')) setScope(n.id);
-  };
 
   // The diagram's own title bar should only show when the diagram is
   // the canvas — i.e. narrative phases or PROPOSAL (where it floats
@@ -820,7 +861,54 @@ export function HermesDiagram() {
           The wrapper is a flex region; the inner div uses aspect-ratio to
           match the dynamic viewBox so the SVG fills its element edge-to-
           edge instead of leaving wide vertical bars from `xMidYMid meet`. */}
-      <div className="flex-1 relative flex items-start justify-center" style={{ minHeight: 0, padding: '8px 24px 24px' }}>
+      <div
+        className="flex-1 relative flex items-start justify-center"
+        style={{
+          minHeight: 0, padding: '8px 24px 24px',
+          // Revalidating: previous diagram stays visible, dimmed. A failed
+          // or stalled refetch un-dims (the old canvas is what you HAVE).
+          opacity: loading && !error && !stalled ? 0.55 : 1,
+          transition: 'opacity 0.2s ease',
+        }}
+      >
+        {/* Refetch failed / hung with a stale canvas up: say so — a
+            silent failure here leaves the breadcrumb claiming module/X
+            while the canvas still shows the project. */}
+        {(error || stalled) ? (
+          <div
+            className="absolute top-2 right-6 z-10 font-mono flex items-center gap-3"
+            style={{
+              fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase',
+              color: 'var(--sig-concern)', padding: '4px 10px', borderRadius: 999,
+              background: 'color-mix(in oklch, var(--ink-100) 90%, transparent)',
+              border: '1px solid color-mix(in oklch, var(--sig-concern) 40%, transparent)',
+            }}
+            data-testid="diagram-update-failed"
+          >
+            <span>{error ? `couldn't update: ${error}` : "update stalled"}</span>
+            <button
+              type="button"
+              onClick={retryDiagram}
+              className="font-mono"
+              style={{ color: 'var(--amber-400)', letterSpacing: 'inherit', textTransform: 'inherit', cursor: 'pointer', background: 'none', border: 'none', padding: 0, font: 'inherit' }}
+            >
+              retry
+            </button>
+          </div>
+        ) : loading && (
+          <div
+            className="absolute top-2 right-6 z-10 font-mono"
+            style={{
+              fontSize: 10, letterSpacing: '0.16em', textTransform: 'uppercase',
+              color: 'var(--amber-400)', padding: '4px 10px', borderRadius: 999,
+              background: 'color-mix(in oklch, var(--ink-100) 85%, transparent)',
+              border: '1px solid color-mix(in oklch, var(--amber-500) 30%, transparent)',
+            }}
+            data-testid="diagram-updating"
+          >
+            updating…
+          </div>
+        )}
         <div
           className="relative"
           style={{
@@ -928,7 +1016,12 @@ export function HermesDiagram() {
            *  invisible center coordinate so spacing/positioning is
            *  unchanged. */}
           <motion.g
-            key={scope}
+            // Keyed by the PAYLOAD's scope, not the navigation state: under
+            // stale-while-revalidate the scope flips at click time while the
+            // old diagram is still on screen — keying on `scope` played the
+            // enter motion on the OLD nodes and snapped the new ones in.
+            // The payload scope changes exactly when the new content lands.
+            key={payload.scope ?? scope}
             initial={scopeMotion.initial}
             animate={scopeMotion.animate}
             transition={{ duration: scopeMotion.duration, ease: 'easeOut' }}
@@ -938,8 +1031,9 @@ export function HermesDiagram() {
               <DiagramNodeView
                 key={n.id}
                 node={n}
+                compact={compact}
                 active={n.briefingId !== null && n.briefingId === currentBriefingId}
-                anchorPulse={isAnchorMatch(n, currentChunkNodes)}
+                anchorPulse={isAnchorMatch(n, anchorSet)}
                 dispatchRing={isDispatchPulse(n, dispatchPulseIds) ? (dispatchSettled ? 'settled' : 'pulse') : null}
                 breathKey={
                   !dispatchSettled &&
@@ -958,7 +1052,7 @@ export function HermesDiagram() {
                 blastHop={blast ? (blast.hopOf.get(n.id) ?? null) : null}
                 roll={scores?.get(n.id) ?? null}
                 childrenInfo={childrenInfo.get(n.id) ?? null}
-                onClick={() => onNodeClick(n)}
+                onNodeClick={onNodeClick}
               />
             ))}
           </motion.g>
@@ -977,17 +1071,17 @@ export function HermesDiagram() {
  *  the backend tagged the currently-playing chunk with. The chunker
  *  matches against module display names; we test both the satellite's
  *  label and the module-id-without-prefix so "core" and "module/core"
- *  both work. */
-function isAnchorMatch(node: PositionedNode, anchors: string[]): boolean {
-  if (anchors.length === 0) return false;
-  const normalized = anchors.map(a => a.toLowerCase());
+ *  both work. Takes a pre-lowercased Set (built once per chunk) so the
+ *  per-node cost is three lookups, not an array scan. */
+function isAnchorMatch(node: PositionedNode, anchors: Set<string>): boolean {
+  if (anchors.size === 0) return false;
   const idWithoutPrefix = node.id.replace(/^(module|file|concept)\//, '').toLowerCase();
   const label = node.label.toLowerCase();
   // Full ids too — visual-dispatch refs and newer chunk tags carry
   // `module/core`-style node ids, not just bare labels.
-  return normalized.includes(node.id.toLowerCase())
-    || normalized.includes(idWithoutPrefix)
-    || normalized.includes(label);
+  return anchors.has(node.id.toLowerCase())
+    || anchors.has(idWithoutPrefix)
+    || anchors.has(label);
 }
 
 /** Acknowledgment pulse from a visual:dispatch — refs are full node ids. */
@@ -1014,6 +1108,9 @@ function isTouched(node: PositionedNode, touched: Set<string>): boolean {
 
 interface NodeViewProps {
   node: PositionedNode;
+  /** Phone-width rendering: subtitles + S/Q meta bars are dropped
+   *  (illegible at that raster size); the title gets the pixels. */
+  compact?: boolean;
   active: boolean;
   anchorPulse?: boolean;
   /** visual:dispatch acknowledgment: 'pulse' = first 3s strong attack,
@@ -1037,10 +1134,12 @@ interface NodeViewProps {
    *  (always summaries); state colour buckets the node. */
   roll?: KnowledgeRoll | null;
   childrenInfo: ChildrenInfo | null;
-  onClick: () => void;
+  /** Stable callback (useCallback in the parent) — combined with memo()
+   *  it stops every node re-rendering on every TTS stream chunk. */
+  onNodeClick: (n: PositionedNode) => void;
 }
 
-function DiagramNodeView({ node, active, anchorPulse, dispatchRing, breathKey, touched, heatmapOverlay, changeHeat, concern, guidedFocus, pinned, dimmed, blastHop, roll, childrenInfo, onClick }: NodeViewProps) {
+const DiagramNodeView = memo(function DiagramNodeView({ node, compact, active, anchorPulse, dispatchRing, breathKey, touched, heatmapOverlay, changeHeat, concern, guidedFocus, pinned, dimmed, blastHop, roll, childrenInfo, onNodeClick }: NodeViewProps) {
   const [hover, setHover] = useState(false);
   // v3: two summary axes (subtree roll-up). Colour encodes only the
   // 4-state category; the precise numbers are the two bars below.
@@ -1066,7 +1165,9 @@ function DiagramNodeView({ node, active, anchorPulse, dispatchRing, breathKey, t
   // Title size tracks node size — center has the biggest type. The
   // satellite size was bumped from 14→17 because file-scope drill views
   // (n=5+ filename satellites) were unreadable at the default zoom.
-  const titleSize = node.isCenter ? 24 : 17;
+  // Compact bumps it further: with subtitles dropped, the title is the
+  // node's only text and gets the room.
+  const titleSize = node.isCenter ? 24 : compact ? 21 : 17;
   const subSize = node.isCenter ? 13 : 12;
   const lineHeight = subSize * 1.4;
 
@@ -1093,7 +1194,7 @@ function DiagramNodeView({ node, active, anchorPulse, dispatchRing, breathKey, t
   // ellipses; with oneLineDescription bounded to ~200 chars upstream,
   // 3-4 wrapped lines comfortably fit the full sentence.
   const maxLines = node.isCenter ? 4 : 3;
-  const lines = node.description
+  const lines = node.description && !compact
     ? wrapForRect(node.description, innerWidth, subSize, maxLines)
     : [];
   const contentHeight =
@@ -1113,7 +1214,7 @@ function DiagramNodeView({ node, active, anchorPulse, dispatchRing, breathKey, t
   return (
     <g
       transform={`translate(${node.x}, ${node.y})`}
-      onClick={onClick}
+      onClick={() => onNodeClick(node)}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       // Pipeline walkthrough dims stages not yet revealed (B3). Center
@@ -1371,26 +1472,29 @@ function DiagramNodeView({ node, active, anchorPulse, dispatchRing, breathKey, t
        *  avg-of-best %. Both are length-encoded with an explicit
        *  number; "—" = no data. Components ALWAYS show summaries; the
        *  focused node's per-view detail is in the title block. */}
-      {(() => {
+      {!compact && (() => {
         const y = rectHeight / 2 + 16;
         const barW = 38, barH = 5, lblGap = 5, numGap = 5, pairGap = 16;
         const seenTxt = `${seenPct}`;
         const qHasData = testedPct > 0 || roll?.grilled === true;
         const qTxt = qHasData ? `${testedPct}` : '—';
-        const numW = 22;
+        const numW = 24;
         const grp = 8 + lblGap + barW + numGap + numW; // label+bar+num
         const totalW = grp * 2 + pairGap;
         const x0 = -totalW / 2;
+        // 11px floor + cream-600 labels: the old 9px cream-500 row was
+        // unreadable without zooming (design-review P0). A 3px minimum
+        // fill keeps a 0% bar reading as an empty gauge, not a broken one.
         const Bar = (gx: number, letter: string, frac: number, fill: string, num: string, dim: boolean) => (
           <g>
             <text x={gx} y={y} dominantBaseline="central"
-              style={{ fontFamily: 'var(--mono, "Geist Mono", ui-monospace, monospace)', fontSize: 9, fill: 'var(--cream-500, #b8a99a)' }}>
+              style={{ fontFamily: 'var(--mono, "Geist Mono", ui-monospace, monospace)', fontSize: 11, fill: 'var(--cream-600)' }}>
               {letter}
             </text>
             <rect x={gx + 8 + lblGap} y={y - barH / 2} width={barW} height={barH} rx={2} fill="var(--ink-100)" />
-            <rect x={gx + 8 + lblGap} y={y - barH / 2} width={barW * Math.max(0, Math.min(1, frac))} height={barH} rx={2} fill={fill} opacity={dim ? 0.4 : 1} />
+            <rect x={gx + 8 + lblGap} y={y - barH / 2} width={Math.max(3, barW * Math.max(0, Math.min(1, frac)))} height={barH} rx={2} fill={fill} opacity={dim ? 0.4 : 1} />
             <text x={gx + 8 + lblGap + barW + numGap} y={y} dominantBaseline="central"
-              style={{ fontFamily: 'var(--mono, "Geist Mono", ui-monospace, monospace)', fontSize: 10, fill: dim ? 'var(--cream-500, #b8a99a)' : fill, opacity: dim ? 0.6 : 1 }}>
+              style={{ fontFamily: 'var(--mono, "Geist Mono", ui-monospace, monospace)', fontSize: 11, fill: dim ? 'var(--cream-500)' : fill, opacity: dim ? 0.75 : 1 }}>
               {num}
             </text>
           </g>
@@ -1419,7 +1523,9 @@ function DiagramNodeView({ node, active, anchorPulse, dispatchRing, breathKey, t
         const overflowExtra = overflow > 0 ? 22 : 0; // room for "+N"
         const rowWidth = childrenInfo.visible.length * (pipR * 2) + (childrenInfo.visible.length - 1) * pipGap + overflowExtra;
         const startX = -rowWidth / 2 + pipR;
-        const rowY = rectHeight / 2 + 30; // below the comprehension ladder
+        // Below the S/Q row — which compact mode drops, so the pips
+        // tuck in close instead of floating over a 16px dead band.
+        const rowY = rectHeight / 2 + (compact ? 14 : 30);
         return (
           <g data-testid={`hd-pips-${node.id}`}>
             {childrenInfo.visible.map((lvl, i) => {
@@ -1479,7 +1585,7 @@ function DiagramNodeView({ node, active, anchorPulse, dispatchRing, breathKey, t
     </motion.g>
     </g>
   );
-}
+});
 
 
 // levelOrdinal / levelColor now come from the single shared model
@@ -1781,8 +1887,12 @@ function KnowledgeStrip({
   const mine = weakSpots.filter(w => w.itemId === cur.id);
 
   const ask = (text: string) => {
+    // Only log the 'you' line for sends that actually went out.
+    if (!sendEvent({ type: 'user:utterance', payload: { text, timestamp: Date.now() } })) {
+      useAudioStore.getState().addSpeechToast('Not connected — try again in a moment.', 'error');
+      return;
+    }
     useSessionStore.getState().addConversation('you', text);
-    sendEvent({ type: 'user:utterance', payload: { text, timestamp: Date.now() } });
   };
   // ▶ replay: re-speak the authored flow's narration INSTANTLY (no QA
   // round-trip) by feeding the greeting lane; fall back to a fresh explain.
