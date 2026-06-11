@@ -42,6 +42,7 @@ import type { LLMStreamHandle } from '../intelligence/llm/types.js';
 import { getDefaultLLMAdapter } from '../intelligence/llm/index.js';
 import { classifyArtifact, extractFencedArtifacts, type ExtractedArtifact } from '../intelligence/fence-extract.js';
 import { narrationMentionsOnly } from '../intelligence/flow-validate.js';
+import { FLOW_BRIDGE_LINE } from './answer-streamer.js';
 import { applyComprehension } from '@tetherline/shared';
 import type { DiagramRow } from '../db/repositories/diagram-cache-repo.js';
 import type { ComprehensionItemLayer, ComprehensionLevel } from '@tetherline/shared';
@@ -1964,7 +1965,7 @@ export class SessionManager {
       ? (depthSignal.tier === 'tldr'
           ? "Got it — I'll keep it short."
           : depthSignal.tier === 'deep'
-            ? 'Sure, going deeper.'
+            ? 'Sure — going deeper now.'
             : '')
       : '';
 
@@ -2766,9 +2767,7 @@ export class SessionManager {
     if (lead && !narrationMentionsOnly(lead, labels)) lead = '';
     const modulePath = briefing.id.replace(/^module\//, '');
     const keyFiles = this.db.getContextCacheRepo().getModule(repoPath, modulePath)?.keyFiles ?? [];
-    const bridge = keyFiles.length > row.nodes.length
-      ? 'The map shows the main stages — the other files live inside them.'
-      : '';
+    const bridge = keyFiles.length > row.nodes.length ? FLOW_BRIDGE_LINE : '';
     const text = [lead, row.narration.trim(), bridge].filter(Boolean).join(' ');
     return { text, row };
   }
@@ -3378,7 +3377,7 @@ export class SessionManager {
         this.currentTurnStreamId = streamId;
         this.emit({
           type: 'narration:stream_chunk',
-          payload: { streamId, seq: 0, text: 'Sure, going deeper.', isFinal: false, referencedNodes: [] },
+          payload: { streamId, seq: 0, text: 'Sure — going deeper now.', isFinal: false, referencedNodes: [] },
         });
         await this.handleQuestion(question, params, { streamId, startSeq: 1 });
         return;
@@ -3431,7 +3430,7 @@ export class SessionManager {
     this.depthTier = depthSignal.tier;
     const impliesBrevity = /\b\d+\s+(words?|sentences?|lines?|paragraphs?)\b|\b(brief|brevity|short|terse|concise|tldr|tl;dr|one[\s-]?liner|in\s+a?\s*sentence)\b/i.test(text);
     const ackText = depthSignal.changed && !impliesBrevity
-      ? (depthSignal.tier === 'tldr' ? "Got it — I'll keep it short." : 'Sure, going deeper.')
+      ? (depthSignal.tier === 'tldr' ? "Got it — I'll keep it short." : 'Sure — going deeper now.')
       : pickAck(text, this.lastAck);
     const turnStreamId = `qa-${Date.now()}`;
     this.currentTurnStreamId = turnStreamId;

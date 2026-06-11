@@ -10,13 +10,16 @@
  * start so the ack's /api/audio/tts POST is a cache hit (~no synth delay).
  */
 
-const VISUAL_ACKS = ['Let me pull that up.'];
-const QUESTION_ACKS = ['Let me take a look.', 'Good question — one sec.'];
-const CHANGE_ACKS = ['Checking the changes.'];
-const GENERIC_ACKS = ['One sec.', 'Looking now.', 'Let me check.'];
+// Phrased as CONTINUATIONS (trailing/internal em-dash, "moment", "now") so the
+// silence that follows — classify + first-sentence generation — reads as
+// "working on it," not "done." (live 2026-06-11). Pinned by ack-phrases.test.
+const VISUAL_ACKS = ['Pulling that up now.'];
+const QUESTION_ACKS = ['Let me take a look — one moment.', 'Good question — give me a moment.'];
+const CHANGE_ACKS = ['Checking the changes — one moment.'];
+const GENERIC_ACKS = ['One moment.', 'Looking now.', 'Let me check on that now.'];
 
 /** Depth-change acks (owned by the depth detector, pre-warmed here too). */
-export const DEPTH_ACKS = ["Got it — I'll keep it short.", 'Sure, going deeper.'];
+export const DEPTH_ACKS = ["Got it — I'll keep it short.", 'Sure — going deeper now.'];
 
 export const ALL_ACK_PHRASES: string[] = [
   ...VISUAL_ACKS,

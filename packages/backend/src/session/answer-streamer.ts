@@ -13,12 +13,20 @@ import { classifyArtifact, type ExtractedArtifact } from '../intelligence/fence-
 
 export const STEERING_HOOK = 'Want me to go deeper?';
 
+/** Spoken when a module flow is surfaced alongside its briefing (R4). Shared
+ *  so the prewarm can cache it and `coherentFlowOpener` speaks the same words. */
+export const FLOW_BRIDGE_LINE = 'The map shows the main stages — the other files live inside them.';
+
+const ARTIFACT_COMMANDS_LINE = "I've put the commands on screen — copy them when you're ready.";
+const ARTIFACT_CODE_LINE = "I've put the code on screen for you.";
+
+/** The two fixed artifact replacement lines — exported for TTS prewarming. */
+export const ARTIFACT_REPLACEMENT_LINES = [ARTIFACT_COMMANDS_LINE, ARTIFACT_CODE_LINE];
+
 /** Spoken in place of fenced code — the code itself goes to the screen. */
 export function artifactReplacementLine(artifacts: ExtractedArtifact[]): string {
   const kind = artifacts.some(a => classifyArtifact(a) === 'commands') ? 'commands' : 'code';
-  return kind === 'commands'
-    ? "I've put the commands on screen — copy them when you're ready."
-    : "I've put the code on screen for you.";
+  return kind === 'commands' ? ARTIFACT_COMMANDS_LINE : ARTIFACT_CODE_LINE;
 }
 
 export interface StreamAnswerOptions {
