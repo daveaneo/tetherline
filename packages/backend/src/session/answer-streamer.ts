@@ -13,8 +13,10 @@ import { classifyArtifact, type ExtractedArtifact } from '../intelligence/fence-
 
 export const STEERING_HOOK = 'Want me to go deeper?';
 
-/** Spoken when a module flow is surfaced alongside its briefing (R4). Shared
- *  so the prewarm can cache it and `coherentFlowOpener` speaks the same words. */
+/** Appended to the spoken flow opener when a module flow is surfaced alongside
+ *  its briefing (R4). Exported so `coherentFlowOpener` and its tests share the
+ *  exact wording. NOT prewarmed standalone — it's concatenated into one combined
+ *  opener utterance, so a standalone cache key for it would never hit. */
 export const FLOW_BRIDGE_LINE = 'The map shows the main stages — the other files live inside them.';
 
 const ARTIFACT_COMMANDS_LINE = "I've put the commands on screen — copy them when you're ready.";

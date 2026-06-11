@@ -7,6 +7,11 @@ import { TtsPrefetch } from '../lib/tts-prefetch.js';
 import type { NarrationSegment } from '@tetherline/shared';
 import { API_PREFIX } from '@tetherline/shared';
 
+// How many upcoming sentences to synthesize ahead while the current one plays.
+// Synthesis ~1s, audio ~2-4s, so 2 ahead keeps the queue gap-free without
+// spending on chunks the user is likely to barge over.
+const PREFETCH_AHEAD = 2;
+
 export function useSessionOrchestrator() {
   const state = useSessionStore(s => s.state);
   const areas = useSessionStore(s => s.areas);
@@ -131,10 +136,14 @@ export function useSessionOrchestrator() {
 
       if (ttsProvider === 'openai') {
         // Pipelined: if the drain loop already synthesized this sentence while
-        // the previous one played, take that blob and play with ZERO wait. Else
-        // synthesize on demand (signal honored). null → fall through to browser.
+        // the previous one played, take that blob and play with ZERO wait.
         const pre = prefetchRef.current?.take(text) ?? null;
-        const blob = pre ? await pre : await fetchTtsBlob(text, signal);
+        let blob = pre ? await pre : null;
+        if (signal?.aborted) { cleanup(); return; }
+        // Prefetch miss, OR a prefetch whose synth failed earlier (resolved
+        // null) — synthesize on demand now so a transient hiccup at prefetch
+        // time doesn't skip straight to browser TTS. null → browser fallback.
+        if (!blob) blob = await fetchTtsBlob(text, signal);
         if (signal?.aborted) { cleanup(); return; }
         if (blob) {
           const url = URL.createObjectURL(blob);
@@ -527,7 +536,7 @@ export function useSessionOrchestrator() {
           // WHILE this one plays, so the queue never waits on a round-trip.
           // Fetch-only (no playback) → independent of the floor gate.
           if (useSettingsStore.getState().settings.ttsProvider === 'openai' && prefetchRef.current) {
-            for (const c of useSessionStore.getState().streamChunks.slice(0, 2)) {
+            for (const c of useSessionStore.getState().streamChunks.slice(0, PREFETCH_AHEAD)) {
               prefetchRef.current.ensure(c.text);
             }
           }

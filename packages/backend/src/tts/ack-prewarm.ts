@@ -15,19 +15,20 @@ import type { TTSProvider } from './provider.js';
 import { KokoroTTSProvider } from './kokoro-tts.js';
 import { OpenAITTSProvider } from './openai-tts.js';
 import { ALL_ACK_PHRASES, DEPTH_ACKS } from '../session/ack-phrases.js';
-import { STEERING_HOOK, FLOW_BRIDGE_LINE, ARTIFACT_REPLACEMENT_LINES } from '../session/answer-streamer.js';
+import { STEERING_HOOK, ARTIFACT_REPLACEMENT_LINES } from '../session/answer-streamer.js';
 
 const CACHE_VOICE = 'kokoro';
 
-/** Every FIXED spoken phrase the system can emit — acks, the steering hook,
- *  the artifact replacement lines, and the flow bridge line. Warming them all
- *  means every non-LLM utterance plays from disk with no synth latency. */
+/** Every fixed phrase that is emitted as its OWN standalone TTS request — acks,
+ *  the steering hook, the artifact replacement lines. Warming these means each
+ *  plays from disk with no synth latency. (FLOW_BRIDGE_LINE is deliberately NOT
+ *  here: coherentFlowOpener concatenates it into one combined opener utterance,
+ *  so a standalone bridge cache key would never hit.) */
 export const FIXED_SPOKEN_PHRASES: string[] = [
   ...ALL_ACK_PHRASES,
   ...DEPTH_ACKS,
   STEERING_HOOK,
   ...ARTIFACT_REPLACEMENT_LINES,
-  FLOW_BRIDGE_LINE,
 ];
 
 /** Synthesize each not-yet-cached phrase via `provider` into `cache` (under

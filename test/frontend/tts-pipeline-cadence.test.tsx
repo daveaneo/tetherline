@@ -119,13 +119,12 @@ describe('TTS pipelining cadence', () => {
     await act(async () => { resolveFetch('one.'); });
     await flush();
 
-    // Sentence 2's synthesis is already in flight while 1 plays.
+    // Sentence 2's synthesis is already in flight while 1 plays — and crucially
+    // BEFORE sentence 1 has ended (the stall on master only fetched 2 after 1
+    // ended). The proof is: fetchStart:2 is present while ended:1 is NOT.
     expect(idx('playStart:one.'), 'sentence 1 is playing').toBeGreaterThanOrEqual(0);
     expect(idx('fetchStart:two.'), 'sentence 2 synthesis started during playback 1').toBeGreaterThanOrEqual(0);
-    expect(idx('fetchStart:two.'), 'and it started before sentence 1 ends').toBeLessThan(
-      idx('playStart:one.') + 999, // (ended:1 not fired yet — it isn't in the timeline)
-    );
-    expect(timeline).not.toContain('ended:one.');
+    expect(timeline, 'sentence 1 has not ended yet — so fetch:2 happened DURING playback 1').not.toContain('ended:one.');
   });
 
   it('zero-wait handoff: after sentence 1 ends, sentence 2 plays with no new fetch', async () => {

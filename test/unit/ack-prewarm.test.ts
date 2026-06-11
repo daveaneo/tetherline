@@ -13,6 +13,8 @@ import { warmPhrasesIntoCache, FIXED_SPOKEN_PHRASES } from '../../packages/backe
 import { ALL_ACK_PHRASES, DEPTH_ACKS } from '../../packages/backend/src/session/ack-phrases.js';
 import { STEERING_HOOK, FLOW_BRIDGE_LINE, ARTIFACT_REPLACEMENT_LINES } from '../../packages/backend/src/session/answer-streamer.js';
 
+// FLOW_BRIDGE_LINE is imported only to assert it is DELIBERATELY excluded.
+
 /** A TTSProvider stub: records calls, returns a tiny fake audio buffer. */
 function stubProvider() {
   const calls: string[] = [];
@@ -45,10 +47,14 @@ describe('warmPhrasesIntoCache', () => {
     expect(s.calls, 'provider never called when all cached').toEqual([]);
   });
 
-  it('the fixed-phrase set covers acks, depth, steering hook, artifact lines, and the flow bridge', () => {
-    for (const p of [...ALL_ACK_PHRASES, ...DEPTH_ACKS, STEERING_HOOK, ...ARTIFACT_REPLACEMENT_LINES, FLOW_BRIDGE_LINE]) {
+  it('the fixed-phrase set covers acks, depth, steering hook, and artifact lines', () => {
+    for (const p of [...ALL_ACK_PHRASES, ...DEPTH_ACKS, STEERING_HOOK, ...ARTIFACT_REPLACEMENT_LINES]) {
       expect(FIXED_SPOKEN_PHRASES).toContain(p);
     }
+  });
+
+  it('excludes the flow bridge line — it is spoken concatenated, never standalone', () => {
+    expect(FIXED_SPOKEN_PHRASES).not.toContain(FLOW_BRIDGE_LINE);
   });
 
   it('a provider failure on one phrase does not abort the rest', async () => {
