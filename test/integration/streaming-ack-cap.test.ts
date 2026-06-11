@@ -192,7 +192,7 @@ describe('streaming voice pipeline — ack, token streaming, hard cap', () => {
     void h.client.utter(devSessionId, 'tell me more');
     await waitForChunk(devSessionId, startIdx2, c => c.isFinal);
     const all2 = chunksOf((await h.client.events(devSessionId, startIdx2)).events as AnyEvent[]);
-    expect(all2[0]?.text).toBe('Sure, going deeper.');
+    expect(all2[0]?.text).toBe('Sure — going deeper now.');
     const body = all2.filter(c => c.seq >= 1).map(c => c.text).join(' ');
     expect(body).toContain('Deep sentence one');
     expect(body).not.toContain(STEERING_HOOK);

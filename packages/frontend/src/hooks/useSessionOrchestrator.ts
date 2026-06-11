@@ -3,8 +3,14 @@ import { useSessionStore } from '../state/session-store.js';
 import { useAudioStore } from '../state/audio-store.js';
 import { useSettingsStore } from '../state/settings-store.js';
 import { sendEvent } from '../lib/ws-client.js';
+import { TtsPrefetch } from '../lib/tts-prefetch.js';
 import type { NarrationSegment } from '@tetherline/shared';
 import { API_PREFIX } from '@tetherline/shared';
+
+// How many upcoming sentences to synthesize ahead while the current one plays.
+// Synthesis ~1s, audio ~2-4s, so 2 ahead keeps the queue gap-free without
+// spending on chunks the user is likely to barge over.
+const PREFETCH_AHEAD = 2;
 
 export function useSessionOrchestrator() {
   const state = useSessionStore(s => s.state);
@@ -43,6 +49,32 @@ export function useSessionOrchestrator() {
       signal?.addEventListener('abort', finish, { once: true });
     });
   }, []);
+
+  // Synthesize one chunk's audio via the backend TTS route. Returns the Blob,
+  // or null on any failure (caller falls back to browser TTS). Stable — the
+  // prefetch pipeline and on-demand playback both call it.
+  const fetchTtsBlob = useCallback(async (text: string, signal?: AbortSignal): Promise<Blob | null> => {
+    try {
+      const res = await fetch(`${API_PREFIX}/audio/tts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+        signal,
+      });
+      return res.ok ? await res.blob() : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // Pipelines TTS: the drain loop prefetches the NEXT sentence's audio while the
+  // current one plays, so the serialized queue never stalls on a synthesis
+  // round-trip (the "speaks a couple sentences then pauses" gap). One instance
+  // per hook; prefetch is fetch-only (no playback) so it never touches the floor.
+  const prefetchRef = useRef<TtsPrefetch | null>(null);
+  if (!prefetchRef.current) {
+    prefetchRef.current = new TtsPrefetch((t) => fetchTtsBlob(t));
+  }
 
   // Speak text via TTS (returns a promise that resolves when done speaking)
   const speak = useCallback(async (text: string, signal?: AbortSignal): Promise<void> => {
@@ -103,36 +135,35 @@ export function useSessionOrchestrator() {
       }
 
       if (ttsProvider === 'openai') {
-        try {
-          const res = await fetch(`${API_PREFIX}/audio/tts`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text }),
-            signal,
-          });
-          if (res.ok) {
-            const blob = await res.blob();
-            if (signal?.aborted) { cleanup(); return; }
-            const url = URL.createObjectURL(blob);
-            if (!audioRef.current) {
-              audioRef.current = new Audio();
-              useAudioStore.getState().setAudioElement(audioRef.current);
-            }
-            audioRef.current.src = url;
-            audioRef.current.onended = () => {
-              URL.revokeObjectURL(url);
-              cleanup();
-            };
-            audioRef.current.onerror = () => {
-              URL.revokeObjectURL(url);
-              cleanup();
-            };
-            audioRef.current.play().catch(() => { cleanup(); });
-            return;
+        // Pipelined: if the drain loop already synthesized this sentence while
+        // the previous one played, take that blob and play with ZERO wait.
+        const pre = prefetchRef.current?.take(text) ?? null;
+        let blob = pre ? await pre : null;
+        if (signal?.aborted) { cleanup(); return; }
+        // Prefetch miss, OR a prefetch whose synth failed earlier (resolved
+        // null) — synthesize on demand now so a transient hiccup at prefetch
+        // time doesn't skip straight to browser TTS. null → browser fallback.
+        if (!blob) blob = await fetchTtsBlob(text, signal);
+        if (signal?.aborted) { cleanup(); return; }
+        if (blob) {
+          const url = URL.createObjectURL(blob);
+          if (!audioRef.current) {
+            audioRef.current = new Audio();
+            useAudioStore.getState().setAudioElement(audioRef.current);
           }
-        } catch {
-          if (signal?.aborted) { cleanup(); return; }
+          audioRef.current.src = url;
+          audioRef.current.onended = () => {
+            URL.revokeObjectURL(url);
+            cleanup();
+          };
+          audioRef.current.onerror = () => {
+            URL.revokeObjectURL(url);
+            cleanup();
+          };
+          audioRef.current.play().catch(() => { cleanup(); });
+          return;
         }
+        // blob === null → synthesis unavailable; fall through to browser TTS.
       }
 
       // Browser TTS fallback
@@ -148,7 +179,7 @@ export function useSessionOrchestrator() {
         setTimeout(() => { cleanup(); }, Math.max(3000, text.length * 50));
       }
     });
-  }, [ttsProvider, setCurrentSegment, setPlaying, awaitFloorOpen]);
+  }, [ttsProvider, setCurrentSegment, setPlaying, awaitFloorOpen, fetchTtsBlob]);
 
   // SINGLE SERIALIZED SPEECH QUEUE: every lane (phase boilerplate, streamed
   // chunks, greetings) speaks through this tail, so two lanes can never
@@ -194,6 +225,8 @@ export function useSessionOrchestrator() {
     }
     activeRunRef.current = '';
     useSessionStore.setState({ streamChunks: [] });
+    // The stale backlog is dead — drop any prefetched audio for it.
+    prefetchRef.current?.clear();
   }, [flushEpoch]);
 
   // Floor release on response start: the turn's reply reaching us is the
@@ -220,6 +253,8 @@ export function useSessionOrchestrator() {
       if ('speechSynthesis' in window) {
         speechSynthesis.cancel();
       }
+      // Drop prefetched audio — playback is stopping.
+      prefetchRef.current?.clear();
       // Kill auto-advance timers
       if (autoAdvanceTimerRef.current) {
         clearTimeout(autoAdvanceTimerRef.current);
@@ -497,6 +532,14 @@ export function useSessionOrchestrator() {
           if (controller.signal.aborted) return;
           const next = useSessionStore.getState().consumeStreamChunk();
           if (!next) break;
+          // Pipeline: kick off synthesis for the next 1-2 queued sentences
+          // WHILE this one plays, so the queue never waits on a round-trip.
+          // Fetch-only (no playback) → independent of the floor gate.
+          if (useSettingsStore.getState().settings.ttsProvider === 'openai' && prefetchRef.current) {
+            for (const c of useSessionStore.getState().streamChunks.slice(0, PREFETCH_AHEAD)) {
+              prefetchRef.current.ensure(c.text);
+            }
+          }
           await speakSerialized(next.text, controller.signal);
           if (controller.signal.aborted) return;
         }
