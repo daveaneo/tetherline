@@ -588,9 +588,17 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
             resumePrefix: event.payload.resumePrefix,
             receivedAt: Date.now(),
           },
-          greeting: { text: event.payload.text, briefingId: event.payload.briefingId },
+          // spoken:false → the briefing's audio + transcript travel on the
+          // open stream; feeding `greeting` here would put the text on the
+          // greeting lane, whose abort cut the in-flight opener mid-word
+          // ("Welcome ba— PersonalForge is…", live 2026-06-12).
+          ...(event.payload.spoken !== false
+            ? { greeting: { text: event.payload.text, briefingId: event.payload.briefingId } }
+            : {}),
         });
-        get().addConversation('ai', event.payload.text);
+        if (event.payload.spoken !== false) {
+          get().addConversation('ai', event.payload.text);
+        }
         break;
 
       case 'navigator:push':

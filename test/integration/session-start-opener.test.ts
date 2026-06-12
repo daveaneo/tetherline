@@ -108,6 +108,20 @@ describe('session start — opener, recap, hearable proposal', () => {
     // At most one question across everything spoken at open (the proposal's).
     const allSpoken = `${openSpoken} ${briefingTexts}`;
     expect((allSpoken.match(/\?/g) ?? []).length, allSpoken).toBeLessThanOrEqual(1);
+
+    // The session-start briefing must NOT ride the spoken greeting lane —
+    // that lane aborts in-flight audio, and live it cut "Welcome back…"
+    // off mid-word and orphaned the rest of the opener (2026-06-12).
+    // Contract: every narration:briefing emitted at session start is
+    // spoken:false, and its text travels on the OPEN STREAM instead.
+    const startBriefings = evs.filter(e => e.type === 'narration:briefing') as AnyEvent[];
+    for (const b of startBriefings) {
+      expect(b.payload.spoken, 'session-start briefing must be spoken:false').toBe(false);
+      expect(openSpoken).toContain(String(b.payload.text).slice(0, 30));
+    }
+    // The fixture's second session has a cached project briefing, so the
+    // loop above must actually have run (guard against vacuous pass).
+    expect(startBriefings.length).toBeGreaterThanOrEqual(1);
   }, 90_000);
 
   it('a duplicate session:start while active is ignored (single analysis, single opener)', async () => {
