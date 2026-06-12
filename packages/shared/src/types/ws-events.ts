@@ -64,6 +64,12 @@ export type ServerEvent =
       parent: string | null;
       cacheHit: boolean;                 // true = served from briefings table; false = LLM fallback
       resumePrefix?: string;             // if set, prepend "As I was saying..." when TTS plays
+      /** false = the visual/navigator effects apply but the frontend must
+       *  NOT speak `text` — its spoken form travels elsewhere (e.g. the
+       *  session-open stream). Default true. Without this, the session-
+       *  start briefing raced the opener stream on the greeting lane and
+       *  cut "Welcome back…" off mid-word (live 2026-06-12). */
+      spoken?: boolean;
     } }
   | { type: 'navigator:push'; payload: {
       briefingId: string;

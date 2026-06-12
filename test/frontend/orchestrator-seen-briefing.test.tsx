@@ -124,6 +124,30 @@ describe('orchestrator Seen% sender', () => {
     expect(segmentFinishedIds(), 'must credit the briefing by id, not by text match').toEqual(['module/core']);
   });
 
+  it('spoken:false briefing sets currentBriefing but never reaches the greeting lane', async () => {
+    // Session-start briefings travel spoken:false — their audio rides the
+    // open stream. Feeding them to the greeting lane ABORTS in-flight
+    // audio: live it cut "Welcome back…" off mid-word (2026-06-12).
+    renderHook(() => useSessionOrchestrator());
+    act(() => {
+      useSessionStore.getState().handleServerEvent({
+        type: 'narration:briefing',
+        payload: {
+          briefingId: 'project', layer: 'project', title: 'Project',
+          text: 'PersonalForge is a Python tool.', estimatedSeconds: 10,
+          talkingPoints: [], children: [], parent: null, spoken: false,
+        },
+      } as any);
+    });
+
+    const s = useSessionStore.getState();
+    expect(s.currentBriefing?.briefingId).toBe('project'); // visual card still lands
+    expect(s.greeting, 'spoken:false must not feed the greeting lane').toBeNull();
+
+    await settleSpeech();
+    expect(segmentFinishedIds()).toHaveLength(0);
+  });
+
   it('does not report seen for a plain greeting (no briefingId)', async () => {
     renderHook(() => useSessionOrchestrator());
     act(() => {

@@ -600,12 +600,21 @@ export class SessionManager {
       this.navigator.reset();
       const cachedProjectBriefing = this.db.getBriefingRepo().get(effectivePath, 'project');
       if (cachedProjectBriefing) {
-        this.deliverBriefing(
+        // The briefing's spoken sentences ride the OPEN STREAM, ordered
+        // after the welcome (speakViaOpenStream → narration:briefing goes
+        // out spoken:false). Letting the frontend speak it via the
+        // greeting lane raced the opener and cut "Welcome back…" off
+        // mid-word, orphaning the rest of the open narration.
+        const spokenOpener = this.deliverBriefing(
           cachedProjectBriefing,
           'session_start',
           undefined,
           firstSentences(cachedProjectBriefing.opener, 2) || undefined,
+          true,
         );
+        if (spokenOpener.trim()) {
+          await this.emitOpenChunks(spokenOpener, false);
+        }
       }
 
       // Transition to ANALYZING
@@ -2619,7 +2628,9 @@ export class SessionManager {
   // Navigator — stack-based conversational drill-down
   // ─────────────────────────────────────────────────────────────
 
-  /** Emit a briefing AND push it on the navigator stack (if not already top). */
+  /** Emit a briefing AND push it on the navigator stack (if not already top).
+   *  Returns the spoken opener it resolved (post-abbreviation) so a caller
+   *  using `speakViaOpenStream` can route that text onto the open stream. */
   private deliverBriefing(
     briefing: import('@tetherline/shared').Briefing,
     reason: 'user_asked' | 'dive_deeper' | 'tour_next' | 'resume_pop' | 'session_start',
@@ -2628,7 +2639,14 @@ export class SessionManager {
      *  2-sentence session-start greeting). Re-entry abbreviations still
      *  take priority — they're shorter yet. */
     openerOverride?: string,
-  ): void {
+    /** When true, narration:briefing goes out with spoken:false (visual /
+     *  navigator / comprehension effects only) and the CALLER speaks the
+     *  returned text on the session-open stream. Without this the briefing
+     *  rode the frontend's greeting lane, which ABORTS in-flight audio —
+     *  at session start it cut "Welcome back…" off mid-word and orphaned
+     *  the rest of the opener (live 2026-06-12). */
+    speakViaOpenStream = false,
+  ): string {
     const top = this.navigator.peek();
     if (top?.briefingId !== briefing.id) {
       const check = this.navigator.checkPush(briefing.id);
@@ -2716,6 +2734,7 @@ export class SessionManager {
         parent: briefing.parent,
         cacheHit: true,
         resumePrefix,
+        spoken: !speakViaOpenStream,
       },
     });
     this.lastBriefingEmittedAt = Date.now();
@@ -2752,6 +2771,8 @@ export class SessionManager {
       this.lastSurfacedFlow = { briefingId: briefing.id, stages };
       this.maybeSurfaceFlow(repoPath, surfacedFlow);
     }
+
+    return openerToEmit;
   }
 
   /** A coherent spoken opener for a module that has a precompiled flow: a short
